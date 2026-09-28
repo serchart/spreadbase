@@ -20,9 +20,12 @@
   `npm run back` y `npm run front`; luego `npm test`.
   **Las pruebas reinician la hoja de casos.** Para la política `strict`:
   `CASES_POLICY=strict npm run back` y `npm test -- protocol`.
-- Fuente de Postgres: `npm test -- --project postgres`, con `DATABASE_URL` en
-  `.env` (Docker local: contenedor `spreadbase-pg`, puerto 5433). No necesita
-  los ejemplos encendidos.
+- Fuente de Postgres y columnas lookup: `npm test -- --project postgres`, con
+  `DATABASE_URL` en `.env` (Docker local: contenedor `spreadbase-pg`, puerto
+  5433). No necesita los ejemplos encendidos.
+- `tests/grid/lookup.test.ts` corre sobre la página `/postgres`: necesita
+  `npm run postgres:setup` y el backend con `DATABASE_URL`; si no responde, se
+  omite (no falla).
 - Un ejemplo nuevo: carpeta en `examples/backend/src/examples/<nombre>/`
   montada en `app.ts` bajo `/api/<nombre>`, página en
   `examples/frontend/src/routes/<nombre>/` y entrada en `src/lib/examples.ts`.

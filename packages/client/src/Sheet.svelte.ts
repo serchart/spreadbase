@@ -1,7 +1,10 @@
 import type { SheetSchema } from '@spreadbase/core';
+import { lookupKey } from './cellTypes';
 import { GridController } from './GridController.svelte';
 import { remoteClient, type RemoteOptions } from './remote';
-import type { ColumnDef, GridConfig } from './types';
+import type { ColumnDef, GridConfig, PageRequest } from './types';
+
+type Remote = ReturnType<typeof remoteClient>;
 
 export interface SheetOptions extends RemoteOptions {
 	/**
@@ -21,12 +24,26 @@ export interface SheetOptions extends RemoteOptions {
 	windowSize?: number;
 }
 
-/** Esquema del servidor → columnas del grid, con lo propio del cliente encima. */
-function toColumns(schema: SheetSchema, overrides: Record<string, Partial<ColumnDef>>): ColumnDef[] {
+/**
+ * Esquema del servidor → columnas del grid, con lo propio del cliente encima.
+ * Una columna `lookup` busca y resuelve contra `/lookup/:field` (SB-21).
+ */
+function toColumns(schema: SheetSchema, overrides: Record<string, Partial<ColumnDef>>, remote: Remote): ColumnDef[] {
 	return Object.entries(schema.columns).map(([field, spec]) => {
-		const { pattern, searchable: _searchable, ...rest } = spec;
+		const { pattern, searchable: _searchable, lookup, ...rest } = spec;
 		const column: ColumnDef = { field, ...rest };
 		if (pattern) column.pattern = new RegExp(pattern);
+		if (lookup) {
+			column.lookup = {
+				value: lookup.value,
+				display: lookup.display,
+				columns: lookup.columns,
+				minLength: lookup.minLength,
+				search: (q, page, signal) => remote.lookup(field, q, page, signal),
+				resolve: lookup.resolvable ? (texts) => remote.resolve(field, texts) : undefined,
+				ambiguous: new Map()
+			};
+		}
 		return { ...column, ...overrides[field] };
 	});
 }
@@ -82,14 +99,23 @@ export class Sheet {
 		const remote = remoteClient(this.url!, options);
 		const schema = await remote.schema();
 		this.schema = schema;
-		const grid = new GridController({
+		// Los nombres de los ids de cada tramo (columnas lookup) entran a la caché
+		// antes de pintar: la celda nunca muestra un id pelón.
+		const loadPage = async (request: PageRequest, signal: AbortSignal) => {
+			const page = await remote.loadPage(request, signal);
+			for (const [field, labels] of Object.entries(page.labels ?? {})) {
+				for (const [id, label] of Object.entries(labels)) grid.labelCache.set(lookupKey(field, id), label);
+			}
+			return page;
+		};
+		const grid: GridController = new GridController({
 			id: schema.id,
 			idField: schema.idField,
 			allowInsert: schema.allowInsert,
 			allowDelete: schema.allowDelete,
-			columns: toColumns(schema, options.columns ?? {}),
+			columns: toColumns(schema, options.columns ?? {}, remote),
 			dataSource: {
-				loadPage: remote.loadPage,
+				loadPage,
 				locate: remote.locate,
 				saveBatch: remote.saveBatch,
 				strategy: 'window',

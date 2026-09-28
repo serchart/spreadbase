@@ -1,4 +1,4 @@
-import { parseBatch, parseListQuery, SpreadBaseError } from '@spreadbase/server';
+import { parseBatch, parseListQuery, parseLookupQuery, parseResolve, SpreadBaseError } from '@spreadbase/server';
 
 /**
  * Controlador de productos.
@@ -30,10 +30,31 @@ class ProductsController {
 		res.json(this.service.sheet.schema());
 	}
 
-	/** GET /api/products/sheet?offset&limit&sort&search&status=active,paused */
+	/**
+	 * GET /api/products/sheet?offset&limit&sort&search&status=active,paused
+	 * Con el contexto: los lookups lo reciben al poner los nombres de cada tramo.
+	 */
 	async list(req, res) {
 		try {
-			res.json(await this.service.sheet.list(parseListQuery(req.query)));
+			res.json(await this.service.sheet.list(parseListQuery(req.query), { user: req.user }));
+		} catch (error) {
+			this.#fail(res, error);
+		}
+	}
+
+	/** GET /api/products/sheet/lookup/:field?q&offset&limit — el popover de una columna lookup. */
+	async lookup(req, res) {
+		try {
+			res.json(await this.service.sheet.lookup(req.params.field, parseLookupQuery(req.query), { user: req.user }));
+		} catch (error) {
+			this.#fail(res, error);
+		}
+	}
+
+	/** POST /api/products/sheet/lookup/:field/resolve — texto pegado → registros. */
+	async resolve(req, res) {
+		try {
+			res.json(await this.service.sheet.resolve(req.params.field, parseResolve(req.body), { user: req.user }));
 		} catch (error) {
 			this.#fail(res, error);
 		}

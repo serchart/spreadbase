@@ -87,11 +87,25 @@ La pieza central. Salvo que se diga, **B guarda primero** y A guarda después.
 | **R-2** | Corte de red al guardar (G-12) | Interceptar `POST /batch`: dejar que llegue al servidor y cortar la respuesta; reintentar | El reintento reutiliza la `Idempotency-Key`; el servidor lo aplica una vez | ✅ |
 | **R-3** | Servidor caído al abrir | Interceptar `GET /schema` con error | Mensaje «No se pudo abrir la hoja» y **Reintentar**, que funciona al quitar la intercepción | ✅ |
 
+## 6. Columna lookup (`lookup.test.ts`, SB-21)
+
+Sobre la página `/postgres` («Responsable» elige entre 2 000 usuarios). Necesita
+el ejemplo de Postgres encendido; si no responde, se omite. Cada prueba deja
+los productos como estaban.
+
+| # | Escenario | Pasos | Se comprueba | Estado |
+|---|---|---|---|---|
+| **L-1** | Carga | Abrir `/postgres` | La celda muestra el nombre, no el id; foto, precio, estado, fecha y fecha-hora con su formato; ninguna celda del servidor marcada | ✅ |
+| **L-2** | Mini tabla por tramos | Abrir el ▾; bajar al fondo | Encabezado «Nombre · Correo · ID» con avatar redondo; 50 filas y «50 de 2,000»; al fondo, 100; el encabezado no se desplaza; Esc cierra | ✅ |
+| **L-3** | Buscar y elegir | Escribir «oscar vargas», ↓, Enter, guardar | La celda muestra el elegido, editada; la API guarda su id | ✅ |
+| **L-4** | Pegar texto de fuera | Pegar 5 líneas: homónimo, nombre único, inexistente, un id, el único repetido | **Una** petición de `resolve` con los 4 textos únicos; el único y el id se resuelven; el homónimo «Ambiguo: N coincidencias» y abre el buscador filtrado; el inexistente en rojo; deshacer quita el pegado entero | ✅ |
+| **L-5** | Copiar y pegar dentro de la hoja | Copiar un responsable con homónimos y pegarlo en otra fila; guardar | Cero peticiones; sin ambigüedad; la API guarda el mismo id | ✅ |
+
 ---
 
 ## Estado
 
-Los 32 escenarios están automatizados:
+Los 32 escenarios están automatizados, más los 5 de la columna lookup:
 
 | Archivo | Escenarios |
 |---|---|
@@ -101,6 +115,7 @@ Los 32 escenarios están automatizados:
 | `borrador.test.ts` | D-1 a D-4 |
 | `concurrencia.test.ts` | C-1 a C-12 |
 | `red.test.ts` | R-1 a R-3 |
+| `lookup.test.ts` | L-1 a L-5 (ejemplo Postgres) |
 
 Dependen de la política del servidor: C-3 y C-11 solo corren con `merge`, C-4
 solo con `strict`, y C-5 comprueba lo que toca en cada una. Para cubrir todo,

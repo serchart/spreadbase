@@ -27,12 +27,13 @@ Uso:
 	import { grow, swap } from './internal/motion';
 	import Toolbar from './Toolbar.svelte';
 	import { GridController } from './GridController.svelte';
-	import { getCellType } from './cellTypes';
+	import { getCellType, lookupKey, resolveLookupText } from './cellTypes';
 	import { fromTsv, toTsv } from './clipboard';
 	import { destroySheet } from './jss';
 	import type {
 		CellTypeContext,
 		CellValue,
+		ColumnDef,
 		DataGridTheme,
 		GridConfig,
 		GridToolbarConfig,
@@ -148,6 +149,20 @@ Uso:
 
 	/** Aviso de portapapeles: permisos denegados, selección vacía, etc. */
 	let clipboardNotice = $state<string | null>(null);
+
+	/** Textos pegados que se están resolviendo en el servidor (columnas lookup). */
+	let pasteResolving = $state<number | null>(null);
+
+	/**
+	 * Lo último que se copió de esta hoja: el texto que fue al portapapeles y los
+	 * valores reales detrás. Si se pega ese mismo texto, se usan los valores y no
+	 * se interpreta nada: un lookup copiado lleva su id, no su nombre (SB-21).
+	 */
+	let lastCopy: { text: string; cells: { field: string; value: unknown }[][] } | null = null;
+	const sameClip = (a: string, b: string) => {
+		const norm = (s: string) => s.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+		return norm(a) === norm(b);
+	};
 
 	/**
 	 * Dirección del cambio entre paneles, según el orden de sus botones en la
@@ -705,10 +720,12 @@ Uso:
 
 	function serializeRange(range: Range): string {
 		const matrix: string[][] = [];
+		const values: { field: string; value: unknown }[][] = [];
 		for (let y = range.y1; y <= range.y2; y++) {
 			const row = controller.rows[y];
 			if (!row) continue;
 			const cells: string[] = [];
+			const raw: { field: string; value: unknown }[] = [];
 			for (let x = range.x1; x <= range.x2; x++) {
 				const column = config.columns[x];
 				if (!column) continue;
@@ -719,10 +736,65 @@ Uso:
 						? type.toClipboard(value, column, cellTypeContext)
 						: type.format(value, column, cellTypeContext)
 				);
+				raw.push({ field: column.field, value });
 			}
 			matrix.push(cells);
+			values.push(raw);
 		}
-		return toTsv(matrix);
+		const text = toTsv(matrix);
+		lastCopy = { text, cells: values };
+		return text;
+	}
+
+	/**
+	 * Antes de pegar en columnas lookup: los textos que la hoja no sabe resolver
+	 * se consultan al servidor **una vez**, sin duplicados y en tramos de 500.
+	 * Las filas que vuelven entran a la caché de nombres, y `fromClipboard` ya
+	 * las encuentra. Si la red falla, se pega el texto tal cual y queda marcado.
+	 */
+	async function resolveLookupsForPaste(
+		matrix: string[][],
+		at: { x: number; y: number },
+		copied: { field: string; value: unknown }[][] | null
+	) {
+		const pending = new Map<ColumnDef, Set<string>>();
+		matrix.forEach((cells, dy) =>
+			cells.forEach((raw, dx) => {
+				const column = config.columns[at.x + dx];
+				if (!column || column.readOnly || column.type !== 'lookup' || !column.lookup?.resolve) return;
+				if (copied?.[dy]?.[dx]?.field === column.field) return;
+				const text = raw.trim();
+				if (!text || resolveLookupText(text, column, controller.labelCache) !== null) return;
+				const set = pending.get(column) ?? new Set<string>();
+				set.add(text);
+				pending.set(column, set);
+			})
+		);
+		const count = [...pending.values()].reduce((n, s) => n + s.size, 0);
+		if (count === 0) return;
+
+		pasteResolving = count;
+		try {
+			for (const [column, texts] of pending) {
+				const lookup = column.lookup!;
+				const all = [...texts];
+				for (let i = 0; i < all.length; i += 500) {
+					const matches = await lookup.resolve!(all.slice(i, i + 500));
+					for (const [text, rows] of Object.entries(matches)) {
+						for (const row of rows) {
+							controller.labelCache.set(lookupKey(column.field, row[lookup.value]), String(row[lookup.display] ?? ''));
+						}
+						const needle = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+						if (rows.length > 1) lookup.ambiguous?.set(needle, rows.length);
+						else lookup.ambiguous?.delete(needle);
+					}
+				}
+			}
+		} catch {
+			// Sin red: se pega el texto y el validador lo marca. No se pierde nada.
+		} finally {
+			pasteResolving = null;
+		}
 	}
 
 	/** Vacía el rango seleccionado, respetando las columnas de solo lectura. */
@@ -752,6 +824,11 @@ Uso:
 			return;
 		}
 
+		// Pegar lo que se copió de esta misma hoja usa los valores reales, sin reinterpretar.
+		const copied = lastCopy && sameClip(lastCopy.text, text) ? lastCopy.cells : null;
+		// Se espera a resolver los lookups y luego se aplica todo como un solo paso del historial.
+		await resolveLookupsForPaste(matrix, at, copied);
+
 		/*
 			Las filas que crecen y las celdas que se rellenan van en la **misma**
 			transacción. Separarlas haría que deshacer el pegado dejara atrás las
@@ -768,6 +845,11 @@ Uso:
 					const column = config.columns[x];
 					if (!column || column.readOnly) return;
 					if (y >= controller.rows.length) return;
+					const source = copied?.[dy]?.[dx];
+					if (source && source.field === column.field) {
+						controller.setCellValue(y, column.field, source.value as CellValue);
+						return;
+					}
 					const type = getCellType(column.type);
 					const value = type.fromClipboard
 						? type.fromClipboard(raw, column, cellTypeContext)
@@ -1302,6 +1384,13 @@ Uso:
 		<span><i class="swatch swatch--dirty"></i> Celda editada sin guardar</span>
 		<span><i class="swatch swatch--new"></i> Fila nueva</span>
 		<span><i class="swatch swatch--invalid"></i> Valor inválido</span>
+		{#if pasteResolving}
+			<span class="oc-grid__resolving">
+				<span class="loading loading-spinner loading-xs"></span>
+				Resolviendo {pasteResolving.toLocaleString('es-MX')}
+				{pasteResolving === 1 ? 'nombre' : 'nombres'}…
+			</span>
+		{/if}
 		{#if controller.remote}
 			<span><i class="swatch swatch--deleted"></i> Fila eliminada</span>
 			{#if controller.conflictCount > 0}

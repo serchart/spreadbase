@@ -51,6 +51,13 @@ export interface ColumnDef {
 	// --- select (lista fija) ---
 	options?: Option[];
 
+	// --- image ---
+	/** `round` la pinta como avatar. */
+	shape?: 'round' | 'square';
+
+	// --- lookup (registro de otro recurso, en mini tabla; SB-21) ---
+	lookup?: LookupDef;
+
 	// --- remote-select (fuente externa) ---
 	search?: (query: string) => Promise<Option[]>;
 	/** Etiquetas conocidas de antemano, para pintar valores ya guardados. */
@@ -64,6 +71,37 @@ export interface ColumnDef {
 	// --- action ---
 	/** Botón por fila de las columnas `type: 'action'`. */
 	action?: ColumnAction;
+}
+
+/** Una columna de la mini tabla de un `lookup`: solo se muestra, con el formato de su tipo. */
+export type LookupColumnDef = Pick<
+	ColumnDef,
+	'label' | 'type' | 'width' | 'align' | 'precision' | 'prefix' | 'suffix' | 'thousands' | 'shape' | 'options'
+>;
+
+/**
+ * Columna `lookup` en el cliente (SB-21). La celda guarda `row[value]` y
+ * muestra `row[display]`. Con servidor, `Sheet` la arma sola a partir del
+ * esquema; sin servidor, se escribe aquí con sus propias funciones.
+ */
+export interface LookupDef {
+	value: string;
+	display: string;
+	/** Columnas de la mini tabla. Con una sola, no se pinta encabezado. */
+	columns: Record<string, LookupColumnDef>;
+	minLength?: number;
+	/** Filas por tramo del popover. Default 50. */
+	pageSize?: number;
+	/** Un tramo del recurso. */
+	search: (
+		q: string,
+		page: { offset: number; limit: number },
+		signal: AbortSignal
+	) => Promise<{ rows: Record<string, unknown>[]; total: number }>;
+	/** Texto pegado → filas que coinciden. Sin ella, lo no resuelto queda marcado. */
+	resolve?: (texts: string[]) => Promise<Record<string, Record<string, unknown>[]>>;
+	/** Estado del cliente: texto pegado (normalizado) → cuántos registros coinciden, si más de uno. */
+	ambiguous?: Map<string, number>;
 }
 
 /**
@@ -295,6 +333,8 @@ export interface PageResult {
 	rows: Record<string, unknown>[];
 	/** Filas totales de la consulta en el servidor, no solo las devueltas. */
 	total: number;
+	/** Por columna `lookup`: id → nombre, de las filas del tramo. */
+	labels?: Record<string, Record<string, string>>;
 }
 
 /**

@@ -35,6 +35,31 @@ export interface Page<R = Row> {
 	limit: number;
 	/** Versión global de la fuente. Si cambia entre dos páginas, los datos cambiaron en medio. */
 	version: number;
+	/**
+	 * Por columna `lookup`: el nombre (`display`) de cada id del tramo, para que
+	 * la celda no muestre ids (SB-21).
+	 */
+	labels?: Record<string, Record<string, string>>;
+}
+
+/** `GET /lookup/:field?q&offset&limit` */
+export interface LookupQuery {
+	q: string;
+	offset: number;
+	limit: number;
+}
+
+/** Un tramo del recurso de un `lookup`. */
+export interface LookupResult {
+	rows: Record<string, unknown>[];
+	total: number;
+	offset: number;
+	limit: number;
+}
+
+/** `POST /lookup/:field/resolve` → por texto pegado, las filas que coinciden. */
+export interface ResolveResult {
+	matches: Record<string, Record<string, unknown>[]>;
 }
 
 export interface Position {

@@ -12,7 +12,7 @@
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
 import { positionFloating } from './internal/floating';
-import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, Option } from './types';
+import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, LookupColumnDef, Option } from './types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -463,6 +463,284 @@ function escapeHtml(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Editor: lookup (registro de otro recurso, en mini tabla; SB-21)
+// ---------------------------------------------------------------------------
+
+/**
+ * Llave del nombre de un id en `labelCache`. Va por columna: dos columnas
+ * lookup sobre recursos distintos pueden repetir ids.
+ */
+export function lookupKey(field: string, value: unknown): string {
+	return `lookup␟${field}␟${String(value)}`;
+}
+
+function lookupLabel(value: CellValue, column: ColumnDef, ctx: { labelCache: Map<string, string> }): string {
+	if (isBlank(value)) return '';
+	return ctx.labelCache.get(lookupKey(column.field, value)) ?? String(value);
+}
+
+/**
+ * Texto → valor, con lo que el cliente ya conoce: un id conocido tal cual, o
+ * el único registro cuyo nombre coincide (sin acentos ni mayúsculas). Si hay
+ * varios, se anota como ambiguo; si no hay ninguno, `null`.
+ */
+export function resolveLookupText(text: string, column: ColumnDef, labelCache: Map<string, string>): string | null {
+	const s = text.trim();
+	if (s === '') return null;
+	if (labelCache.has(lookupKey(column.field, s))) return s;
+	const prefix = lookupKey(column.field, '');
+	const needle = normalizeForSearch(s);
+	const found = new Set<string>();
+	for (const [key, label] of labelCache) {
+		if (key.startsWith(prefix) && normalizeForSearch(label) === needle) found.add(key.slice(prefix.length));
+	}
+	if (found.size === 1) return [...found][0];
+	if (found.size > 1) column.lookup?.ambiguous?.set(needle, found.size);
+	return null;
+}
+
+/** Pinta el valor de una columna de la mini tabla con el formato de su tipo. */
+function lookupCellHtml(value: unknown, def: LookupColumnDef, ctx: CellTypeContext): string {
+	if (def.type === 'image') {
+		if (isBlank(value) || !IMAGE_URL.test(String(value))) return '';
+		const round = def.shape === 'round' ? ' is-round' : '';
+		return `<img class="oc-lookup__img${round}" src="${escapeHtml(String(value))}" alt="" loading="lazy" />`;
+	}
+	const column = { ...def, field: '' } as ColumnDef;
+	return escapeHtml(getCellType(def.type).format((value ?? null) as CellValue, column, ctx));
+}
+
+/**
+ * Popover de una columna lookup: buscador y una mini tabla del recurso.
+ *
+ * Es una tabla HTML y no otra instancia de jspreadsheet: la librería guarda en
+ * un estado global la hoja activa y el teclado, y una hoja dentro del editor
+ * de otra se pelearía con ella. Lo demás —clic fuera, Esc, colocación,
+ * respuestas viejas descartadas— sigue el mismo patrón que `buildPickerEditor`.
+ *
+ * Paginado desde el principio: pide `pageSize` filas y, al acercarse al fondo
+ * (con el scroll o con ↓), el tramo siguiente.
+ */
+function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
+	const lookup = column.lookup!;
+	const pageSize = lookup.pageSize ?? 50;
+	const minLength = lookup.minLength ?? 0;
+	const fields = Object.keys(lookup.columns);
+	const widths = fields.map((f) => lookup.columns[f]!.width ?? 160);
+	const paint = (cell: HTMLTableCellElement, value: CellValue) =>
+		renderPickerCell(cell, lookupLabel(value, column, ctx));
+
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return value;
+		},
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+
+			// Ancho: el de sus columnas, con tope en la pantalla. Si no cabe, scroll horizontal.
+			const natural = widths.reduce((a, b) => a + b, 0) + 18;
+			const overlay = mountOverlay(cell, Math.min(Math.max(natural, 280), window.innerWidth - 32));
+			overlay.classList.add('oc-lookup-editor');
+			const header =
+				fields.length > 1
+					? `<thead><tr>${fields
+							.map((f) => `<th>${escapeHtml(lookup.columns[f]!.label ?? '')}</th>`)
+							.join('')}</tr></thead>`
+					: '';
+			overlay.innerHTML = `
+				<input class="oc-cell-editor__input" type="text" placeholder="Escribe para buscar…" />
+				<div class="oc-lookup__scroll">
+					<table class="oc-lookup">
+						<colgroup>${widths.map((w) => `<col style="width:${w}px" />`).join('')}</colgroup>
+						${header}
+						<tbody></tbody>
+					</table>
+				</div>
+				<div class="oc-lookup__foot"></div>
+			`;
+			const input = overlay.querySelector('input') as HTMLInputElement;
+			const scroller = overlay.querySelector('.oc-lookup__scroll') as HTMLDivElement;
+			const body = overlay.querySelector('tbody') as HTMLTableSectionElement;
+			const foot = overlay.querySelector('.oc-lookup__foot') as HTMLDivElement;
+			placeOverlay(overlay, cell);
+
+			let rows: Record<string, unknown>[] = [];
+			let total = 0;
+			let highlighted = -1;
+			let query = '';
+			let loading = false;
+			let failed = false;
+			let token = 0;
+			let abort: AbortController | null = null;
+			let debounce: ReturnType<typeof setTimeout>;
+			const current = isBlank(value) ? null : String(value);
+
+			const renderFoot = () => {
+				if (query.length < minLength) foot.textContent = `Escribe al menos ${minLength} caracteres`;
+				else if (failed) foot.textContent = 'Error al consultar la fuente';
+				else if (loading && rows.length === 0) foot.textContent = 'Buscando…';
+				else if (rows.length === 0) foot.textContent = 'Sin resultados';
+				else foot.textContent = `${rows.length.toLocaleString('es-MX')} de ${total.toLocaleString('es-MX')}${loading ? ' · cargando…' : ''}`;
+			};
+
+			const renderRows = () => {
+				body.innerHTML = rows
+					.map(
+						(row, i) =>
+							`<tr class="${i === highlighted ? 'is-active' : ''}" data-index="${i}">${fields
+								.map((f) => `<td>${lookupCellHtml(row[f], lookup.columns[f]!, ctx)}</td>`)
+								.join('')}</tr>`
+					)
+					.join('');
+				renderFoot();
+				placeOverlay(overlay, cell);
+			};
+
+			const reveal = () => {
+				const tr = body.querySelector<HTMLElement>(`tr[data-index="${highlighted}"]`);
+				tr?.scrollIntoView({ block: 'nearest' });
+			};
+
+			const hasMore = () => rows.length < total;
+
+			/** `reset`: consulta nueva desde el principio; si no, el tramo siguiente. */
+			const load = async (reset: boolean) => {
+				if (!reset && (loading || !hasMore())) return;
+				abort?.abort();
+				const mine = ++token;
+				const controller = (abort = new AbortController());
+				if (reset) {
+					rows = [];
+					total = 0;
+					highlighted = -1;
+					scroller.scrollTop = 0;
+				}
+				failed = false;
+				if (query.length < minLength) {
+					loading = false;
+					renderRows();
+					return;
+				}
+				loading = true;
+				renderFoot();
+				try {
+					const page = await lookup.search(query, { offset: rows.length, limit: pageSize }, controller.signal);
+					if (mine !== token) return; // llegó una respuesta vieja
+					rows = rows.concat(page.rows);
+					total = page.total;
+					if (highlighted < 0) {
+						const at = current === null ? -1 : rows.findIndex((r) => String(r[lookup.value]) === current);
+						highlighted = at >= 0 ? at : rows.length > 0 ? 0 : -1;
+					}
+					loading = false;
+					renderRows();
+					if (reset) reveal();
+				} catch {
+					if (mine !== token) return;
+					loading = false;
+					failed = true;
+					renderFoot();
+				}
+			};
+
+			const commit = (row: Record<string, unknown>) => {
+				const id = String(row[lookup.value]);
+				ctx.labelCache.set(lookupKey(column.field, id), String(row[lookup.display] ?? id));
+				if (activeEditor) activeEditor.value = id;
+				closeThroughInstance(instance, cell, true);
+			};
+
+			const move = (step: number) => {
+				if (rows.length === 0) return;
+				highlighted = Math.max(0, Math.min(rows.length - 1, highlighted + step));
+				body.querySelectorAll('tr.is-active').forEach((tr) => tr.classList.remove('is-active'));
+				body.querySelector(`tr[data-index="${highlighted}"]`)?.classList.add('is-active');
+				reveal();
+				if (highlighted >= rows.length - 5) load(false);
+			};
+
+			input.addEventListener('input', () => {
+				clearTimeout(debounce);
+				debounce = setTimeout(() => {
+					query = input.value.trim();
+					load(true);
+				}, 220);
+			});
+
+			input.addEventListener('keydown', (e: KeyboardEvent) => {
+				e.stopPropagation();
+				if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+					e.preventDefault();
+					move(e.key === 'ArrowDown' ? 1 : -1);
+				} else if (e.key === 'PageDown' || e.key === 'PageUp') {
+					e.preventDefault();
+					move(e.key === 'PageDown' ? 8 : -8);
+				} else if (e.key === 'Enter') {
+					e.preventDefault();
+					const row = rows[highlighted];
+					if (row) commit(row);
+				} else if (e.key === 'Escape') {
+					e.preventDefault();
+					closeThroughInstance(instance, cell, false);
+				}
+			});
+
+			// Lazy loading: el siguiente tramo al acercarse al fondo.
+			scroller.addEventListener('scroll', () => {
+				if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 48) load(false);
+			});
+
+			body.addEventListener('mousedown', (e: MouseEvent) => {
+				const tr = (e.target as HTMLElement).closest('tr');
+				if (!tr) return;
+				e.preventDefault();
+				const row = rows[Number(tr.getAttribute('data-index'))];
+				if (row) commit(row);
+			});
+
+			const onDocMouseDown = (e: MouseEvent) => {
+				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
+			};
+			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+
+			activeEditor = {
+				cell,
+				overlay,
+				value,
+				original: value,
+				dispose: () => {
+					clearTimeout(debounce);
+					abort?.abort();
+					token++;
+					document.removeEventListener('mousedown', onDocMouseDown);
+				}
+			};
+
+			// Un texto que no es un id conocido (pegado ambiguo o sin coincidencia)
+			// abre el buscador ya filtrado con él.
+			if (current !== null && !ctx.labelCache.has(lookupKey(column.field, current))) {
+				input.value = current;
+				query = current;
+			}
+			input.focus();
+			input.select();
+			load(true);
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			paint(cell, result);
+			return result;
+		}
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Editor: fecha y fecha-hora (calendario propio)
 // ---------------------------------------------------------------------------
 
@@ -833,10 +1111,11 @@ export function clampedTextCell(lines = 2) {
 /** Un valor solo se pinta como imagen si de verdad parece una URL. */
 const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
 
-function buildImageEditor(_column: ColumnDef) {
+function buildImageEditor(column: ColumnDef) {
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
 		cell.innerHTML = '';
 		cell.classList.add('oc-image-cell');
+		cell.classList.toggle('is-round', column.shape === 'round');
 
 		// Sin esta guarda, cualquier texto suelto en la celda acabaría en `src`
 		// y el navegador dispararía una petición contra la ruta actual.
@@ -1358,6 +1637,45 @@ const remoteSelectType: CellTypeDef = {
 	})
 };
 
+/**
+ * Registro de otro recurso (SB-21): guarda el id y muestra su nombre.
+ *
+ * Como `remote-select`, los valores que llegaron del servidor se dan por
+ * buenos —el servidor los valida al guardar con `byIds`—, y lo que introduce
+ * el usuario tiene que corresponder a un registro conocido.
+ */
+const lookupType: CellTypeDef = {
+	name: 'lookup',
+	align: 'left',
+	parse: (raw) => (isBlank(raw) ? null : String(raw).trim()),
+	format: (value, column, ctx) => lookupLabel(value, column, ctx),
+	equals: looseEquals,
+	/**
+	 * Resuelve con lo conocido; si no, deja el texto tal cual y el validador lo
+	 * marca. El pegado consulta antes al servidor por los textos que falten
+	 * (`resolveLookupText` + `lookup.resolve`), así que aquí ya están en la caché.
+	 */
+	fromClipboard: (raw, column, ctx) => {
+		const s = raw.trim();
+		if (!s) return null;
+		return resolveLookupText(s, column, ctx.labelCache) ?? s;
+	},
+	validate: (value, column, _row, ctx) => {
+		const req = requiredError(value, column);
+		if (req) return req;
+		if (isBlank(value)) return null;
+		if (ctx.labelCache.has(lookupKey(column.field, value))) return null;
+		const ambiguous = column.lookup?.ambiguous?.get(normalizeForSearch(String(value)));
+		if (ambiguous) return `Ambiguo: ${ambiguous} coincidencias, elige una`;
+		if (ctx.fromServer) return null;
+		return 'No corresponde a ningún registro';
+	},
+	toColumn: (column, ctx) => ({
+		type: buildLookupEditor(column, ctx),
+		align: column.align ?? 'left'
+	})
+};
+
 const imageType: CellTypeDef = {
 	name: 'image',
 	align: 'center',
@@ -1507,6 +1825,7 @@ export function listCellTypes(): string[] {
 	dateTimeType,
 	selectType,
 	remoteSelectType,
+	lookupType,
 	imageType,
 	passwordType,
 	actionType

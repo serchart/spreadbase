@@ -12,7 +12,11 @@ export const types = {
 	NUMBER: 'number',
 	SELECT: 'select',
 	DATE: 'date',
-	DATETIME: 'datetime'
+	DATETIME: 'datetime',
+	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). */
+	IMAGE: 'image',
+	/** Llave de un registro de otro recurso, elegido en una mini tabla (SB-21). */
+	LOOKUP: 'lookup'
 } as const;
 
 export type ColumnType = (typeof types)[keyof typeof types];
@@ -20,6 +24,62 @@ export type ColumnType = (typeof types)[keyof typeof types];
 export interface Option {
 	value: string;
 	label: string;
+}
+
+type MaybePromise<T> = T | Promise<T>;
+type Ctx = Record<string, unknown>;
+
+/** Una columna de la mini tabla de un `lookup`: solo se muestra. */
+export interface LookupColumn {
+	type: Exclude<ColumnType, 'lookup'>;
+	label: string;
+	width?: number;
+	align?: 'left' | 'center' | 'right';
+	precision?: number;
+	prefix?: string;
+	suffix?: string;
+	thousands?: boolean;
+	/** Solo `image`: `round` la pinta como avatar. */
+	shape?: 'round' | 'square';
+	options?: Option[];
+}
+
+/** Un tramo del recurso de un `lookup`. */
+export interface LookupPage {
+	rows: Record<string, unknown>[];
+	total: number;
+}
+
+/**
+ * De dónde salen los registros de una columna `lookup` (SB-21, `03-lookup.md`).
+ * Cada fila que devuelven las funciones trae al menos `value`, `display` y los
+ * campos de `columns`. `ctx` es el contexto de la petición (el usuario…).
+ */
+export interface LookupSpec {
+	/** El campo que se guarda en la celda. Casi siempre el id. */
+	value: string;
+	/** El campo que se ve en la celda. */
+	display: string;
+	/** Las columnas de la mini tabla. Sin ellas: solo `display`, sin encabezado. */
+	columns?: Record<string, LookupColumn>;
+	/** Caracteres antes de buscar. Default 0: al abrir ya muestra el primer tramo. */
+	minLength?: number;
+	/** Búsqueda paginada, para el popover. */
+	search: (q: string, page: { offset: number; limit: number }, ctx: Ctx) => MaybePromise<LookupPage>;
+	/** Las filas de ids concretos: nombres de cada página y validación al guardar. */
+	byIds: (ids: string[], ctx: Ctx) => MaybePromise<Record<string, unknown>[]>;
+	/** Para pegar: filas cuyo `display` o `value` coincide con alguno de los textos. */
+	resolve?: (texts: string[], ctx: Ctx) => MaybePromise<Record<string, unknown>[]>;
+}
+
+/** Lo que viaja de un `lookup` en el esquema: sin funciones. */
+export interface LookupSchema {
+	value: string;
+	display: string;
+	columns: Record<string, LookupColumn>;
+	minLength: number;
+	/** El servidor sabe resolver texto pegado (`POST /lookup/:field/resolve`). */
+	resolvable: boolean;
 }
 
 export interface ColumnSpec {
@@ -38,6 +98,8 @@ export interface ColumnSpec {
 	min?: number;
 	max?: number;
 	options?: Option[];
+	/** Solo `lookup`: de dónde salen sus registros. */
+	lookup?: LookupSpec;
 	/** Entra en la búsqueda de texto (`?search=`). Sin ninguna marcada, entran todas las de texto. */
 	searchable?: boolean;
 	defaultValue?: CellValue;
@@ -51,6 +113,8 @@ export interface ColumnSpec {
 	prefix?: string;
 	suffix?: string;
 	thousands?: boolean;
+	/** Solo `image`: `round` la pinta como avatar. */
+	shape?: 'round' | 'square';
 }
 
 export type RemoteChangePolicy = 'merge' | 'strict';
@@ -75,14 +139,26 @@ export interface SheetSchema {
 	allowInsert: boolean;
 	allowDelete: boolean;
 	policy: RemoteChangePolicy;
-	columns: Record<string, Omit<ColumnSpec, 'validate'>>;
+	columns: Record<string, SchemaColumn>;
 }
+
+export type SchemaColumn = Omit<ColumnSpec, 'validate' | 'lookup'> & { lookup?: LookupSchema };
 
 export function toSchema(def: SheetDefinition): SheetSchema {
 	const idField = def.idField ?? 'id';
 	const columns: SheetSchema['columns'] = {};
-	for (const [field, { validate: _validate, ...spec }] of Object.entries(def.columns)) {
-		columns[field] = field === idField ? { ...spec, readOnly: true } : spec;
+	for (const [field, { validate: _validate, lookup, ...spec }] of Object.entries(def.columns)) {
+		const column: SchemaColumn = field === idField ? { ...spec, readOnly: true } : { ...spec };
+		if (lookup) {
+			column.lookup = {
+				value: lookup.value,
+				display: lookup.display,
+				columns: lookup.columns ?? { [lookup.display]: { type: 'text', label: spec.label } },
+				minLength: lookup.minLength ?? 0,
+				resolvable: typeof lookup.resolve === 'function'
+			};
+		}
+		columns[field] = column;
 	}
 	return {
 		id: def.id,
@@ -93,6 +169,8 @@ export function toSchema(def: SheetDefinition): SheetSchema {
 		columns
 	};
 }
+
+const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
 
 /**
  * Mensaje de error si `value` no es válido para la columna; `null` si lo es.
@@ -125,6 +203,11 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 			return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? null : 'Fecha y hora inválida';
 		case 'select':
 			return spec.options?.some((o) => o.value === value) ? null : 'Valor fuera del catálogo';
+		case 'image':
+			return typeof value === 'string' && IMAGE_URL.test(value) ? null : 'URL de imagen inválida';
+		// Que el registro exista lo comprueba el motor con `lookup.byIds`, de una vez por lote.
+		case 'lookup':
+			return (typeof value === 'string' && value.trim() !== '') || typeof value === 'number' ? null : 'Valor inválido';
 		default:
 			return 'Tipo de columna desconocido';
 	}

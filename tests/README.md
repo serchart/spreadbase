@@ -46,8 +46,8 @@ npm test -- protocol
 |---|---|
 | `support/` | Entorno, cliente HTTP real, harness de Playwright (usuarios = contextos; consola y capturas por prueba), acceso a la hoja |
 | `protocol/` | Las reglas del protocolo por HTTP: lectura, lote, concurrencia por campo, idempotencia |
-| `grid/` | La hoja en el navegador: páginas `/cases` (con servidor) y `/local` (sin él) |
-| `postgres/` | `postgresSource` contra una base real (`DATABASE_URL`). Proyecto aparte: no necesita los ejemplos encendidos (`npm test -- --project postgres`) |
+| `grid/` | La hoja en el navegador: páginas `/cases` (con servidor) y `/local` (sin él); la columna lookup en `/postgres` (se omite si ese ejemplo no responde) |
+| `postgres/` | `postgresSource` y las columnas lookup contra una base real (`DATABASE_URL`). Proyecto aparte: no necesita los ejemplos encendidos (`npm test -- --project postgres`) |
 | `test-results/` | Capturas y consolas (no se versiona) |
 
 ## Artefactos

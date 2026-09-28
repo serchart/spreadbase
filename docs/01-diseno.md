@@ -72,6 +72,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-18** | **Idempotencia dentro de SpreadBase.** El motor recibe la `Idempotency-Key` y guarda llave y respuesta con la fuente, **en la misma transacción que el lote**: o se confirma todo o nada. En memoria, un mapa; con Postgres, la tabla `spreadbase_idempotency`, que **crea la librería** (`CREATE TABLE IF NOT EXISTS`). Sustituye al middleware `idempotent()` | ✅ |
 | **SB-19** | **La transacción la trae la fuente.** Si la fuente tiene `transaction`, el motor corre el lote dentro: bloquea las filas (`lock`), compara, aplica y guarda la respuesta idempotente. Los handlers reciben la transacción en `ctx.tx` y escriben con ella. Quien usa la librería no la configura. Sin transacción (memoria), el motor aplica los lotes de uno en uno. Detalle: `02-fuentes-transacciones-handlers.md` | ✅ |
 | **SB-20** | **Un error de dominio aborta el lote entero.** Si un handler lanza, la transacción se deshace y no queda nada escrito; el cliente conserva sus cambios. Tratarlo por fila, como un conflicto, queda para cuando un caso real lo pida | ✅ |
+| **SB-21** | **Columna `lookup`: elegir un registro de otro recurso, configurada en el servidor** (2026-09-28). Se guarda `value` (el id) y se ve `display`. El popover es una mini tabla HTML con el tema de la hoja —no otra jspreadsheet—, con encabezado fijo (ninguno si hay una sola columna) y **paginada desde el principio**. La columna declara `search` (paginado), `byIds` (nombres de cada página y validación al guardar) y `resolve` (opcional, para pegar). Pegar resuelve en tres pasos —memoria de lo copiado, nombres conocidos, una sola petición con los textos únicos— y se aplica como un solo paso del historial. SpreadBase exige solo la forma del objeto `lookup`; que lo defina el módulo dueño del recurso y que la hoja sea una función con sus dependencias es la organización recomendada, no un requisito. Detalle: `03-lookup.md` | ✅ |
 
 ---
 
@@ -253,6 +254,11 @@ salvo que el dev la repita en el `Sheet`.
 | `GET` | `/:id` | Una fila, con `rowVersion` |
 | `GET` | `/:id/position?…` | `{ id, position, total }` dentro de la misma consulta; `position: null` si la consulta la excluye |
 | `POST` | `/batch` | Lote de guardado (§5.2). Acepta `Idempotency-Key` |
+| `GET` | `/lookup/:field?q&offset&limit` | Filas del recurso de una columna `lookup`, paginadas: `{ rows, total, offset, limit }` (SB-21) |
+| `POST` | `/lookup/:field/resolve` | `{ texts }` → `{ matches }`: texto pegado → filas que coinciden (SB-21) |
+
+Con columnas `lookup`, cada página trae además `labels`: el nombre de cada id
+del tramo (`03-lookup.md` §4).
 
 Paginación por **offset**, no por cursor: permite saltar a una posición (ir a
 una fila desde el panel de cambios). Se revisa si el volumen crece un orden de
@@ -403,7 +409,8 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | Directorio | Cubre |
 |---|---|
 | `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
-| `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor |
+| `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor, y L-1 a L-5 de la columna lookup sobre el ejemplo de Postgres |
+| `tests/postgres/` | `postgresSource` (23) y columnas lookup (15) contra una base real |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -425,6 +432,8 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 11 | `postgresSource` (SB-2, SB-4, SB-18, SB-19): 23 pruebas contra una base real y el ejemplo Postgres verificado en navegador | ✅ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
 | 13 | Ejemplos en un solo servidor y una sola app (SB-11) | ✅ |
+| 14 | Columna `lookup` (SB-21): protocolo, motor, popover con mini tabla paginada, pegado en tres pasos; 15 pruebas del motor y 5 de navegador | ✅ |
+| 15 | Ejemplo de Postgres con un campo de cada tipo: texto, número, select, lookup, imagen, fecha y fecha-hora | ✅ |
 
 ### Pendientes conocidos
 
@@ -441,5 +450,12 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 - **Nombres heredados:** las clases CSS siguen con prefijo `oc-` (`oc-grid`,
   `oc-cell-dirty`) y las pruebas dependen de ellas. Renombrar a `sb-` es un
   cambio mecánico que conviene hacer antes de publicar.
+- **Tipos solo de cliente:** `password`, `action` (botón por fila) y
+  `remote-select` existen en el cliente pero no en `core`: el servidor no los
+  declara ni los valida. `remote-select` queda sustituido por `lookup` (SB-21).
+- **Fecha-hora sin zona:** `postgresSource` la lee como `AAAA-MM-DD HH:mm`, el
+  formato del cliente, en la zona de la sesión de la base. Leer otro formato
+  hacía que `from` y `base` no coincidieran con lo guardado (conflictos y
+  avisos falsos); con `timestamptz`, la hoja trabaja en la zona de la conexión.
 - **Idempotencia en memoria** (`memorySource`): vale para un proceso. Con
   Postgres ya va en la base, en la misma transacción que el lote.

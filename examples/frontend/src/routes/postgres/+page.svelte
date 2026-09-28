@@ -14,9 +14,10 @@ Backend: examples/backend/src/examples/postgres/
 	<header>
 		<h1 class="text-lg font-semibold tracking-tight">Postgres · catálogo de productos</h1>
 		<p class="text-base-content/70 text-xs">
-			Cambiar un precio deja historial; un producto sin existencias no se puede activar; eliminar es
-			borrado lógico. Todo en una transacción por guardado. Necesita <code>DATABASE_URL</code> y
-			<code>npm run postgres:setup</code>.
+			Un campo de cada tipo; «Responsable» elige entre 2 000 usuarios en una mini tabla paginada
+			(lookup). Cambiar un precio deja historial; un producto sin existencias no se puede activar;
+			eliminar es borrado lógico. Todo en una transacción por guardado. Necesita
+			<code>DATABASE_URL</code> y <code>npm run postgres:setup</code>.
 		</p>
 	</header>
 	<div class="bg-base-100 border-base-300 rounded-box min-h-0 flex-1 border p-3">

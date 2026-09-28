@@ -4,7 +4,7 @@ import { productsService } from '../../orchestrator/index.js';
 
 /**
  * Rutas de productos. Base: /api/products
- * Bajo /sheet, las cinco del protocolo de SpreadBase: `new Sheet('/api/products/sheet')`.
+ * Bajo /sheet, las del protocolo de SpreadBase: `new Sheet('/api/products/sheet')`.
  */
 export default function createProductsRoutes() {
 	const router = Router();
@@ -12,6 +12,8 @@ export default function createProductsRoutes() {
 
 	router.get('/sheet/schema', (req, res) => controller.schema(req, res));
 	router.get('/sheet', (req, res) => controller.list(req, res));
+	router.get('/sheet/lookup/:field', (req, res) => controller.lookup(req, res));
+	router.post('/sheet/lookup/:field/resolve', (req, res) => controller.resolve(req, res));
 	router.get('/sheet/:id/position', (req, res) => controller.position(req, res));
 	router.get('/sheet/:id', (req, res) => controller.get(req, res));
 	router.post('/sheet/batch', (req, res) => controller.batch(req, res));

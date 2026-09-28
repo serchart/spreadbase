@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import type { Request } from 'express';
-import type { BatchInput, ListQuery } from '@spreadbase/core';
+import type { BatchInput, ListQuery, LookupQuery } from '@spreadbase/core';
 import { ValidationError } from './errors.ts';
+import { MAX_RESOLVE_TEXTS } from './SpreadBase.ts';
 import type { BatchContext, SpreadBase } from './SpreadBase.ts';
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
+const LOOKUP_MAX_LIMIT = 100;
+const LOOKUP_DEFAULT_LIMIT = 50;
 const RESERVED = new Set(['offset', 'limit', 'sort', 'search']);
 
 function intParam(value: unknown, name: string, fallback: number, min: number, max: number): number {
@@ -46,6 +49,25 @@ export function parseListQuery(query: Request['query']): ListQuery {
 		filters,
 		search: typeof query.search === 'string' ? query.search : ''
 	};
+}
+
+/** `?q=ana&offset=0&limit=50` de `GET /lookup/:field` (SB-21). */
+export function parseLookupQuery(query: Request['query']): LookupQuery {
+	return {
+		q: typeof query.q === 'string' ? query.q.trim() : '',
+		offset: intParam(query.offset, 'offset', 0, 0, Number.MAX_SAFE_INTEGER),
+		limit: intParam(query.limit, 'limit', LOOKUP_DEFAULT_LIMIT, 1, LOOKUP_MAX_LIMIT)
+	};
+}
+
+/** `{ texts: [...] }` de `POST /lookup/:field/resolve`. */
+export function parseResolve(body: unknown): string[] {
+	const texts = isRecord(body) ? body.texts : undefined;
+	if (!Array.isArray(texts) || !texts.every((t) => typeof t === 'string')) {
+		throw new ValidationError('El cuerpo debe ser { texts: string[] }');
+	}
+	if (texts.length > MAX_RESOLVE_TEXTS) throw new ValidationError(`Hasta ${MAX_RESOLVE_TEXTS} textos por petición`);
+	return texts;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -93,28 +115,40 @@ export function parseBatch(body: unknown): BatchInput {
 }
 
 export interface SheetRouterOptions {
-	/** Lo que reciben los handlers de dominio en cada lote: el usuario, por ejemplo. */
+	/**
+	 * El contexto de la petición: el usuario, por ejemplo. Lo reciben los
+	 * handlers de cada lote y las funciones de las columnas `lookup`.
+	 */
 	context?: (req: Request) => BatchContext;
 }
 
 /**
- * Las cinco rutas del protocolo, ya conectadas a una hoja. Es el controlador
- * y las rutas que escribiría la app, ya escritos; garantiza que coinciden con
- * lo que pide `new Sheet(url)` en el cliente.
+ * Las rutas del protocolo, ya conectadas a una hoja. Es el controlador y las
+ * rutas que escribiría la app, ya escritos; garantiza que coinciden con lo que
+ * pide `new Sheet(url)` en el cliente.
  *
  *   GET  /schema
  *   GET  /?offset&limit&sort&search&<campo>=a,b
+ *   GET  /lookup/:field?q&offset&limit    (columnas lookup, SB-21)
+ *   POST /lookup/:field/resolve           (columnas lookup, SB-21)
  *   GET  /:id/position
  *   GET  /:id
  *   POST /batch          (acepta Idempotency-Key)
  */
 export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {}): Router {
 	const router = Router();
+	const context = (req: Request) => options.context?.(req) ?? {};
 	router.get('/schema', (_req, res) => {
 		res.json(sheet.schema());
 	});
 	router.get('/', async (req, res) => {
-		res.json(await sheet.list(parseListQuery(req.query)));
+		res.json(await sheet.list(parseListQuery(req.query), context(req)));
+	});
+	router.get('/lookup/:field', async (req, res) => {
+		res.json(await sheet.lookup(String(req.params.field), parseLookupQuery(req.query), context(req)));
+	});
+	router.post('/lookup/:field/resolve', async (req, res) => {
+		res.json(await sheet.resolve(String(req.params.field), parseResolve(req.body), context(req)));
 	});
 	router.get('/:id/position', async (req, res) => {
 		res.json(await sheet.position(String(req.params.id), parseListQuery(req.query)));
@@ -125,7 +159,7 @@ export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {})
 	router.post('/batch', async (req, res) => {
 		const { result, replayed } = await sheet.batch(parseBatch(req.body), {
 			idempotencyKey: req.get('Idempotency-Key'),
-			context: options.context?.(req)
+			context: context(req)
 		});
 		if (replayed) res.set('Idempotent-Replayed', 'true');
 		res.json(result);

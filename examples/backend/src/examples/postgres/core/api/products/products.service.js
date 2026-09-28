@@ -2,7 +2,7 @@ import { SpreadBase, postgresSource } from '@spreadbase/server';
 import { ValidationError } from '../../../common/errors.js';
 import { productsSheet } from './products.sheet.js';
 
-const RETURNING = 'id, name, sku, price, stock, status';
+const RETURNING = 'id, name, sku, price, stock, status, image_url, owner_id, launch_date, restocked_at';
 
 /**
  * Servicio de productos.
@@ -26,7 +26,8 @@ class ProductsService {
 		 * - MOTOR: SpreadBase, con las reglas del lote.
 		 */
 		this.sheet = new SpreadBase({
-			...productsSheet,
+			// La columna «Responsable» usa el lookup que define el módulo de usuarios.
+			...productsSheet({ users: orchestrator.usersService }),
 			source: postgresSource({
 				pool: this.pool,
 				view: 'v_products', // de aquí lee la hoja
@@ -58,8 +59,8 @@ class ProductsService {
 		for (const { values } of items) {
 			this.#checkActivation(values);
 			const { rows } = await tx.db.query(
-				`INSERT INTO products (id, name, sku, price, stock, status, updated_by)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)
+				`INSERT INTO products (id, name, sku, price, stock, status, image_url, owner_id, launch_date, restocked_at, updated_by)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 				 RETURNING ${RETURNING}`,
 				[
 					`prd_${crypto.randomUUID().slice(0, 8)}`,
@@ -68,6 +69,10 @@ class ProductsService {
 					values.price,
 					values.stock ?? 0,
 					values.status,
+					values.image_url ?? null,
+					values.owner_id,
+					values.launch_date ?? null,
+					values.restocked_at ?? null,
 					user?.id ?? null
 				]
 			);

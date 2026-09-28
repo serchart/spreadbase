@@ -76,7 +76,12 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 	const writable = () => columns().filter(([f, c]) => !c.readOnly && f !== idField).map(([f]) => f);
 	const isColumn = (field: string) => field in def().columns;
 
-	/** Cómo se lee cada columna: números como número, fechas como texto ISO. */
+	/**
+	 * Cómo se lee cada columna, en el formato canónico del cliente: números
+	 * como número, fecha `AAAA-MM-DD`, fecha-hora `AAAA-MM-DD HH:mm` (en la zona
+	 * de la sesión). Leer otro formato haría que `from` y `base` no coincidieran
+	 * con lo guardado y daría conflictos y avisos falsos.
+	 */
 	function selectExpr(field: string): string {
 		const col = ident(field);
 		switch (def().columns[field]?.type) {
@@ -85,7 +90,7 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 			case 'date':
 				return `${col}::text AS ${col}`;
 			case 'datetime':
-				return `to_json(${col}) #>> '{}' AS ${col}`;
+				return `to_char(${col}, 'YYYY-MM-DD HH24:MI') AS ${col}`;
 			default:
 				return col;
 		}

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isBlank, sameValue, toSchema, validateValue } from '@spreadbase/core';
+import { fold, isBlank, sameValue, toSchema, validateValue } from '@spreadbase/core';
 import type {
 	BatchInput,
 	BatchResult,
@@ -7,8 +7,12 @@ import type {
 	ChangeEvent,
 	FieldConflict,
 	ListQuery,
+	LookupQuery,
+	LookupResult,
+	LookupSpec,
 	Page,
 	Position,
+	ResolveResult,
 	Row,
 	SheetDefinition,
 	SheetSchema
@@ -63,6 +67,8 @@ export interface BatchOutcome {
 }
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+/** Tope de textos por petición de `resolve`: el cliente parte en tramos. */
+export const MAX_RESOLVE_TEXTS = 500;
 
 /** Idempotencia en memoria, para fuentes sin transacción. */
 function memoryIdempotency(): IdempotencyStore {
@@ -102,6 +108,14 @@ export class SpreadBase {
 		this.idField = definition.idField ?? 'id';
 		this.source = source;
 		this.handlers = handlers ?? {};
+		// Una columna lookup a medias falla al arrancar, no en el primer uso.
+		for (const [field, spec] of Object.entries(definition.columns)) {
+			if (spec.type !== 'lookup') continue;
+			const lookup = spec.lookup;
+			if (!lookup?.value || !lookup.display || typeof lookup.search !== 'function' || typeof lookup.byIds !== 'function') {
+				throw new Error(`La columna "${field}" (lookup) necesita lookup.value, lookup.display, lookup.search y lookup.byIds`);
+			}
+		}
 		source.attach?.(definition);
 	}
 
@@ -119,8 +133,64 @@ export class SpreadBase {
 
 	// -- lectura --------------------------------------------------------------
 
-	async list(query: ListQuery): Promise<Page> {
-		return this.source.list(this.checkQuery(query));
+	/** Un tramo de filas. Con columnas `lookup`, trae el nombre de cada id en `labels` (SB-21). */
+	async list(query: ListQuery, context: Record<string, unknown> = {}): Promise<Page> {
+		const page = await this.source.list(this.checkQuery(query));
+		const lookups = this.lookupFields();
+		if (lookups.length === 0) return page;
+		const labels: Record<string, Record<string, string>> = {};
+		for (const [field, lookup] of lookups) {
+			const ids = unique(page.rows.map((row) => row[field]));
+			labels[field] = {};
+			if (ids.length === 0) continue;
+			for (const row of await lookup.byIds(ids, context)) {
+				labels[field][String(row[lookup.value])] = String(row[lookup.display] ?? '');
+			}
+		}
+		return { ...page, labels };
+	}
+
+	// -- lookup (SB-21) -------------------------------------------------------
+
+	/** Un tramo del recurso de una columna `lookup`, para el popover. */
+	async lookup(field: string, query: LookupQuery, context: Record<string, unknown> = {}): Promise<LookupResult> {
+		const lookup = this.lookupOf(field);
+		const { rows, total } = await lookup.search(query.q, { offset: query.offset, limit: query.limit }, context);
+		return { rows, total: Number(total), offset: query.offset, limit: query.limit };
+	}
+
+	/**
+	 * Texto pegado → filas que coinciden, por `display` (sin acentos ni
+	 * mayúsculas) o por `value`. La app devuelve candidatas; el emparejado es de aquí.
+	 */
+	async resolve(field: string, texts: string[], context: Record<string, unknown> = {}): Promise<ResolveResult> {
+		const lookup = this.lookupOf(field);
+		if (!lookup.resolve) throw new SpreadBaseError(400, 'lookup_not_resolvable', `La columna "${field}" no resuelve texto pegado`);
+		const wanted = [...new Set(texts.map((t) => t.trim()).filter(Boolean))];
+		if (wanted.length > MAX_RESOLVE_TEXTS) throw new ValidationError(`Hasta ${MAX_RESOLVE_TEXTS} textos por petición`);
+		const matches: ResolveResult['matches'] = Object.fromEntries(wanted.map((t) => [t, []]));
+		if (wanted.length === 0) return { matches };
+
+		const candidates = await lookup.resolve(wanted, context);
+		for (const text of wanted) {
+			const needle = fold(text);
+			const byValue = candidates.filter((row) => String(row[lookup.value]) === text);
+			// Un id exacto gana: pegar una exportación con ids no debe dar «ambiguo».
+			matches[text] = byValue.length > 0 ? byValue : candidates.filter((row) => fold(String(row[lookup.display] ?? '')) === needle);
+		}
+		return { matches };
+	}
+
+	private lookupFields(): [string, LookupSpec][] {
+		return Object.entries(this.definition.columns)
+			.filter(([, spec]) => spec.type === 'lookup' && spec.lookup)
+			.map(([field, spec]) => [field, spec.lookup!]);
+	}
+
+	private lookupOf(field: string): LookupSpec {
+		const spec = this.definition.columns[field];
+		if (!spec || spec.type !== 'lookup' || !spec.lookup) throw new NotFoundError(`"${field}" no es una columna lookup`);
+		return spec.lookup;
 	}
 
 	async get(id: string): Promise<Row> {
@@ -218,7 +288,7 @@ export class SpreadBase {
 			if (ids.length > 0) await tx.lock(ids);
 		}
 
-		await this.validateBatch(input, source);
+		await this.validateBatch(input, source, ctx);
 
 		const result: BatchResult = { created: [], updated: [], deleted: [], notices: [], conflicts: [] };
 		const events: ChangeEvent[] = [];
@@ -323,10 +393,12 @@ export class SpreadBase {
 		);
 	}
 
-	private async validateBatch(input: BatchInput, source: SheetSource): Promise<void> {
+	private async validateBatch(input: BatchInput, source: SheetSource, ctx: BatchContext): Promise<void> {
 		const problems: { path: string; message: string }[] = [];
 		const seen = new Set<string>();
 		const columns = this.definition.columns;
+		/** Por columna lookup: id → rutas donde aparece. Se comprueban todos juntos al final. */
+		const lookupIds = new Map<string, Map<string, string[]>>();
 
 		const check = (path: string, values: Record<string, unknown>, row: Record<string, unknown>) => {
 			for (const [field, value] of Object.entries(values)) {
@@ -337,6 +409,13 @@ export class SpreadBase {
 						? 'Campo de solo lectura'
 						: (validateValue(spec, value) ?? spec.validate?.(value as CellValue, row) ?? null);
 				if (message) problems.push({ path: `${path}.${field}`, message });
+				else if (spec?.type === 'lookup' && !isBlank(value)) {
+					const ids = lookupIds.get(field) ?? new Map<string, string[]>();
+					const paths = ids.get(String(value)) ?? [];
+					paths.push(`${path}.${field}`);
+					ids.set(String(value), paths);
+					lookupIds.set(field, ids);
+				}
 			}
 		};
 
@@ -366,9 +445,21 @@ export class SpreadBase {
 			}
 		});
 
+		// Una sola consulta por columna lookup, con todos los ids del lote.
+		for (const [field, ids] of lookupIds) {
+			const lookup = columns[field]!.lookup!;
+			const found = new Set((await lookup.byIds([...ids.keys()], ctx)).map((row) => String(row[lookup.value])));
+			for (const [id, paths] of ids) {
+				if (!found.has(id)) for (const path of paths) problems.push({ path, message: 'No corresponde a ningún registro' });
+			}
+		}
+
 		if (problems.length > 0) throw new ValidationError('El lote tiene valores inválidos', problems);
 	}
 }
+
+/** Ids distintos y no vacíos, como texto. */
+const unique = (values: unknown[]): string[] => [...new Set(values.filter((v) => !isBlank(v)).map(String))];
 
 /** Los testigos son opacos: se comparan como texto (`1` y `"1"` son el mismo). */
 const sameVersion = (a: unknown, b: unknown) => a !== null && a !== undefined && String(a) === String(b);

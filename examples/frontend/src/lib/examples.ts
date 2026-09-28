@@ -10,8 +10,8 @@ export const EXAMPLES = [
 	{
 		href: '/postgres',
 		title: 'Postgres',
-		tag: 'postgresSource · handlers · transacción',
-		text: 'Un catálogo de productos sobre Postgres, con backend JS al estilo de Aggy. Historial de precios, una regla de negocio y borrado lógico, todo en una transacción por guardado.',
+		tag: 'postgresSource · handlers · lookup · todos los tipos',
+		text: 'Un catálogo de productos sobre Postgres, con backend JS al estilo de Aggy y un campo de cada tipo. «Responsable» elige entre 2 000 usuarios en una mini tabla paginada. Historial de precios, una regla de negocio y borrado lógico, todo en una transacción por guardado.',
 		code: 'examples/backend/src/examples/postgres/'
 	},
 	{

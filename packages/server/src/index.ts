@@ -5,7 +5,7 @@ export { memorySource } from './memorySource.ts';
 export type { MemorySource, MemorySourceOptions } from './memorySource.ts';
 export { postgresSource } from './postgresSource.ts';
 export type { PostgresSourceOptions, PoolLike, Queryable } from './postgresSource.ts';
-export { parseListQuery, parseBatch, sheetRouter } from './http.ts';
+export { parseListQuery, parseBatch, parseLookupQuery, parseResolve, sheetRouter } from './http.ts';
 export type { SheetRouterOptions } from './http.ts';
 export { SpreadBaseError, ValidationError, NotFoundError, errorHandler, notFoundHandler } from './errors.ts';
 export { types, toSchema } from '@spreadbase/core';

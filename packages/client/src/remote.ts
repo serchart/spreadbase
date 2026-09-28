@@ -2,7 +2,7 @@
  * Cliente HTTP del protocolo de SpreadBase: habla con las cinco rutas que
  * monta `@spreadbase/server` bajo una URL base.
  */
-import type { SheetSchema } from '@spreadbase/core';
+import type { LookupResult, ResolveResult, SheetSchema } from '@spreadbase/core';
 import type { BatchRequest, BatchResponse, PageRequest, PageResult } from './types';
 
 /** Error de la API con el `code` estable del servidor (`{ error: { code, message, details } }`). */
@@ -55,6 +55,22 @@ export function remoteClient(base: string, options: RemoteOptions = {}) {
 		/** Posición global actual de una fila; `null` si la consulta la excluye. */
 		locate: async (id: unknown, signal: AbortSignal) =>
 			(await request<{ position: number | null }>(`/${encodeURIComponent(String(id))}/position`, { signal })).position,
+
+		/** Un tramo del recurso de una columna `lookup` (SB-21). */
+		lookup: (field: string, q: string, { offset, limit }: { offset: number; limit: number }, signal?: AbortSignal) =>
+			request<LookupResult>(
+				`/lookup/${encodeURIComponent(field)}?${new URLSearchParams({ q, offset: String(offset), limit: String(limit) })}`,
+				{ signal }
+			),
+
+		/** Texto pegado → filas que coinciden, en una sola petición. */
+		resolve: async (field: string, texts: string[]) =>
+			(
+				await request<ResolveResult>(`/lookup/${encodeURIComponent(field)}/resolve`, {
+					method: 'POST',
+					body: JSON.stringify({ texts })
+				})
+			).matches,
 
 		/**
 		 * `idempotencyKey` identifica el intento de guardado (G-12): un reintento

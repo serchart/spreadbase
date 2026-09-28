@@ -64,8 +64,10 @@ tienda-backend/
 │   │   └── index.js
 │   └── api/
 │       ├── index.js
+│       ├── users/
+│       │   └── users.service.js         ← SQL de usuarios + `lookup` (03-lookup.md)
 │       └── products/
-│           ├── products.sheet.js        ← columnas de la hoja
+│           ├── products.sheet.js        ← columnas de la hoja: productsSheet({ users })
 │           ├── products.service.js      ← SpreadBase + handlers (dominio)
 │           ├── products.controller.js
 │           └── products.routes.js
@@ -111,6 +113,10 @@ CREATE TABLE price_history (
 );
 ```
 
+El ejemplo corriendo agrega, en `002_catalog.sql`, la tabla `users` (el
+recurso de la columna «Responsable») y las columnas de foto, responsable,
+lanzamiento y último surtido: un campo de cada tipo.
+
 **Lo que sí crea SpreadBase, sola:** la tabla `spreadbase_idempotency` (SB-18),
 con `CREATE TABLE IF NOT EXISTS` la primera vez que la fuente se usa. Es de la
 librería, no toca las tablas del usuario, y su esquema se puede elegir
@@ -122,17 +128,22 @@ librería, no toca las tablas del usuario, y su esquema se puede elegir
 // core/api/products/products.sheet.js
 import { types } from '@spreadbase/server';
 
-/** Definición de la hoja: lo que valida el servidor y lo que pinta el cliente. */
-export const productsSheet = {
+/**
+ * Definición de la hoja: lo que valida el servidor y lo que pinta el cliente.
+ * Es una función porque «Responsable» depende del módulo de usuarios (03-lookup.md §3).
+ */
+export const productsSheet = ({ users }) => ({
 	id: 'products',
 	idField: 'id',
 	allowInsert: true,
 	allowDelete: true,
 	policy: 'merge',
 	columns: {
-		id: { type: types.TEXT, label: 'ID', width: 110 },
-		name: { type: types.TEXT, label: 'Nombre', required: true, maxLength: 160, searchable: true, width: 260 },
+		id: { type: types.TEXT, label: 'ID', width: 100 },
+		image_url: { type: types.IMAGE, label: 'Foto', width: 60 },
+		name: { type: types.TEXT, label: 'Nombre', required: true, maxLength: 160, searchable: true, width: 220 },
 		sku: { type: types.TEXT, label: 'SKU', required: true, pattern: '^[A-Z0-9-]{4,20}$', patternMessage: 'Mayúsculas, números y guiones', searchable: true },
+		owner_id: { type: types.LOOKUP, label: 'Responsable', required: true, lookup: users.lookup },
 		price: { type: types.NUMBER, label: 'Precio', required: true, min: 0, precision: 2, prefix: '$', thousands: true },
 		stock: { type: types.NUMBER, label: 'Existencias', min: 0 },
 		status: {
@@ -144,10 +155,18 @@ export const productsSheet = {
 				{ value: 'active', label: 'Activo' },
 				{ value: 'paused', label: 'Pausado' }
 			]
-		}
+		},
+		launch_date: { type: types.DATE, label: 'Lanzamiento' },
+		restocked_at: { type: types.DATETIME, label: 'Último surtido' }
 	}
-};
+});
 ```
+
+> **Columnas que eligen un registro de otro módulo** (un responsable, un
+> proveedor): la hoja pasa a ser una función que recibe sus dependencias,
+> `productsSheet({ users })`, y la columna usa `lookup: users.lookup`, que
+> define el módulo de usuarios. El contrato y esa forma de organizarlo están
+> en [`03-lookup.md`](03-lookup.md).
 
 ### 2.3 El servicio: donde conviven las tres piezas
 
@@ -181,7 +200,7 @@ class ProductsService {
 		 * - MOTOR: SpreadBase, con las reglas del lote.
 		 */
 		this.sheet = new SpreadBase({
-			...productsSheet,
+			...productsSheet({ users: orchestrator.usersService }),
 			source: postgresSource({
 				pool: this.pool,
 				view: 'v_products', // de aquí lee la hoja
@@ -421,7 +440,8 @@ import ProductsService from '../api/products/products.service.js';
 class Orchestrator {
 	constructor() {
 		this.pool = pool;
-		// …
+		// …primero los que otros usan: la hoja de productos recibe el lookup de usuarios.
+		this.usersService = new UsersService(this);
 		this.productsService = new ProductsService(this);
 	}
 }
