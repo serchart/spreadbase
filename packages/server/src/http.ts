@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import type { BatchInput, ListQuery } from '@spreadbase/core';
 import { ValidationError } from './errors.ts';
-import { idempotent } from './idempotency.ts';
 import type { BatchContext, SpreadBase } from './SpreadBase.ts';
 
 const MAX_LIMIT = 500;
@@ -50,7 +49,9 @@ export function parseListQuery(query: Request['query']): ListQuery {
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isVersion = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
+/** El testigo de versión es opaco: un número o un texto no vacío. */
+const isVersion = (v: unknown): v is string | number =>
+	(typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v !== '');
 
 /** Valida la **forma** del lote. Las reglas sobre los valores son del motor. */
 export function parseBatch(body: unknown): BatchInput {
@@ -69,14 +70,17 @@ export function parseBatch(body: unknown): BatchInput {
 	});
 	const updates = list('updates').map((u, i) => {
 		if (!isRecord(u) || typeof u.id !== 'string' || !isVersion(u.rowVersion) || !isRecord(u.changes)) {
-			throw new ValidationError(`updates[${i}] debe ser { id, rowVersion, changes }`);
+			throw new ValidationError(`updates[${i}] debe ser { id, rowVersion, changes, base? }`);
+		}
+		if (u.base !== undefined && !isRecord(u.base)) {
+			throw new ValidationError(`updates[${i}].base debe ser un objeto`);
 		}
 		for (const [field, change] of Object.entries(u.changes)) {
 			if (!isRecord(change) || !('from' in change) || !('to' in change)) {
 				throw new ValidationError(`updates[${i}].changes.${field} debe ser { from, to }`);
 			}
 		}
-		return { id: u.id, rowVersion: u.rowVersion, changes: u.changes };
+		return { id: u.id, rowVersion: u.rowVersion, changes: u.changes, base: u.base };
 	});
 	const deletes = list('deletes').map((d, i) => {
 		if (!isRecord(d) || typeof d.id !== 'string' || !isVersion(d.rowVersion)) {
@@ -118,8 +122,13 @@ export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {})
 	router.get('/:id', async (req, res) => {
 		res.json(await sheet.get(String(req.params.id)));
 	});
-	router.post('/batch', idempotent(), async (req, res) => {
-		res.json(await sheet.batch(parseBatch(req.body), options.context?.(req) ?? {}));
+	router.post('/batch', async (req, res) => {
+		const { result, replayed } = await sheet.batch(parseBatch(req.body), {
+			idempotencyKey: req.get('Idempotency-Key'),
+			context: options.context?.(req)
+		});
+		if (replayed) res.set('Idempotent-Replayed', 'true');
+		res.json(result);
 	});
 	return router;
 }

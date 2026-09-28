@@ -1945,11 +1945,17 @@ export class GridController {
 			const base = this.baseline.get(key);
 			if (!row || !base) continue;
 			const changes: BatchRequest['updates'][number]['changes'] = {};
-			for (const column of this.columns) {
-				if (!this.dirtyCells.has(cellId(key, column.field))) continue;
-				changes[column.field] = { from: base[column.field] ?? null, to: row[column.field] ?? null };
+			// Lo que se leyó en las escribibles que no se tocaron: con esto el
+			// servidor sabe qué cambió otro usuario (avisos de `merge`, SB-16).
+			const untouched: Record<string, unknown> = {};
+			for (const column of this.writableColumns) {
+				if (this.dirtyCells.has(cellId(key, column.field))) {
+					changes[column.field] = { from: base[column.field] ?? null, to: row[column.field] ?? null };
+				} else {
+					untouched[column.field] = base[column.field] ?? null;
+				}
 			}
-			updates.push({ id: row[this.idField], rowVersion: row.__version ?? null, changes });
+			updates.push({ id: row[this.idField], rowVersion: row.__version ?? null, changes, base: untouched });
 		}
 
 		const deletes = [...this.deletedKeys].filter(pending).flatMap((key) => {

@@ -11,11 +11,18 @@ beforeEach(async () => {
 	await reset();
 });
 
-/** Edición de un campo tal como la manda el grid: valor leído y valor nuevo. */
+/** Columnas escribibles de la hoja de casos. */
+const WRITABLE = ['customer_name', 'customer_rfc', 'stage_code', 'handler_id', 'promise_amount', 'promise_date', 'last_contact_at'];
+
+/**
+ * Edición de un campo tal como la manda el grid: valor leído y valor nuevo, y
+ * en `base` lo leído en las demás escribibles (SB-16).
+ */
 const edit = (row: any, field: string, to: unknown) => ({
 	id: row.id,
 	rowVersion: row.rowVersion,
-	changes: { [field]: { from: row[field], to } }
+	changes: { [field]: { from: row[field], to } },
+	base: Object.fromEntries(WRITABLE.filter((f) => f !== field).map((f) => [f, row[f] ?? null]))
 });
 
 describe('sin cambios ajenos', () => {

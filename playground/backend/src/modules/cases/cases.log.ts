@@ -10,8 +10,12 @@ const enabled = process.env.BATCH_LOG !== '0';
 const time = () => new Date().toTimeString().slice(0, 8);
 const show = (v: unknown) => (v === null || v === undefined || v === '' ? '∅' : JSON.stringify(v));
 
-export function logBatch(input: BatchInput, result: BatchResult, idempotencyKey: string | undefined): void {
+export function logBatch(input: BatchInput, result: BatchResult, idempotencyKey: string | undefined, replayed = false): void {
 	if (!enabled) return;
+	if (replayed) {
+		console.log(`[idempotency] ${idempotencyKey?.slice(0, 8)} repetida: se devuelve la respuesta guardada sin aplicar de nuevo`);
+		return;
+	}
 	const lines = [
 		`[batch] ${time()} key=${idempotencyKey?.slice(0, 8) ?? '—'} · ${input.updates.length} edit · ${input.creates.length} alta · ${input.deletes.length} baja`
 	];
@@ -35,7 +39,7 @@ export function logBatch(input: BatchInput, result: BatchResult, idempotencyKey:
 	console.log(lines.join('\n'));
 }
 
-export function logMutate(mutated: { id: string; rowVersion: number; fields: string[] }[]): void {
+export function logMutate(mutated: { id: string; rowVersion: string | number; fields: string[] }[]): void {
 	if (!enabled) return;
 	for (const m of mutated) console.log(`[mutate] ${time()} ${m.id} → v${m.rowVersion} · ${m.fields.join(', ')}`);
 }

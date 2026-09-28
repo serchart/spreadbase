@@ -4,13 +4,9 @@
 > cómo se escribe de forma segura y qué se escribe**. Con un ejemplo completo
 > en un proyecto anfitrión en JavaScript con la estructura de Aggy.
 
-**Creado:** 2026-09-28 · **Estado:** 🟡 propuesta
+**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-4, SB-16 a SB-20)
 
-> ⚠️ **Qué existe hoy y qué no.** Existen `SpreadBase`, `memorySource`,
-> `handlers`, `parseListQuery`, `parseBatch` e `idempotent()` en memoria.
-> **Son propuesta de este documento:** `postgresSource`, `transaction` en la
-> fuente, `ctx.tx` en los handlers y la idempotencia guardada en la base. El
-> código de abajo muestra cómo se usarían; aún no corre.
+El ejemplo completo corre en [`examples/postgres`](../examples/postgres).
 
 ---
 
@@ -76,12 +72,15 @@ tienda-backend/
 └── package.json                         ← "@spreadbase/server"
 ```
 
-### 2.1 La tabla: versiones con un trigger
+### 2.1 La tabla: la del usuario, sin nada especial
 
-La concurrencia por campo necesita dos cosas de la tabla (SB-4): un
-`row_version` que sube con cada cambio y saber qué campos cambiaron desde una
-versión. Las pone un **trigger**, no SpreadBase ni el servicio. Así cuenta
-cualquier escritura: la de la hoja, la de un worker o la de un script.
+La concurrencia **no pide nada** a la tabla (SB-4): ni columna de versión, ni
+trigger, ni tabla de cambios. `postgresSource` calcula una huella de las
+columnas escribibles de cada fila al leerla; si alguien la cambia —la hoja, un
+worker, un script—, la huella cambia. Los avisos de `merge` salen de comparar
+lo que el cliente leyó (`base`) con lo que hay ahora (SB-16).
+
+Lo único que se ve abajo son las tablas **del dominio**:
 
 ```sql
 -- db/migrations/001_products.sql
@@ -92,39 +91,17 @@ CREATE TABLE products (
 	price       numeric(12, 2) NOT NULL CHECK (price >= 0),
 	stock       integer NOT NULL DEFAULT 0,
 	status      text NOT NULL DEFAULT 'draft',
-	row_version integer NOT NULL DEFAULT 1,
 	updated_by  text,
 	deleted_at  timestamptz
 );
 
--- Qué campo cambió en qué versión: responde «¿qué cambió otro desde que leí?».
-CREATE TABLE products_changes (
-	product_id  text NOT NULL,
-	field       text NOT NULL,
-	row_version integer NOT NULL
-);
-CREATE INDEX ON products_changes (product_id, row_version);
-
-CREATE FUNCTION products_versioning() RETURNS trigger AS $$
-BEGIN
-	NEW.row_version := OLD.row_version + 1;
-	INSERT INTO products_changes (product_id, field, row_version)
-	SELECT NEW.id, n.key, NEW.row_version
-	FROM jsonb_each(to_jsonb(NEW)) AS n
-	WHERE n.value IS DISTINCT FROM to_jsonb(OLD) -> n.key
-	  AND n.key NOT IN ('row_version', 'updated_by');
-	RETURN NEW;
-END $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER products_versioning BEFORE UPDATE ON products
-	FOR EACH ROW EXECUTE FUNCTION products_versioning();
-
--- Lo que ve la hoja: sin los eliminados y con el nombre que espera el protocolo.
+-- Lo que ve la hoja: sin los eliminados. Opcional: también se puede leer la tabla.
 CREATE VIEW v_products AS
-	SELECT id, name, sku, price, stock, status, row_version AS "rowVersion"
+	SELECT id, name, sku, price, stock, status
 	FROM products
 	WHERE deleted_at IS NULL;
 
+-- Regla de negocio del ejemplo: historial de precios.
 CREATE TABLE price_history (
 	product_id text NOT NULL,
 	old_price  numeric(12, 2),
@@ -132,16 +109,12 @@ CREATE TABLE price_history (
 	changed_by text,
 	changed_at timestamptz NOT NULL DEFAULT now()
 );
-
--- Idempotencia en la base: la respuesta se guarda en la misma transacción que el lote.
-CREATE TABLE spreadbase_idempotency (
-	key        text PRIMARY KEY,
-	body_hash  text NOT NULL,
-	status     integer NOT NULL,
-	response   jsonb NOT NULL,
-	expires_at timestamptz NOT NULL
-);
 ```
+
+**Lo que sí crea SpreadBase, sola:** la tabla `spreadbase_idempotency` (SB-18),
+con `CREATE TABLE IF NOT EXISTS` la primera vez que la fuente se usa. Es de la
+librería, no toca las tablas del usuario, y su esquema se puede elegir
+(`idempotencyTable: 'app.spreadbase_idempotency'`).
 
 ### 2.2 Las columnas
 
@@ -184,7 +157,7 @@ import { SpreadBase, postgresSource } from '@spreadbase/server';
 import { ValidationError } from '../../../src/common/errors.js';
 import { productsSheet } from './products.sheet.js';
 
-const RETURNING = `id, name, sku, price, stock, status, row_version AS "rowVersion"`;
+const RETURNING = 'id, name, sku, price, stock, status';
 
 /**
  * Servicio de productos.
@@ -200,8 +173,9 @@ class ProductsService {
 
 		/**
 		 * La hoja. Tres piezas:
-		 * - FUENTE: lee de la vista, bloquea y versiona sobre la tabla. Trae su
-		 *   transacción: nadie la configura aquí.
+		 * - FUENTE: lee de la vista, bloquea sobre la tabla, calcula la huella de
+		 *   cada fila y guarda la idempotencia. Trae su transacción: nadie la
+		 *   configura aquí.
 		 * - HANDLERS: la escritura de dominio. Se ejecutan DENTRO de la
 		 *   transacción de la fuente, con su conexión (`ctx.tx.db`).
 		 * - MOTOR: SpreadBase, con las reglas del lote.
@@ -210,10 +184,8 @@ class ProductsService {
 			...productsSheet,
 			source: postgresSource({
 				pool: this.pool,
-				view: 'v_products',          // de aquí lee la hoja
-				table: 'products',           // aquí bloquea (FOR UPDATE)
-				changes: 'products_changes', // de aquí sabe qué cambió otro
-				idempotency: 'spreadbase_idempotency'
+				view: 'v_products', // de aquí lee la hoja
+				table: 'products' // aquí bloquea (FOR UPDATE) y escribe si no hay handlers
 			}),
 			handlers: {
 				insertMany: (items, ctx) => this.insertMany(items, ctx),
@@ -284,7 +256,7 @@ class ProductsService {
 				 WHERE id = $1 RETURNING ${RETURNING}`,
 				[id, ...fields.map((f) => values[f]), user?.id ?? null]
 			);
-			// El trigger ya subió row_version y anotó los campos: RETURNING trae el nuevo.
+			// La fuente calcula la huella nueva de esta fila al devolverla.
 			updated.push(rows[0]);
 		}
 		return updated;
@@ -314,7 +286,7 @@ class ProductsService {
 	//
 	// Los mismos datos, usados por otras partes de la app (un worker, otro
 	// servicio). `db` por defecto es el pool; dentro de una transacción ajena,
-	// quien llama pasa la suya. El trigger versiona igual: la hoja se enterará.
+	// quien llama pasa la suya. La hoja se entera igual: cambia la huella.
 
 	async findById(id, { db = this.pool } = {}) {
 		const { rows } = await db.query(`SELECT ${RETURNING} FROM products WHERE id = $1`, [id]);
@@ -394,11 +366,16 @@ class ProductsController {
 
 	/**
 	 * POST /products/sheet/batch
-	 * El usuario autenticado viaja en el contexto hasta los handlers.
+	 * La llave de idempotencia va al motor, que la guarda en la misma
+	 * transacción que el lote. El usuario viaja en el contexto hasta los handlers.
 	 */
 	async batch(req, res) {
 		try {
-			const result = await this.service.sheet.batch(parseBatch(req.body), { user: req.user });
+			const { result, replayed } = await this.service.sheet.batch(parseBatch(req.body), {
+				idempotencyKey: req.get('Idempotency-Key'),
+				context: { user: req.user }
+			});
+			if (replayed) res.set('Idempotent-Replayed', 'true');
 			res.json(result);
 		} catch (error) {
 			this.#fail(res, error);
@@ -414,7 +391,6 @@ export default ProductsController;
 ```js
 // core/api/products/products.routes.js
 import { Router } from 'express';
-import { idempotent } from '@spreadbase/server';
 import ProductsController from './products.controller.js';
 import { productsService } from '../../orchestrator/index.js';
 
@@ -430,8 +406,7 @@ export default function createProductsRoutes() {
 	router.get('/sheet', (req, res) => controller.list(req, res));
 	router.get('/sheet/:id/position', (req, res) => controller.position(req, res));
 	router.get('/sheet/:id', (req, res) => controller.get(req, res));
-	// La respuesta y la llave se guardan en la base, en la transacción del lote (§3.3).
-	router.post('/sheet/batch', idempotent({ store: productsService.sheet }), (req, res) => controller.batch(req, res));
+	router.post('/sheet/batch', (req, res) => controller.batch(req, res));
 
 	// …las demás rutas del módulo (REST normal, con { success, data }).
 	return router;
@@ -476,7 +451,7 @@ pulsa Guardar.
 POST /api/products/sheet/batch            Idempotency-Key: 7f3a…
 │
 ├─ controller.batch → parseBatch (forma del cuerpo)
-└─ sheet.batch(input, { user })                                   MOTOR
+└─ sheet.batch(input, { idempotencyKey, context: { user } })       MOTOR
    │
    ├─ 1. valida valores contra las columnas (tipo, requerido, patrón…)
    │     inválido → 400, nada se toca
@@ -486,35 +461,33 @@ POST /api/products/sheet/batch            Idempotency-Key: 7f3a…
          BEGIN
          ├─ ¿la llave 7f3a ya se usó?  sí → devuelve la respuesta guardada
          ├─ tx.lock([prd_01, prd_02, prd_03])        SELECT … FOR UPDATE, en orden
-         ├─ tx.get(id) de cada una                   lo último confirmado
-         ├─ compara rowVersion y `from` por campo                   MOTOR
-         │     prd_02: otro cambió `stock` → merge → se aplica + aviso
+         ├─ tx.get(id) de cada una                   lo último confirmado + su huella
+         ├─ compara huella, `from` y `base`                          MOTOR
+         │     prd_02: otro cambió `stock` (base ≠ actual) → merge → se aplica + aviso
          ├─ handlers.updateMany(items, { tx, user })               TU DOMINIO
          │     price_history ← prd_01
-         │     UPDATE products …   (el trigger sube row_version y anota campos)
+         │     UPDATE products …
          │     #checkActivation(prd_02) → stock > 0 → ok
          ├─ handlers.deleteMany(items, { tx, user })
          │     UPDATE products SET deleted_at = now()
-         ├─ guarda la respuesta con la llave 7f3a
+         ├─ guarda la respuesta con la llave 7f3a    spreadbase_idempotency
          COMMIT
    │
    └─ 3. emite eventos { sheet, op, id, fields, rowVersion }       (SB-8)
 │
-← 200 { created, updated, deleted, notices, conflicts }
+← 200 { created, updated, deleted, notices, conflicts }       (+ Idempotent-Replayed si se repitió)
 ```
 
-### 3.1 Si un handler lanza
+### 3.1 Si un handler lanza (SB-20)
 
 Si `#checkActivation` falla para `prd_02` (sin existencias), el error sube,
 la fuente hace `ROLLBACK` y **nada** del lote queda escrito: ni el precio de
-`prd_01` ni su historial. El cliente recibe 400 con el mensaje de dominio y el
-usuario conserva todos sus cambios pendientes para corregir.
+`prd_01` ni su historial, ni la llave de idempotencia. El cliente recibe 400
+con el mensaje de dominio y el usuario conserva todos sus cambios pendientes
+para corregir y reintentar.
 
-> **Decisión abierta.** La alternativa es tratar un error de dominio como un
-> conflicto: esa fila queda pendiente con su motivo y el resto se guarda. Es
-> más útil pero exige que el handler reporte errores por fila. Propuesta:
-> empezar abortando el lote entero y pasar a por fila cuando un caso real lo
-> pida.
+Tratar un error de dominio por fila, como un conflicto, queda para cuando un
+caso real lo pida: exige que el handler reporte errores por fila.
 
 ### 3.2 Un conflicto no aborta
 
@@ -522,13 +495,15 @@ Si otro usuario cambió el precio de `prd_01` a otro valor, `prd_01` va a
 `conflicts` y **no** llega al handler; `prd_02` y `prd_03` se aplican y se
 confirman. Los conflictos son una respuesta normal, no un error.
 
-### 3.3 Por qué la idempotencia entra en la transacción
+### 3.3 Por qué la idempotencia entra en la transacción (SB-18)
 
-Hoy `idempotent()` guarda la respuesta en memoria **después** de responder.
-Con una base real, si el proceso se cae entre el `COMMIT` y ese guardado, el
-reintento del cliente vuelve a aplicar el lote y **duplica las altas**. Por
-eso, con Postgres, la llave y la respuesta se escriben dentro de la misma
-transacción: o se confirma todo, o nada.
+Si la respuesta se guardara **después** de confirmar el lote y el proceso se
+cayera entre el `COMMIT` y ese guardado, el reintento del cliente volvería a
+aplicar el lote y **duplicaría las altas**. Por eso la llave y la respuesta se
+escriben dentro de la misma transacción: o se confirma todo, o nada. Dos
+reintentos simultáneos con la misma llave no pueden aplicarse los dos: el
+segundo choca con la clave primaria de la tabla, se deshace, y su siguiente
+reintento recibe la respuesta guardada.
 
 ### 3.4 Por qué `lock` va aparte de `get`
 
@@ -552,16 +527,16 @@ this.sheet = new SpreadBase({
 	allowInsert: true,
 	allowDelete: true,
 	columns: { id: { type: types.TEXT, label: 'ID' }, name: { type: types.TEXT, label: 'Marca', required: true } },
-	source: postgresSource({ pool: this.pool, table: 'brands', changes: 'brands_changes' })
+	source: postgresSource({ pool: this.pool, table: 'brands' })
 });
 ```
 
 ### 4.2 En memoria: demos y pruebas
 
-`memorySource` implementa lectura y escritura, pero **no** transacción: el
-motor aplica los lotes de uno en uno dentro del proceso. Un error a mitad de
-lote no se deshace. Vale para demos, pruebas y el playground; no para
-producción.
+`memorySource` implementa lectura y escritura con un contador de versión, pero
+**no** transacción: el motor aplica los lotes de uno en uno dentro del proceso
+y guarda la idempotencia en memoria. Un error a mitad de lote no se deshace.
+Vale para demos, pruebas y el playground; no para producción.
 
 ```js
 source: memorySource({ rows: seed, createId: (n) => `prd_${n}` })
@@ -573,20 +548,20 @@ La misma forma con otra fuente. La transacción es una sesión de Mongo y el
 handler recibe esa sesión en `ctx.tx.db`:
 
 ```js
-source: mongoSource({ model: Product, changes: ProductChange }),
+source: mongoSource({ model: Product }),
 handlers: {
 	updateMany: async (items, { tx }) => {
 		for (const { id, values } of items) {
-			await Product.updateOne({ _id: id }, { $set: values, $inc: { rowVersion: 1 } }, { session: tx.db });
+			await Product.updateOne({ _id: id }, { $set: values }, { session: tx.db });
 		}
 		return Product.find({ _id: { $in: items.map((i) => i.id) } }, null, { session: tx.db }).lean();
 	}
 }
 ```
 
-En Mongo no hay triggers: la versión la sube quien escribe (`$inc`). Si otras
-partes de la app escriben esa colección, tienen que hacerlo también, o sus
-cambios serán invisibles para la concurrencia.
+La huella se calcula igual, sobre los valores del documento: cualquier parte
+de la app que escriba la colección cuenta, sin campo de versión. (`mongoSource`
+no existe todavía; la forma sería esta.)
 
 ---
 
@@ -609,11 +584,12 @@ transaction: async (fn) => {
 		client.release();
 	}
 }
-// lock(ids):              SELECT id FROM products WHERE id = ANY($1) ORDER BY id FOR UPDATE
-// get(id):                SELECT … FROM v_products WHERE id = $1
-// changedFieldsSince(…):  SELECT DISTINCT field FROM products_changes WHERE product_id = $1 AND row_version > $2
-// list(query):            SELECT … FROM v_products WHERE … ORDER BY <campo>, id LIMIT $n OFFSET $m  (+ count)
-// update sin handler:     UPDATE products SET … WHERE id = $1 RETURNING …
+// huella:        md5(row(<columnas escribibles>)::text) calculada en el mismo SELECT
+// lock(ids):     SELECT 1 FROM products WHERE id = ANY($1) ORDER BY id FOR UPDATE
+// get(id):       SELECT …, <huella> AS "rowVersion" FROM v_products WHERE id = $1
+// list(query):   SELECT …, <huella> FROM v_products WHERE … ORDER BY <campo>, id LIMIT $n OFFSET $m  (+ count)
+// update:        UPDATE products SET … WHERE id = $1 RETURNING …   (solo si no hay handler)
+// idempotencia:  spreadbase_idempotency, creada con CREATE TABLE IF NOT EXISTS
 ```
 
 Con `READ COMMITTED` (el nivel por defecto de Postgres) basta: una vez
@@ -622,21 +598,12 @@ escribirla hasta el `COMMIT`.
 
 ---
 
-## 6. Qué cambia en la librería para llegar aquí
+## 6. Decisiones
 
-| Cambio | Dónde |
+| # | Decisión |
 |---|---|
-| `transaction?(fn)` y `lock(ids)` en la interfaz de fuente | `packages/server/src/source.ts` |
-| El motor corre el lote dentro de `source.transaction` si existe; si no, en su cola | `SpreadBase.ts` |
-| Los handlers reciben `ctx.tx` | `SpreadBase.ts` |
-| Los eventos (SB-8) se emiten después del `COMMIT` | `SpreadBase.ts` |
-| `idempotent({ store })`: llave y respuesta guardadas por la fuente, dentro de la transacción | `idempotency.ts`, fuente |
-| `postgresSource` | nuevo |
-
-Decisiones que pide:
-
-1. **Error de dominio:** aborta el lote entero (propuesta inicial) o solo su
-   fila (§3.1).
-2. **Idempotencia en la base** con Postgres (§3.3): obligatoria, no opcional.
-3. **Versiones con trigger** en Postgres: la librería lo exige y documenta el
-   SQL; con Mongo, cada escritura sube la versión.
+| **SB-4** | La tabla del usuario no necesita nada: `rowVersion` es una huella de las columnas escribibles, o una columna de versión si ya existe |
+| **SB-16** | Los avisos los calcula el servidor con `base`, lo que el cliente leyó en las escribibles que no tocó |
+| **SB-18** | La idempotencia la lleva el motor y la guarda la fuente en la misma transacción; con Postgres, en `spreadbase_idempotency`, creada por la librería |
+| **SB-19** | La transacción la trae la fuente; los handlers la reciben en `ctx.tx` |
+| **SB-20** | Un error de dominio deshace el lote entero |

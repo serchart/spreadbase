@@ -7,8 +7,15 @@ import type { RemoteChangePolicy } from './schema.ts';
 
 export type { RemoteChangePolicy };
 
+/**
+ * Testigo de versión de una fila. **Opaco**: el cliente solo lo guarda y lo
+ * devuelve; solo importa si es igual o distinto. Lo pone la fuente: un contador
+ * en memoria, una huella del contenido en Postgres (SB-4).
+ */
+export type Version = string | number;
+
 /** Una fila tal como la devuelve el servidor: sus campos más el testigo de versión. */
-export type Row = Record<string, unknown> & { rowVersion: number };
+export type Row = Record<string, unknown> & { rowVersion: Version };
 
 /** `?offset&limit&sort=campo:asc|desc&search=&<campo>=a,b` */
 export interface ListQuery {
@@ -54,14 +61,19 @@ export interface FieldChange {
 export interface UpdateInput {
 	id: string;
 	/** Versión que el cliente leyó. Si coincide, nadie más tocó la fila. */
-	rowVersion: number;
+	rowVersion: Version;
 	/** Solo los campos que cambian. */
 	changes: Record<string, FieldChange>;
+	/**
+	 * Lo que el cliente leyó en las columnas escribibles que **no** cambia.
+	 * Si el valor actual de una ya es otro, la cambió otro usuario (SB-16).
+	 */
+	base?: Record<string, CellValue>;
 }
 
 export interface DeleteInput {
 	id: string;
-	rowVersion: number;
+	rowVersion: Version;
 }
 
 export interface BatchInput {
@@ -114,5 +126,5 @@ export interface ChangeEvent {
 	op: 'create' | 'update' | 'delete';
 	id: string;
 	fields: string[];
-	rowVersion: number | null;
+	rowVersion: Version | null;
 }

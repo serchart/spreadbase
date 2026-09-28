@@ -55,8 +55,8 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-1** | **Un solo esquema, una sola validación.** La hoja se define una vez y la misma regla valida en el front (al editar) y en el back (al guardar). El código de validación vive en `core` y lo usan los dos lados. Dónde se escribe la definición: SB-12 | ✅ |
 | **SB-2** | **Fuente de datos, no base embebida.** SpreadBase no es dueño de la conexión: habla con una interfaz chica (§5.3). Memoria ahora; Postgres después. La conexión es de la app | ✅ |
 | **SB-3** | **La escritura es del dominio.** Lectura por vista o consulta; escritura por los `insertMany`/`updateMany`/`deleteMany` del servicio de la app, con sus reglas. SpreadBase pone alrededor versiones, concurrencia, idempotencia y respuesta. Nunca hace `UPDATE` directo de una tabla de dominio. Motivo: en el caso real (cartera de OpenCollect) se lee de una vista con agregados y escribir la etapa pasa por el servicio de casos; «una tabla = un grid» no sirve | ✅ |
-| **SB-4** | **La concurrencia exige convenciones en la fuente:** `row_version` por fila y poder saber qué campos cambiaron desde una versión (tabla de historial o versión por campo). Es requisito documentado; cada fuente lo implementa | ✅ |
-| **SB-5** | **El protocolo del lote no se rediseña:** `{ from, to }` por campo, `notices`, `conflicts`, `Idempotency-Key`, éxito parcial. Ya está probado (anexo de origen §11.13–§11.14) | ✅ |
+| **SB-4** | **La concurrencia no exige nada en la tabla del usuario** (revisada 2026-09-28). `rowVersion` es un testigo **opaco** que pone la fuente: `memorySource` usa un contador; `postgresSource`, una **huella (hash) de las columnas escribibles** calculada al leer, o una columna de versión si la tabla ya la tiene. Cualquier escritura cambia la huella, venga de la hoja, de un worker o de un script. Sin triggers, sin `row_version` obligatorio, sin tabla de cambios | ✅ |
+| **SB-5** | **El protocolo del lote se conserva:** `{ from, to }` por campo, `notices`, `conflicts`, `Idempotency-Key`, éxito parcial. Ya está probado (anexo de origen §11.13–§11.14). Única ampliación: `base` en cada edición (SB-16) | ✅ |
 | **SB-6** | **Cliente solo Svelte, por ahora.** El controlador usa runes. Svelte 5 es `peerDependency`. Si algún día se pide React, se separa | ✅ |
 | **SB-7** | **Estilos: Tailwind + daisyUI como `peerDependencies`.** La app declara `@source` al CSS de la librería y hereda su tema. jspreadsheet, jsuites y lucide son dependencias normales | ✅ |
 | **SB-8** | **Tiempo real: se diseña ya, se construye después.** Todo lote aplicado emite un evento `{ sheet, id, fields, rowVersion }`. Más adelante ese evento alimenta presencia, cursores de otros usuarios y Redis. Mientras tanto, nada del diseño debe cerrarle la puerta | ✅ |
@@ -67,6 +67,11 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-13** | **En el backend, SpreadBase se usa por piezas, una por capa** (`routes → controller → service`, como Aggy y OpenCollect): el motor es un objeto del servicio, `core` y `server` dan helpers para el controlador y las rutas. `sheetRouter(sheet, { context })` monta las cinco rutas del protocolo; es opcional y no rompe las capas, porque el motor sigue en el servicio. Detalle en §4.1 | ✅ |
 | **SB-14** | **Se parte del código probado, no de reimplementaciones.** Los paquetes se extrajeron de la copia fiel de OpenCollect (verificada con E2E y navegador) y el `playground/` es esa copia sobre los paquetes. Lo que había antes en `packages/` y `apps/demo` se retiró | ✅ |
 | **SB-15** | **Validar el diseño con un segundo consumidor distinto** antes de darlo por bueno (p. ej. el ledger de cargos o usuarios de OpenCollect). Si sirve para dos dominios, la abstracción es correcta; hasta entonces no se generaliza por adelantado | ✅ |
+| **SB-16** | **Los avisos de `merge` los calcula el servidor con lo que manda el cliente.** Cada edición lleva `base`: los valores que el cliente leyó en las columnas escribibles que **no** tocó. Un campo de `base` cuyo valor actual ya es otro lo cambió otro usuario → aviso. Solo columnas escribibles: un cambio del sistema en una de solo lectura (el DPD del ledger) no es «otro usuario». La huella de SB-4 se calcula sobre las mismas columnas | ✅ |
+| **SB-17** | **Mismo campo, mismo valor, no es conflicto.** Si otro dejó el campo justo en el valor que pide el cliente, se aplica sin preguntar; igual al guardar que al recargar | ✅ |
+| **SB-18** | **Idempotencia dentro de SpreadBase.** El motor recibe la `Idempotency-Key` y guarda llave y respuesta con la fuente, **en la misma transacción que el lote**: o se confirma todo o nada. En memoria, un mapa; con Postgres, la tabla `spreadbase_idempotency`, que **crea la librería** (`CREATE TABLE IF NOT EXISTS`). Sustituye al middleware `idempotent()` | ✅ |
+| **SB-19** | **La transacción la trae la fuente.** Si la fuente tiene `transaction`, el motor corre el lote dentro: bloquea las filas (`lock`), compara, aplica y guarda la respuesta idempotente. Los handlers reciben la transacción en `ctx.tx` y escriben con ella. Quien usa la librería no la configura. Sin transacción (memoria), el motor aplica los lotes de uno en uno. Detalle: `02-fuentes-transacciones-handlers.md` | ✅ |
+| **SB-20** | **Un error de dominio aborta el lote entero.** Si un handler lanza, la transacción se deshace y no queda nada escrito; el cliente conserva sus cambios. Tratarlo por fila, como un conflicto, queda para cuando un caso real lo pida | ✅ |
 
 ---
 
@@ -74,7 +79,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 
 | Paquete | Lo instala | Contiene | Se extrae de (OpenCollect) |
 |---|---|---|---|
-| **`@spreadbase/server`** | El backend | `SpreadBase` (motor: lectura, posición, lote con la regla por campo, `merge`/`strict`, eventos); fuentes (`memorySource`, luego `postgresSource`); helpers HTTP (`parseListQuery`, `parseBatch`, `idempotent()`, errores tipados, `sheetRouter()`) | `backend/src/modules/sandbox/sandbox.service.ts` sin los datos de casos; `common/idempotency.ts`, `common/errors.ts` |
+| **`@spreadbase/server`** | El backend | `SpreadBase` (motor: lectura, posición, lote con la regla por campo, `merge`/`strict`, idempotencia, eventos); fuentes (`memorySource`, `postgresSource`); helpers HTTP (`parseListQuery`, `parseBatch`, errores tipados, `sheetRouter()`) | `backend/src/modules/sandbox/sandbox.service.ts` sin los datos de casos; `common/idempotency.ts`, `common/errors.ts` |
 | **`@spreadbase/client`** | El frontend | `Sheet` (el controlador: ventana, cambios, historial, borrador, conflictos, guardado); `<SpreadBase>` (la hoja, barra, paneles); cliente HTTP del protocolo; CSS | `frontend/src/lib/components/datagrid/` completo; `lib/api/sandbox.ts` generalizado a cualquier URL |
 | **`@spreadbase/core`** | Nadie a mano | Tipos de columna y del esquema, normalización y validación de valores, tipos del protocolo (lote, conflicto, aviso, página) | `sandbox.types.ts`; la parte de validación de `cellTypes.ts` y de `validateBatch` |
 
@@ -134,11 +139,18 @@ export class CasesController {
 	list     = async (req, res) => res.json(await this.service.portfolio.list(parseListQuery(req.query)));
 	position = async (req, res) => res.json(await this.service.portfolio.position(req.params.id, parseListQuery(req.query)));
 	get      = async (req, res) => res.json(await this.service.portfolio.get(req.params.id));
-	batch    = async (req, res) => res.json(await this.service.portfolio.batch(parseBatch(req.body), { user: req.user }));
+	batch    = async (req, res) => {
+		const { result, replayed } = await this.service.portfolio.batch(parseBatch(req.body), {
+			idempotencyKey: req.get('Idempotency-Key'),   // SB-18: la idempotencia la lleva el motor
+			context: { user: req.user }                    // llega a los handlers
+		});
+		if (replayed) res.set('Idempotent-Replayed', 'true');
+		res.json(result);
+	};
 }
 ```
 
-**Rutas**: las de la app, con sus middlewares; SpreadBase aporta `idempotent()`.
+**Rutas**: las de la app, con sus middlewares.
 
 ```ts
 // cases.routes.ts
@@ -146,7 +158,7 @@ router.get('/portfolio/schema', c.schema);
 router.get('/portfolio', c.list);
 router.get('/portfolio/:id/position', c.position);
 router.get('/portfolio/:id', c.get);
-router.post('/portfolio/batch', idempotent(), c.batch);
+router.post('/portfolio/batch', c.batch);
 ```
 
 **Atajo: `sheetRouter()`.** Devuelve un `Router` con las cinco rutas del
@@ -249,18 +261,22 @@ magnitud.
 ### 5.2 Lote de guardado
 
 ```jsonc
-// Petición — solo los campos que cambian, con el valor que el cliente leyó
+// Petición
 {
 	"creates": [{ "key": "tmp_m0", "values": { "customer_rfc": "…" } }],
-	"updates": [{ "id": "case_002344", "rowVersion": 3,
-	              "changes": { "stage_code": { "from": "early", "to": "judicial" } } }],
-	"deletes": [{ "id": "case_000008", "rowVersion": 1 }]
+	"updates": [{
+		"id": "case_002344",
+		"rowVersion": "9c1e…",                                        // testigo opaco que leyó (SB-4)
+		"changes": { "stage_code": { "from": "early", "to": "judicial" } },   // solo lo que tocó
+		"base": { "customer_name": "…", "handler_id": "usr_2" }       // lo que leyó en las escribibles que NO tocó (SB-16)
+	}],
+	"deletes": [{ "id": "case_000008", "rowVersion": "41b0…" }]
 }
 
 // Respuesta 200 — éxito parcial
 {
 	"created":   [{ "key": "tmp_m0", "row": { … } }],
-	"updated":   [{ "id": "case_002344", "rowVersion": 5, … }],
+	"updated":   [{ "id": "case_002344", "rowVersion": "e77a…", … }],
 	"deleted":   ["case_000008"],
 	"notices":   [{ "id": "case_002344", "fields": ["handler_id"] }],
 	"conflicts": [{ "op": "update", "id": "case_000900", "reason": "field_conflict",
@@ -271,23 +287,27 @@ magnitud.
 
 Reglas (probadas en OpenCollect, SB-5):
 
+- **Atajo:** si el `rowVersion` actual es el que leyó el cliente, nadie tocó la
+  fila: se aplica sin comparar.
 - **Por cada campo que la petición cambia:** valor actual = `from` → se
   aplica; distinto → `field_conflict`, **salvo que el valor actual ya sea el
-  que pide el cliente** (`to`): si los dos quieren lo mismo, no hay nada que
-  resolver. La misma regla aplica el cliente al recargar. La comparación es
-  normalizada por tipo (`1500` = `"1500.00"`).
-- **Cambios ajenos en otros campos**, según la política de la hoja, fijada en
-  el servidor: `merge` los conserva y los informa en `notices`; `strict`
-  rechaza la fila con `version_mismatch`.
-- **Eliminar lo que otro editó** es siempre conflicto. Eliminar lo que otro ya
-  eliminó se reporta como eliminado. Editar lo que otro eliminó: `not_found`.
+  que pide el cliente** (`to`, SB-17). La misma regla aplica el cliente al
+  recargar. La comparación es normalizada por tipo (`1500` = `"1500.00"`).
+- **Cambios ajenos en otros campos** —los de `base` cuyo valor actual ya es
+  otro—, según la política de la hoja, fijada en el servidor: `merge` los
+  conserva y los informa en `notices`; `strict` rechaza la fila con
+  `version_mismatch`.
+- **Eliminar lo que otro editó** es siempre conflicto (el `rowVersion` no
+  coincide). Eliminar lo que otro ya eliminó se reporta como eliminado. Editar
+  lo que otro eliminó: `not_found`.
 - **Un conflicto no bloquea el resto del lote.** Un lote mal formado (campo
-  inexistente, de solo lectura o valor inválido) se rechaza entero con 400.
-- **Idempotencia:** la misma llave devuelve la misma respuesta sin reaplicar
-  (`Idempotent-Replayed: true`); la misma llave con otro cuerpo, 422. Un 5xx no
-  se guarda.
+  inexistente, de solo lectura o valor inválido) se rechaza entero con 400. Un
+  error de un handler de dominio deshace el lote entero (SB-20).
+- **Idempotencia (SB-18):** la misma llave devuelve la misma respuesta sin
+  reaplicar (`Idempotent-Replayed: true`); la misma llave con otro cuerpo, 422.
+  Un error no se guarda: se puede reintentar.
 
-### 5.3 Fuente de datos (SB-2, SB-4)
+### 5.3 Fuente de datos (SB-2, SB-4, SB-19)
 
 ```ts
 // packages/server/src/source.ts — cada método puede devolver el valor o una promesa
@@ -295,32 +315,38 @@ interface SheetSource {
 	attach?(definition: SheetDefinition): void;          // conoce las columnas
 	list(q: ListQuery): Page;                             // orden y filtros; desempate por id
 	position(id: string, q: ListQuery): { position: number | null; total: number };
-	get(id: string): Row | undefined;                     // con rowVersion
-	changedFieldsSince(id: string, version: number): string[];
+	get(id: string): Row | undefined;                     // con su rowVersion
 	insert(values): Row;                                  // escritura directa, si no hay handlers
-	update(id: string, values): Row;                      // sube rowVersion y anota los campos
+	update(id: string, values): Row;                      // devuelve la fila con su nuevo rowVersion
 	remove(id: string): void;
+
+	// Opcional: lo que aporta una base transaccional
+	transaction?<T>(fn: (tx: SheetTx) => Promise<T>): Promise<T>;
+	idempotency?: IdempotencyStore;                       // si no, el motor guarda en memoria
+}
+
+interface SheetTx extends SheetSource {
+	lock(ids: string[]): Promise<void>;                   // SELECT … FOR UPDATE, en orden de id
+	db: unknown;                                          // la conexión: los handlers escriben con ella
 }
 ```
 
-Hoy existe `memorySource` (vistas ordenadas en caché, `rowVersion` y versión
-por campo). Cómo conviven fuente, transacción y handlers, con un ejemplo en un
-proyecto anfitrión en JavaScript: `02-fuentes-transacciones-handlers.md`. El motor aplica los lotes de uno en uno, así que leer, comparar y
-escribir no se intercalan entre dos guardados.
+Existen `memorySource` (contador de versión; sin transacción: el motor aplica
+los lotes de uno en uno) y `postgresSource` (huella de contenido, transacción,
+bloqueo e idempotencia en la base). Cómo conviven fuente, transacción y
+handlers, con un ejemplo en un proyecto anfitrión en JavaScript:
+`02-fuentes-transacciones-handlers.md`.
 
-Requisitos de la tabla o vista para que la concurrencia funcione:
-
-- `row_version` entero, que sube con cada cambio de la fila;
-- saber qué campos cambiaron desde una versión: tabla de historial o versión
-  por campo (en memoria, hoy es `fieldVersions`);
-- aplicar el lote dentro de una transacción con bloqueo de las filas tocadas
-  o actualización condicionada (en memoria ya es atómico).
+**La tabla del usuario no necesita nada especial** (SB-4): ni columna de
+versión, ni trigger, ni tabla de cambios. Si ya tiene una columna de versión o
+de fecha de modificación, se puede usar en lugar de la huella, por
+rendimiento.
 
 ### 5.4 Eventos (SB-8)
 
 Cada lote aplicado emite, por fila, `{ sheet, op, id, fields, rowVersion }` a
-quien se suscriba con `sheet.subscribe(fn)`. Hoy no lo consume nadie; es el
-enganche para tiempo real.
+quien se suscriba con `sheet.subscribe(fn)`, **después** de confirmar la
+transacción. Hoy no lo consume nadie; es el enganche para tiempo real.
 
 ---
 

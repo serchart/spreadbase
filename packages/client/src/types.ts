@@ -252,8 +252,16 @@ type Values = Record<string, unknown>;
 export interface BatchRequest {
 	/** `key`: clave temporal del cliente; vuelve en la respuesta junto al id real. */
 	creates: { key: string; values: Values }[];
-	/** Solo los campos cambiados, de → a. `rowVersion`: la que el cliente leyó. */
-	updates: { id: unknown; rowVersion: unknown; changes: Record<string, { from: unknown; to: unknown }> }[];
+	/**
+	 * Solo los campos cambiados, de → a. `rowVersion`: el testigo que el cliente
+	 * leyó (opaco). `base`: lo leído en las escribibles que no cambió.
+	 */
+	updates: {
+		id: unknown;
+		rowVersion: unknown;
+		changes: Record<string, { from: unknown; to: unknown }>;
+		base: Record<string, unknown>;
+	}[];
 	deletes: { id: unknown; rowVersion: unknown }[];
 }
 

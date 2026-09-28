@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isBlank, sameValue, toSchema, validateValue } from '@spreadbase/core';
 import type {
 	BatchInput,
@@ -12,31 +13,72 @@ import type {
 	SheetDefinition,
 	SheetSchema
 } from '@spreadbase/core';
-import { NotFoundError, ValidationError } from './errors.ts';
-import type { SheetSource } from './source.ts';
+import { NotFoundError, SpreadBaseError, ValidationError } from './errors.ts';
+import type { IdempotencyStore, SheetSource, SheetTx } from './source.ts';
 
 type MaybePromise<T> = T | Promise<T>;
 
-/** Lo que la app quiera pasar a sus handlers: el usuario, la petición… */
-export type BatchContext = Record<string, unknown>;
+/**
+ * Lo que reciben los handlers: el contexto que pase la app (el usuario, la
+ * petición…) y, si la fuente es transaccional, `tx`, la transacción del lote.
+ */
+export type BatchContext = Record<string, unknown> & { tx?: SheetTx };
 
 /**
  * Escritura de dominio (SB-3). Si se da, SpreadBase la llama en lugar de
  * escribir la fuente directamente, **después** de validar y resolver la
- * concurrencia: el handler solo recibe lo que hay que aplicar.
+ * concurrencia: el handler solo recibe lo que hay que aplicar. Con una fuente
+ * transaccional, escribe con `ctx.tx.db` dentro de la misma transacción; si
+ * lanza, el lote entero se deshace (SB-20).
  *
- * Deben devolver las filas resultantes con su nuevo `rowVersion`, en el mismo
- * orden en que las recibieron.
+ * `insertMany` y `updateMany` devuelven las filas resultantes, en el mismo
+ * orden en que las recibieron. El `rowVersion` lo pone la fuente: si la fila
+ * devuelta no lo trae, el motor la vuelve a leer.
  */
 export interface SheetHandlers {
-	insertMany?: (items: { values: Record<string, CellValue> }[], ctx: BatchContext) => MaybePromise<Row[]>;
-	updateMany?: (items: { id: string; values: Record<string, CellValue>; row: Row }[], ctx: BatchContext) => MaybePromise<Row[]>;
+	insertMany?: (items: { values: Record<string, CellValue> }[], ctx: BatchContext) => MaybePromise<Record<string, unknown>[]>;
+	updateMany?: (
+		items: { id: string; values: Record<string, CellValue>; row: Row }[],
+		ctx: BatchContext
+	) => MaybePromise<Record<string, unknown>[]>;
 	deleteMany?: (items: { id: string; row: Row }[], ctx: BatchContext) => MaybePromise<void>;
 }
 
 export interface SpreadBaseOptions extends SheetDefinition {
 	source: SheetSource;
 	handlers?: SheetHandlers;
+}
+
+export interface BatchOptions {
+	/** Contexto para los handlers: el usuario, la petición… */
+	context?: Record<string, unknown>;
+	/** `Idempotency-Key` del cliente (SB-18). Sin ella, cada envío se aplica. */
+	idempotencyKey?: string;
+}
+
+export interface BatchOutcome {
+	result: BatchResult;
+	/** La llave ya se había usado: es la respuesta guardada, no se aplicó nada. */
+	replayed: boolean;
+}
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Idempotencia en memoria, para fuentes sin transacción. */
+function memoryIdempotency(): IdempotencyStore {
+	const saved = new Map<string, { bodyHash: string; result: BatchResult; expires: number }>();
+	return {
+		get(key) {
+			const hit = saved.get(key);
+			if (hit && hit.expires < Date.now()) saved.delete(key);
+			return saved.get(key);
+		},
+		put(key, bodyHash, result) {
+			const now = Date.now();
+			for (const [k, v] of saved) if (v.expires < now) saved.delete(k);
+			saved.set(key, { bodyHash, result, expires: now + IDEMPOTENCY_TTL_MS });
+		}
+	};
 }
 
 /**
@@ -50,7 +92,8 @@ export class SpreadBase {
 	private readonly source: SheetSource;
 	private readonly handlers: SheetHandlers;
 	private readonly listeners = new Set<(event: ChangeEvent) => void>();
-	/** Los lotes se aplican de uno en uno: leer, comparar y escribir no se intercalan. */
+	private readonly memoryStore = memoryIdempotency();
+	/** Sin transacción, los lotes se aplican de uno en uno: leer, comparar y escribir no se intercalan. */
 	private queue: Promise<unknown> = Promise.resolve();
 
 	constructor({ source, handlers, ...definition }: SpreadBaseOptions) {
@@ -108,7 +151,7 @@ export class SpreadBase {
 
 	// -- escritura ------------------------------------------------------------
 
-	/** Recibe cada fila aplicada (SB-8). Devuelve la función para dejar de escuchar. */
+	/** Recibe cada fila aplicada (SB-8), tras confirmar. Devuelve la función para dejar de escuchar. */
 	subscribe(listener: (event: ChangeEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -122,31 +165,77 @@ export class SpreadBase {
 	 *   editable— se rechaza entero con 400 y no se aplica nada.
 	 * - Una fila **en conflicto** —otro usuario la cambió o la eliminó— se
 	 *   devuelve en `conflicts` y **el resto del lote se aplica** (G-11).
+	 *
+	 * Con una fuente transaccional, todo ocurre en una transacción: bloqueo,
+	 * comparación, escritura e idempotencia. Si algo lanza, no queda nada escrito.
 	 */
-	batch(input: BatchInput, ctx: BatchContext = {}): Promise<BatchResult> {
-		const run = this.queue.then(() => this.applyBatch(input, ctx));
-		this.queue = run.catch(() => undefined);
-		return run;
+	async batch(input: BatchInput, options: BatchOptions = {}): Promise<BatchOutcome> {
+		const key = options.idempotencyKey || undefined;
+		if (key && key.length > 200) {
+			throw new SpreadBaseError(400, 'invalid_idempotency_key', 'Idempotency-Key admite hasta 200 caracteres');
+		}
+		const bodyHash = key ? createHash('sha256').update(JSON.stringify(input)).digest('hex') : '';
+		const context = options.context ?? {};
+
+		const run = async (source: SheetSource, tx: SheetTx | undefined, store: IdempotencyStore) => {
+			if (key) {
+				const saved = await store.get(key);
+				if (saved) {
+					if (saved.bodyHash !== bodyHash) {
+						throw new SpreadBaseError(422, 'idempotency_key_reused', 'Esta Idempotency-Key ya se usó con otro cuerpo');
+					}
+					return { result: saved.result, replayed: true, events: [] as ChangeEvent[] };
+				}
+			}
+			const { result, events } = await this.applyBatch(input, { ...context, tx }, source, tx);
+			if (key) await store.put(key, bodyHash, result);
+			return { result, replayed: false, events };
+		};
+
+		let outcome: { result: BatchResult; replayed: boolean; events: ChangeEvent[] };
+		if (this.source.transaction) {
+			outcome = await this.source.transaction((tx) => run(tx, tx, tx.idempotency ?? this.memoryStore));
+		} else {
+			const queued = this.queue.then(() => run(this.source, undefined, this.memoryStore));
+			this.queue = queued.catch(() => undefined);
+			outcome = await queued;
+		}
+
+		// Los eventos salen después de confirmar: nadie se entera de algo que se deshizo.
+		for (const event of outcome.events) for (const listener of this.listeners) listener(event);
+		return { result: outcome.result, replayed: outcome.replayed };
 	}
 
-	private async applyBatch(input: BatchInput, ctx: BatchContext): Promise<BatchResult> {
-		await this.validateBatch(input);
+	private async applyBatch(
+		input: BatchInput,
+		ctx: BatchContext,
+		source: SheetSource,
+		tx: SheetTx | undefined
+	): Promise<{ result: BatchResult; events: ChangeEvent[] }> {
+		// Bloquear primero, en orden de id: dos lotes sobre las mismas filas no se esperan en círculo.
+		if (tx) {
+			const ids = [...new Set([...input.updates.map((u) => u.id), ...input.deletes.map((d) => d.id)])].sort();
+			if (ids.length > 0) await tx.lock(ids);
+		}
+
+		await this.validateBatch(input, source);
 
 		const result: BatchResult = { created: [], updated: [], deleted: [], notices: [], conflicts: [] };
 		const events: ChangeEvent[] = [];
+		const writable = this.writableFields();
 
 		// -- ediciones: concurrencia por campo (G-14) y política (G-15)
 		const toUpdate: { id: string; values: Record<string, CellValue>; row: Row }[] = [];
-		for (const { id, rowVersion, changes } of input.updates) {
-			const row = await this.source.get(id);
+		for (const { id, rowVersion, changes, base } of input.updates) {
+			const row = await source.get(id);
 			if (!row) {
 				result.conflicts.push({ op: 'update', id, reason: 'not_found', remote: null });
 				continue;
 			}
 			const fields = Object.entries(changes);
 
-			// Atajo: misma versión que leyó el cliente → nadie más tocó la fila.
-			if (row.rowVersion !== rowVersion) {
+			// Atajo: el testigo que leyó el cliente → nadie más tocó la fila.
+			if (!sameVersion(row.rowVersion, rowVersion)) {
 				// Conflicto solo si otro dejó el campo en un valor distinto del que lee el
 				// cliente **y** del que quiere: si los dos quieren lo mismo, no hay nada que resolver.
 				const clashes: FieldConflict[] = fields
@@ -160,8 +249,11 @@ export class SpreadBase {
 					result.conflicts.push({ op: 'update', id, reason: 'version_mismatch', remote: { ...row } });
 					continue;
 				}
+				// Lo que el cliente leyó en los campos que no tocó y ya es otro: lo cambió otro usuario (SB-16).
 				const touched = new Set(fields.map(([field]) => field));
-				const foreign = (await this.source.changedFieldsSince(id, rowVersion)).filter((f) => !touched.has(f));
+				const foreign = Object.entries(base ?? {})
+					.filter(([field, seen]) => writable.has(field) && !touched.has(field) && !sameValue(row[field], seen))
+					.map(([field]) => field);
 				if (foreign.length > 0) result.notices.push({ id, fields: foreign });
 			}
 			toUpdate.push({ id, values: Object.fromEntries(fields.map(([field, change]) => [field, change.to])), row });
@@ -170,13 +262,13 @@ export class SpreadBase {
 		// -- bajas: eliminar lo que otro editó es siempre conflicto (G-16)
 		const toDelete: { id: string; row: Row }[] = [];
 		for (const { id, rowVersion } of input.deletes) {
-			const row = await this.source.get(id);
+			const row = await source.get(id);
 			// Ya no existe: lo que el cliente quería ya ocurrió. No es un conflicto.
 			if (!row) {
 				result.deleted.push(id);
 				continue;
 			}
-			if (row.rowVersion !== rowVersion) {
+			if (!sameVersion(row.rowVersion, rowVersion)) {
 				result.conflicts.push({ op: 'delete', id, reason: 'version_mismatch', remote: { ...row } });
 				continue;
 			}
@@ -185,15 +277,16 @@ export class SpreadBase {
 
 		// -- aplicar: los handlers de dominio si los hay; si no, la fuente
 		const updated = this.handlers.updateMany
-			? await this.handlers.updateMany(toUpdate, ctx)
-			: await Promise.all(toUpdate.map((u) => this.source.update(u.id, u.values)));
+			? await this.withVersions(source, await this.handlers.updateMany(toUpdate, ctx))
+			: await sequential(toUpdate, (u) => source.update(u.id, u.values));
 		updated.forEach((row, i) => {
+			const u = toUpdate[i]!;
 			result.updated.push({ ...row });
-			events.push({ sheet: this.id, op: 'update', id: toUpdate[i]!.id, fields: Object.keys(toUpdate[i]!.values), rowVersion: row.rowVersion });
+			events.push({ sheet: this.id, op: 'update', id: u.id, fields: Object.keys(u.values), rowVersion: row.rowVersion });
 		});
 
 		if (this.handlers.deleteMany) await this.handlers.deleteMany(toDelete, ctx);
-		else for (const d of toDelete) await this.source.remove(d.id);
+		else await sequential(toDelete, (d) => source.remove(d.id));
 		for (const d of toDelete) {
 			result.deleted.push(d.id);
 			events.push({ sheet: this.id, op: 'delete', id: d.id, fields: [], rowVersion: null });
@@ -201,18 +294,36 @@ export class SpreadBase {
 
 		const toInsert = input.creates.map((c) => ({ values: c.values }));
 		const created = this.handlers.insertMany
-			? await this.handlers.insertMany(toInsert, ctx)
-			: await Promise.all(toInsert.map((c) => this.source.insert(c.values)));
+			? await this.withVersions(source, await this.handlers.insertMany(toInsert, ctx))
+			: await sequential(toInsert, (c) => source.insert(c.values));
 		created.forEach((row, i) => {
-			result.created.push({ key: input.creates[i]!.key, row: { ...row } });
-			events.push({ sheet: this.id, op: 'create', id: String(row[this.idField]), fields: Object.keys(input.creates[i]!.values), rowVersion: row.rowVersion });
+			const c = input.creates[i]!;
+			result.created.push({ key: c.key, row: { ...row } });
+			events.push({ sheet: this.id, op: 'create', id: String(row[this.idField]), fields: Object.keys(c.values), rowVersion: row.rowVersion });
 		});
 
-		for (const event of events) for (const listener of this.listeners) listener(event);
-		return result;
+		return { result, events };
 	}
 
-	private async validateBatch(input: BatchInput): Promise<void> {
+	/** Filas devueltas por un handler sin `rowVersion`: se vuelven a leer de la fuente, que lo calcula. */
+	private async withVersions(source: SheetSource, rows: Record<string, unknown>[]): Promise<Row[]> {
+		return sequential(rows, async (row) => {
+			if (row.rowVersion !== undefined && row.rowVersion !== null) return row as Row;
+			const fresh = await source.get(String(row[this.idField]));
+			if (!fresh) throw new Error(`El handler devolvió la fila ${String(row[this.idField])}, pero la fuente no la encuentra`);
+			return fresh;
+		});
+	}
+
+	private writableFields(): Set<string> {
+		return new Set(
+			Object.entries(this.definition.columns)
+				.filter(([field, spec]) => !spec.readOnly && field !== this.idField)
+				.map(([field]) => field)
+		);
+	}
+
+	private async validateBatch(input: BatchInput, source: SheetSource): Promise<void> {
 		const problems: { path: string; message: string }[] = [];
 		const seen = new Set<string>();
 		const columns = this.definition.columns;
@@ -233,7 +344,7 @@ export class SpreadBase {
 			if (seen.has(u.id)) problems.push({ path: `updates[${i}].id`, message: 'Fila repetida en el lote' });
 			seen.add(u.id);
 			const targets = Object.fromEntries(Object.entries(u.changes).map(([f, c]) => [f, c?.to]));
-			const current = (await this.source.get(u.id)) ?? {};
+			const current = (await source.get(u.id)) ?? {};
 			check(`updates[${i}].changes`, targets, { ...current, ...targets });
 		}
 		input.deletes.forEach((d, i) => {
@@ -257,4 +368,14 @@ export class SpreadBase {
 
 		if (problems.length > 0) throw new ValidationError('El lote tiene valores inválidos', problems);
 	}
+}
+
+/** Los testigos son opacos: se comparan como texto (`1` y `"1"` son el mismo). */
+const sameVersion = (a: unknown, b: unknown) => a !== null && a !== undefined && String(a) === String(b);
+
+/** Una conexión de base no admite consultas en paralelo dentro de una transacción. */
+async function sequential<T, R>(items: T[], fn: (item: T) => MaybePromise<R>): Promise<R[]> {
+	const out: R[] = [];
+	for (const item of items) out.push(await fn(item));
+	return out;
 }

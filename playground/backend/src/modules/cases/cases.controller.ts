@@ -31,9 +31,11 @@ export class CasesController {
 
 	batch = async (req: Request, res: Response) => {
 		const input = parseBatch(req.body);
-		// En OpenCollect aquí iría el usuario autenticado: { user: req.user }.
-		const result = await this.service.portfolio.batch(input, {});
-		logBatch(input, result, req.header('idempotency-key'));
+		const key = req.get('Idempotency-Key');
+		// La idempotencia la lleva el motor (SB-18). En OpenCollect, `context` llevaría el usuario.
+		const { result, replayed } = await this.service.portfolio.batch(input, { idempotencyKey: key, context: {} });
+		logBatch(input, result, key, replayed);
+		if (replayed) res.set('Idempotent-Replayed', 'true');
 		res.json(result);
 	};
 

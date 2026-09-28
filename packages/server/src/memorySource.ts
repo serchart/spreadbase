@@ -16,7 +16,6 @@ export interface MemorySource extends SheetSource {
 	list(query: ListQuery): Page;
 	position(id: string, query: ListQuery): { position: number | null; total: number };
 	get(id: string): Row | undefined;
-	changedFieldsSince(id: string, version: number): string[];
 	insert(values: Record<string, CellValue>): Row;
 	update(id: string, values: Record<string, CellValue>): Row;
 	remove(id: string): void;
@@ -45,13 +44,6 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 	/** Sube con cada escritura. Invalida las vistas y viaja en cada página. */
 	let version = 0;
 	const views = new Map<string, { version: number; rows: Row[]; position?: Map<string, number> }>();
-	/**
-	 * En qué versión de la fila cambió cada campo por última vez. Es lo que
-	 * permite decir **qué** campos cambió otro usuario desde la versión que leyó
-	 * el cliente (`notices`). En Postgres sería una tabla de historial o una
-	 * columna por campo; aquí, un mapa.
-	 */
-	const fieldVersions = new Map<string, Record<string, number>>();
 	const createId = options.createId ?? ((n: number) => String(n));
 
 	const idOf = (row: Record<string, unknown>) => String(row[idField]);
@@ -68,7 +60,6 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 		removed.clear();
 		rows = initial.map((r) => ({ ...r, rowVersion: typeof r.rowVersion === 'number' ? r.rowVersion : 1 }));
 		byId = new Map(rows.map((r) => [idOf(r), r]));
-		fieldVersions.clear();
 		counter = rows.length;
 		version++;
 		views.clear();
@@ -127,14 +118,10 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 		return { rows: result, key };
 	}
 
+	/** En memoria el testigo es un contador: la fuente ve todas las escrituras. */
 	function write(row: Row, values: Record<string, CellValue>) {
-		row.rowVersion++;
-		const versions = fieldVersions.get(idOf(row)) ?? {};
-		for (const [field, value] of Object.entries(values)) {
-			row[field] = value;
-			versions[field] = row.rowVersion;
-		}
-		fieldVersions.set(idOf(row), versions);
+		row.rowVersion = Number(row.rowVersion) + 1;
+		for (const [field, value] of Object.entries(values)) row[field] = value;
 		version++;
 	}
 
@@ -182,12 +169,6 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 			return byId.get(id);
 		},
 
-		changedFieldsSince(id, since) {
-			return Object.entries(fieldVersions.get(id) ?? {})
-				.filter(([, v]) => v > since)
-				.map(([field]) => field);
-		},
-
 		insert(values) {
 			const defaults: Record<string, unknown> = {};
 			for (const [field, spec] of Object.entries(definition?.columns ?? {})) defaults[field] = spec.defaultValue ?? null;
@@ -207,7 +188,6 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 
 		remove(id) {
 			if (!byId.delete(id)) return;
-			fieldVersions.delete(id);
 			removed.add(id);
 			version++;
 		}
