@@ -27,6 +27,12 @@ export interface PostgresSourceOptions {
 	idempotencyTable?: string;
 	/** Cuánto se guarda una respuesta idempotente. Default: 24 h. */
 	idempotencyTtlHours?: number;
+	/**
+	 * Collation para ordenar las columnas de texto (`text`, `select`, `lookup`),
+	 * p. ej. `es-x-icu`. Sin ella, la de la base: en imágenes con musl (alpine)
+	 * ordena por bytes y «Óscar» queda después de «Zoe».
+	 */
+	collation?: string;
 }
 
 /** `schema.tabla` → `"schema"."tabla"`, con comillas escapadas. */
@@ -130,7 +136,10 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		const id = ident(idField);
 		if (!query.sort || !isColumn(query.sort.field)) return `ORDER BY ${id}`;
 		const dir = query.sort.dir === 'desc' ? 'DESC' : 'ASC';
-		return `ORDER BY ${ident(query.sort.field)} ${dir} NULLS LAST, ${id}`;
+		const type = def().columns[query.sort.field]?.type;
+		const textual = type === 'text' || type === 'select' || type === 'lookup';
+		const collate = options.collation && textual ? ` COLLATE ${ident(options.collation)}` : '';
+		return `ORDER BY ${ident(query.sort.field)}${collate} ${dir} NULLS LAST, ${id}`;
 	}
 
 	/** Crea la tabla de idempotencia la primera vez (SB-18). */

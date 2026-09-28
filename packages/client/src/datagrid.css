@@ -679,9 +679,14 @@
 	font-variant-numeric: tabular-nums;
 }
 
+/* Avatar: más grande que una miniatura, porque es una cara y hay que reconocerla. */
 .oc-image-cell.is-round .oc-image-thumb {
+	display: block;
+	margin: 0 auto;
+	width: 24px;
+	height: 24px;
+	max-height: 24px;
 	border-radius: 999px;
-	width: 16px;
 }
 
 .oc-cell-editor__preview {

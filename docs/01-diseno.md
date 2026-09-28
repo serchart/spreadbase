@@ -411,7 +411,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 |---|---|
 | `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
 | `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor; L-1 a L-5 (lookup) y T-1 a T-5 (contraseña y casilla) sobre el ejemplo de Postgres |
-| `tests/postgres/` | `postgresSource` (23), columnas lookup (15) y contraseña y booleano (11) contra una base real |
+| `tests/postgres/` | `postgresSource` (23), columnas lookup (15), contraseña y booleano (11) y orden (4) contra una base real |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -436,6 +436,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 14 | Columna `lookup` (SB-21): protocolo, motor, popover con mini tabla paginada, pegado en tres pasos; 15 pruebas del motor y 5 de navegador | ✅ |
 | 15 | Ejemplo de Postgres con un campo de cada tipo: texto, número, select, lookup, imagen, fecha y fecha-hora | ✅ |
 | 16 | Tipos `PASSWORD` (SB-22) y `BOOLEAN`; hoja de usuarios en el ejemplo de Postgres; 11 pruebas del motor y T-1 a T-5 en navegador | ✅ |
+| 17 | Orden por defecto de la hoja (`defaultSort`) y `collation` en `postgresSource` para ordenar texto en español (`es-x-icu`); 4 pruebas contra la base | ✅ |
 
 ### Pendientes conocidos
 
@@ -459,9 +460,6 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
   formato del cliente, en la zona de la sesión de la base. Leer otro formato
   hacía que `from` y `base` no coincidieran con lo guardado (conflictos y
   avisos falsos); con `timestamptz`, la hoja trabaja en la zona de la conexión.
-- **Orden por defecto:** sin `sort`, la lista sale por id. Con ids `uuid` (los
-  usuarios de OpenCollect) el orden parece aleatorio y una fila nueva cae en
-  cualquier parte al recargar. Falta un `defaultSort` en la definición.
 - **Instalación por ruta local:** mientras no se publique, un proyecto consume
   los paquetes con `file:../../SpreadBase/packages/*`. En Vite hace falta
   `resolve.dedupe: ['svelte']` (una sola copia de Svelte) y permitir la carpeta

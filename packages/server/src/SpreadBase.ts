@@ -123,6 +123,10 @@ export class SpreadBase {
 				throw new Error(`La columna "${field}" (password) necesita hash(plain, ctx): nunca se guarda en claro`);
 			}
 		}
+		const sortBy = definition.defaultSort?.field;
+		if (sortBy && (!(sortBy in definition.columns) || definition.columns[sortBy]!.type === 'password')) {
+			throw new Error(`defaultSort: no se puede ordenar por "${sortBy}"`);
+		}
 		this.passwordFields = Object.entries(definition.columns)
 			.filter(([, spec]) => spec.type === 'password')
 			.map(([field]) => field);
@@ -259,8 +263,12 @@ export class SpreadBase {
 		return { id, position, total };
 	}
 
-	/** Filtros sobre columnas desconocidas se ignoran; ordenar por una desconocida es un error. */
-	private checkQuery(query: ListQuery): ListQuery {
+	/**
+	 * Filtros sobre columnas desconocidas se ignoran; ordenar por una desconocida
+	 * es un error. Sin orden pedido, el de la hoja (`defaultSort`).
+	 */
+	private checkQuery(input: ListQuery): ListQuery {
+		const query = input.sort ? input : { ...input, sort: this.definition.defaultSort ?? null };
 		const columns = this.definition.columns;
 		if (query.sort && (!(query.sort.field in columns) || this.passwordFields.includes(query.sort.field))) {
 			throw new ValidationError(`No se puede ordenar por "${query.sort.field}"`);

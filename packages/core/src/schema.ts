@@ -147,6 +147,11 @@ export interface SheetDefinition {
 	allowDelete?: boolean;
 	/** Cambios ajenos en campos que el lote no toca (G-15). Default: `merge`. */
 	policy?: RemoteChangePolicy;
+	/**
+	 * Orden cuando la consulta no pide ninguno. Sin él, por id (con ids `uuid`
+	 * parece aleatorio). El desempate por id se agrega siempre.
+	 */
+	defaultSort?: { field: string; dir: 'asc' | 'desc' };
 	/** El orden de las claves es el orden de las columnas. */
 	columns: Record<string, ColumnSpec>;
 }
