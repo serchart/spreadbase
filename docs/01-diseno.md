@@ -423,7 +423,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
 | 9 | E2E de navegador en `tests/grid/`: los 32 escenarios (§7) | ✅ |
 | 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
-| 11 | `postgresSource` (SB-2, SB-4) | ⬜ |
+| 11 | `postgresSource` (SB-2, SB-4, SB-18, SB-19): 22 pruebas contra una base real y `examples/postgres` verificado en navegador | ✅ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
 
 ### Pendientes conocidos
@@ -435,10 +435,11 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
   probado; se hará con las pruebas del navegador completas.
 - **`client/types.ts` repite tipos del protocolo** (`BatchRequest`,
   `BatchResponse`…) en lugar de importarlos de `core`.
-- **`handlers`:** el playground ejercita `insertMany`; `updateMany` y
-  `deleteMany` están implementados pero ninguna prueba los usa todavía.
+- **Supabase:** `postgresSource` está probado contra Postgres 16 en Docker. Falta
+  correr las mismas pruebas contra el proyecto de Supabase: hace falta su
+  cadena de conexión (`DATABASE_URL`), no solo la llave de la API.
 - **Nombres heredados:** las clases CSS siguen con prefijo `oc-` (`oc-grid`,
   `oc-cell-dirty`) y las pruebas dependen de ellas. Renombrar a `sb-` es un
   cambio mecánico que conviene hacer antes de publicar.
-- **Idempotencia en memoria:** vale para un proceso; con varios, irá a Redis o
-  a la base con el mismo contrato.
+- **Idempotencia en memoria** (`memorySource`): vale para un proceso. Con
+  Postgres ya va en la base, en la misma transacción que el lote.

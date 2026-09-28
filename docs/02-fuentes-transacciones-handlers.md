@@ -256,7 +256,7 @@ class ProductsService {
 				 WHERE id = $1 RETURNING ${RETURNING}`,
 				[id, ...fields.map((f) => values[f]), user?.id ?? null]
 			);
-			// La fuente calcula la huella nueva de esta fila al devolverla.
+			// Sin rowVersion: SpreadBase relee la fila y la fuente calcula su huella nueva.
 			updated.push(rows[0]);
 		}
 		return updated;

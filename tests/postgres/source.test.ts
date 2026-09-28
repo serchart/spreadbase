@@ -350,6 +350,16 @@ describe('idempotencia en la base (SB-18)', () => {
 		await expect(s.batch(create('Otro'), { idempotencyKey: 'k-c' })).rejects.toMatchObject({ status: 422, code: 'idempotency_key_reused' });
 	});
 
+	it('si borran la tabla con el servidor en marcha, se recrea en el siguiente lote', async () => {
+		const s = sheet();
+		await s.batch(create('Idem E'), { idempotencyKey: 'k-e1' });
+		await pool.query(`DROP TABLE ${IDEMPOTENCY}`);
+		await expect(s.batch(create('Idem E2'), { idempotencyKey: 'k-e2' })).rejects.toMatchObject({ code: '42P01' });
+		const { replayed } = await s.batch(create('Idem E2'), { idempotencyKey: 'k-e2' });
+		expect(replayed).toBe(false);
+		expect(await countByName('Idem E2')).toBe(1);
+	});
+
 	it('dos envíos simultáneos con la misma llave no aplican el lote dos veces', async () => {
 		const s = sheet();
 		const outcomes = await Promise.allSettled([

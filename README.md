@@ -13,6 +13,7 @@ packages/server  @spreadbase/server — motor, fuentes de datos y helpers HTTP (
 packages/client  @spreadbase/client — Sheet + <SpreadBase>: la hoja, historial, borrador y paneles (frontend)
 packages/core    @spreadbase/core — tipos y validación compartidos; llega con los otros dos
 examples/basic   ejemplo didáctico: back + front mínimos
+examples/postgres catálogo sobre Postgres, backend JS con estructura de Aggy (fuente, transacción y handlers)
 playground/      banco de desarrollo: 50 000 filas, backend en capas, pruebas E2E y rendimiento
 tests/           pruebas E2E por módulo (API real + navegador)
 ```
@@ -51,6 +52,12 @@ npm test                      # E2E contra el playground (lo reinicia)
 
 npm run basic:back            # http://localhost:4200
 npm run basic:front           # http://localhost:5280
+
+npm run postgres:setup        # tablas y semilla del ejemplo Postgres (necesita DATABASE_URL en .env)
+npm run postgres:reset        # vuelve a la semilla
+npm run postgres:back         # http://localhost:4300
+npm run postgres:front        # http://localhost:5380
+npm test -- --project postgres   # pruebas de postgresSource contra DATABASE_URL
 ```
 
 Las apps que lo usen mientras no se publique apuntan al repo local

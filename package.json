@@ -11,6 +11,8 @@
 		"playground/frontend",
 		"examples/basic/backend",
 		"examples/basic/frontend",
+		"examples/postgres/backend",
+		"examples/postgres/frontend",
 		"tests"
 	],
 	"scripts": {
@@ -20,7 +22,11 @@
 		"playground:back": "npm run dev -w @spreadbase/playground-backend",
 		"playground:front": "npm run dev -w @spreadbase/playground-frontend",
 		"basic:back": "npm run dev -w @spreadbase/example-basic-backend",
-		"basic:front": "npm run dev -w @spreadbase/example-basic-frontend"
+		"basic:front": "npm run dev -w @spreadbase/example-basic-frontend",
+		"postgres:setup": "npm run setup -w @spreadbase/example-postgres-backend",
+		"postgres:reset": "npm run setup -w @spreadbase/example-postgres-backend -- --reset",
+		"postgres:back": "npm run dev -w @spreadbase/example-postgres-backend",
+		"postgres:front": "npm run dev -w @spreadbase/example-postgres-frontend"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",

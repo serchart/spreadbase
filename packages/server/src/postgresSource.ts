@@ -280,6 +280,8 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 			return result;
 		} catch (error) {
 			await client.query('ROLLBACK').catch(() => undefined);
+			// Alguien borró la tabla de idempotencia con el servidor en marcha: se recrea en el próximo lote.
+			if ((error as { code?: string }).code === '42P01') ready = null;
 			throw error;
 		} finally {
 			client.release();
