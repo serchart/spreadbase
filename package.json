@@ -3,15 +3,23 @@
 	"private": true,
 	"version": "0.0.0",
 	"type": "module",
+	"workspaces": [
+		"packages/core",
+		"packages/server",
+		"packages/client",
+		"playground/backend",
+		"playground/frontend",
+		"tests"
+	],
 	"scripts": {
 		"check": "npm run check --workspaces --if-present",
-		"test": "vitest run",
-		"demo": "npm run dev -w @spreadbase/demo"
+		"test": "npm test -w @spreadbase/tests",
+		"test:unit": "npm test -w @spreadbase/client",
+		"playground:back": "npm run dev -w @spreadbase/playground-backend",
+		"playground:front": "npm run dev -w @spreadbase/playground-frontend",
+		"basic:back": "npm run dev -w @spreadbase/example-basic-backend",
+		"basic:front": "npm run dev -w @spreadbase/example-basic-frontend"
 	},
-	"workspaces": [
-		"packages/*",
-		"apps/*"
-	],
 	"devDependencies": {
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.11"

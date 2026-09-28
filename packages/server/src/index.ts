@@ -1,4 +1,11 @@
-export * from './engine.ts';
-export * from './routes.ts';
-export * from './idempotency.ts';
-export * from './errors.ts';
+export { SpreadBase } from './SpreadBase.ts';
+export type { SpreadBaseOptions, SheetHandlers, BatchContext } from './SpreadBase.ts';
+export type { SheetSource } from './source.ts';
+export { memorySource } from './memorySource.ts';
+export type { MemorySource, MemorySourceOptions } from './memorySource.ts';
+export { parseListQuery, parseBatch, sheetRouter } from './http.ts';
+export type { SheetRouterOptions } from './http.ts';
+export { idempotent } from './idempotency.ts';
+export { SpreadBaseError, ValidationError, NotFoundError, errorHandler, notFoundHandler } from './errors.ts';
+export { types, toSchema } from '@spreadbase/core';
+export type * from '@spreadbase/core';

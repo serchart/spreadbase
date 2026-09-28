@@ -1,97 +1,118 @@
 /**
- * El protocolo HTTP de SpreadBase (SB-5). Tipos compartidos por el servidor
- * (los produce) y el cliente (los consume); no se rediseñan.
-
- * Referencia: docs/07-anexo-datagrid-engine.md §11.13–§11.14 de OpenCollect.
+ * Protocolo HTTP entre `@spreadbase/client` y `@spreadbase/server` (SB-5).
+ * Origen: `open-collect-crm/docs/07-anexo-datagrid-engine.md` §11.13–§11.14.
  */
+import type { CellValue } from './values.ts';
+import type { RemoteChangePolicy } from './schema.ts';
 
-/** Lectura por tramos. `offset` es la posición global de la primera fila. */
-export interface PageRequest {
+export type { RemoteChangePolicy };
+
+/** Una fila tal como la devuelve el servidor: sus campos más el testigo de versión. */
+export type Row = Record<string, unknown> & { rowVersion: number };
+
+/** `?offset&limit&sort=campo:asc|desc&search=&<campo>=a,b` */
+export interface ListQuery {
 	offset: number;
 	limit: number;
-	sort?: { field: string; direction: 'asc' | 'desc' };
-	filters?: Record<string, unknown>;
-	search?: string;
+	sort: { field: string; dir: 'asc' | 'desc' } | null;
+	/** Por campo: valores admitidos. */
+	filters: Record<string, string[]>;
+	search: string;
 }
 
-export interface PageResult<Row = Record<string, unknown>> {
-	rows: Row[];
+export interface Page<R = Row> {
+	rows: R[];
+	/** Filas totales de la consulta, no solo las devueltas. */
 	total: number;
+	offset: number;
+	limit: number;
+	/** Versión global de la fuente. Si cambia entre dos páginas, los datos cambiaron en medio. */
 	version: number;
 }
 
-export interface LocateResult {
-	position: number;
+export interface Position {
+	id: string;
+	/** 0-based; `null` si la consulta excluye la fila. */
+	position: number | null;
 	total: number;
-	version: number;
 }
 
-/** Una celda que cambia: el valor que el cliente leyó y el que quiere. */
-export interface FieldChange {
-	from: unknown;
-	to: unknown;
-}
+// -- lote de guardado -------------------------------------------------------
 
-export interface BatchCreate {
-	/** Clave temporal del cliente; la respuesta la devuelve con la fila creada. */
+export interface CreateInput {
+	/** Clave temporal del cliente. Vuelve en la respuesta junto al id real. */
 	key: string;
-	values: Record<string, unknown>;
+	values: Record<string, CellValue>;
 }
 
-export interface BatchUpdate {
-	id: unknown;
-	/** Versión que el cliente leyó; si coincide con la remota, se aplica sin comparar. */
+/** Un campo cambiado: el valor que el cliente leyó (`from`) y el que quiere (`to`). */
+export interface FieldChange {
+	from: CellValue;
+	to: CellValue;
+}
+
+export interface UpdateInput {
+	id: string;
+	/** Versión que el cliente leyó. Si coincide, nadie más tocó la fila. */
 	rowVersion: number;
+	/** Solo los campos que cambian. */
 	changes: Record<string, FieldChange>;
 }
 
-export interface BatchDelete {
-	id: unknown;
+export interface DeleteInput {
+	id: string;
 	rowVersion: number;
 }
 
-export interface BatchRequest {
-	creates: BatchCreate[];
-	updates: BatchUpdate[];
-	deletes: BatchDelete[];
+export interface BatchInput {
+	creates: CreateInput[];
+	updates: UpdateInput[];
+	deletes: DeleteInput[];
 }
-
-export type ConflictReason = 'field_conflict' | 'version_mismatch' | 'not_found';
 
 /** Un campo que cambiaron el cliente y otro usuario, a valores distintos. */
 export interface FieldConflict {
 	field: string;
-	/** Lo que el cliente leyó. */
-	from: unknown;
-	/** Lo que el cliente quiere guardar. */
-	yours: unknown;
-	/** Lo que hay ahora. */
+	from: CellValue;
+	yours: CellValue;
 	remote: unknown;
 }
 
-export interface Conflict<Row = Record<string, unknown>> {
+/**
+ * Una operación que no se aplicó.
+ * - `field_conflict`: uno o más campos los cambiaron ambos.
+ * - `version_mismatch`: la fila cambió y la política es `strict`, o es una baja
+ *   sobre una fila que otro editó (G-16).
+ * - `not_found`: otro usuario la eliminó.
+ */
+export interface Conflict {
 	op: 'update' | 'delete';
-	id: unknown;
-	reason: ConflictReason;
-	/** Solo en `field_conflict`. */
+	id: string;
+	reason: 'field_conflict' | 'version_mismatch' | 'not_found';
 	fields?: FieldConflict[];
-	/** La fila vigente, para resolver sin otra petición. `null` si ya no existe. */
+	/** La fila vigente, para resolver sin otra petición; `null` si ya no existe. */
 	remote: Row | null;
 }
 
-/** Fila aplicada que conservó cambios ajenos en otros campos (política merge). */
+/** Fila aplicada que traía cambios ajenos en otros campos (política `merge`). */
 export interface Notice {
-	id: unknown;
+	id: string;
 	fields: string[];
 }
 
-export interface BatchResponse<Row = Record<string, unknown>> {
+export interface BatchResult {
 	created: { key: string; row: Row }[];
 	updated: Row[];
-	deleted: unknown[];
+	deleted: string[];
 	notices: Notice[];
-	conflicts: Conflict<Row>[];
+	conflicts: Conflict[];
 }
 
-/** Qué hacer con cambios ajenos en campos que la petición no toca. */
-export type RemoteChangePolicy = 'merge' | 'strict';
+/** Lo que emite el servidor por cada fila aplicada (SB-8). */
+export interface ChangeEvent {
+	sheet: string;
+	op: 'create' | 'update' | 'delete';
+	id: string;
+	fields: string[];
+	rowVersion: number | null;
+}

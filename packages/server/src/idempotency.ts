@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { HttpError } from './errors.ts';
+import { SpreadBaseError } from './errors.ts';
 
 /**
  * Idempotencia por cabecera `Idempotency-Key` (decisión G-12).
@@ -9,8 +9,8 @@ import { HttpError } from './errors.ts';
  * un doble clic en Guardar o un reintento tras un corte de red no duplica
  * altas. Reusar la llave con otro cuerpo es un error del cliente (422).
  *
- * Sin cabecera, la petición pasa tal cual. En memoria: suficiente para el
- * sandbox; en producción iría a la base de datos con el mismo contrato.
+ * Sin cabecera, la petición pasa tal cual. En memoria: suficiente para un
+ * solo proceso; con varios, iría a Redis o a la base con el mismo contrato.
  */
 export function idempotent(ttlMs = 24 * 60 * 60 * 1000): RequestHandler {
 	const saved = new Map<string, { expires: number; body: string; status: number; response: unknown }>();
@@ -19,7 +19,7 @@ export function idempotent(ttlMs = 24 * 60 * 60 * 1000): RequestHandler {
 		const key = req.header('idempotency-key');
 		if (!key) return next();
 		if (key.length > 200) {
-			throw new HttpError(400, 'invalid_idempotency_key', 'Idempotency-Key admite hasta 200 caracteres');
+			throw new SpreadBaseError(400, 'invalid_idempotency_key', 'Idempotency-Key admite hasta 200 caracteres');
 		}
 
 		const now = Date.now();
@@ -30,7 +30,7 @@ export function idempotent(ttlMs = 24 * 60 * 60 * 1000): RequestHandler {
 		const hit = saved.get(id);
 		if (hit) {
 			if (hit.body !== body) {
-				throw new HttpError(422, 'idempotency_key_reused', 'Esta Idempotency-Key ya se usó con otro cuerpo');
+				throw new SpreadBaseError(422, 'idempotency_key_reused', 'Esta Idempotency-Key ya se usó con otro cuerpo');
 			}
 			console.log(`[idempotency] ${key.slice(0, 8)} repetida: se devuelve la respuesta guardada sin aplicar de nuevo`);
 			res.setHeader('Idempotent-Replayed', 'true');

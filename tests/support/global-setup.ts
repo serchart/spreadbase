@@ -1,20 +1,31 @@
-import { API_URL, DEMO_URL } from './env.ts';
+import { API_URL, FRONT_URL } from './env.ts';
 
 /**
- * Las pruebas exigen el backend de la demo encendido (`apps/demo`). No es el
- * sistema real: es la app de referencia de la librería, con su semilla.
+ * Las pruebas exigen backend y frontend encendidos, en modo test. Si no
+ * responden, se falla de inmediato con la instrucción, en lugar de decenas de
+ * timeouts (doc 09 §3).
  */
 export default async function setup() {
 	const fail = (why: string) => {
-		throw new Error(`\n\n  ${why}\n  Arranca la demo en otra terminal:  npm run demo\n  (o apunta a otra con TEST_API_URL)\n`);
+		throw new Error(`\n\n  ${why}\n  Arranca el playground en modo test, cada uno en su terminal (desde la raíz):\n    npm run playground:back\n    npm run playground:front\n  (o apunta a otros con TEST_API_URL / TEST_FRONT_URL)\n`);
+	};
+	const check = async (url: string) => {
+		const res = await fetch(url);
+		if (!res.ok) fail(`${url} respondió ${res.status}.`);
 	};
 	try {
-		const health = await fetch(`${API_URL}/api/health`);
-		if (!health.ok) fail(`La demo en ${API_URL} respondió ${health.status} en /api/health.`);
-		const catalogs = await fetch(`${DEMO_URL}/catalogs`);
-		if (!catalogs.ok) fail(`La demo en ${DEMO_URL} no expone el sheet (/catalogs).`);
+		await check(`${API_URL}/api/health`);
+		await check(FRONT_URL);
 	} catch (err) {
-		if (err instanceof Error && err.message.includes('npm run demo')) throw err;
-		fail(`No hay demo escuchando en ${API_URL}.`);
+		if (err instanceof Error && err.message.includes('Arranca los servicios')) throw err;
+		fail('No hay servicios escuchando.');
 	}
+	// La hoja de casos del playground es la «base de datos de pruebas».
+	try {
+		await check(`${API_URL}/api/cases/schema`);
+	} catch {
+		fail(`${API_URL} no expone la hoja de casos (/api/cases).`);
+	}
+	const health = await (await fetch(`${API_URL}/api/health`)).json();
+	if (health.env !== 'test') fail(`${API_URL} no está en modo test (APP_ENV=${health.env}): las pruebas lo reinician.`);
 }

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es-MX" data-theme="oc-light">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+
+		<!--
+			Tema antes de pintar.
+
+			Va en línea y sin `defer` a propósito: si esperara a que Svelte hidrate,
+			el usuario con tema oscuro vería un destello blanco en cada carga. El
+			atributo `data-theme` del <html> es el valor por defecto para SSR; este
+			script solo lo corrige cuando hay preferencia guardada.
+		-->
+		<script>
+			(function () {
+				try {
+					var saved = localStorage.getItem('sb:theme');
+					if (saved) document.documentElement.dataset.theme = saved;
+				} catch (e) {
+					/* localStorage bloqueado: se queda el tema por defecto */
+				}
+			})();
+		</script>
+
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

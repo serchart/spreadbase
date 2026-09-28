@@ -1,0 +1,39 @@
+{
+	"name": "@spreadbase/client",
+	"version": "0.1.0",
+	"description": "SpreadBase para el frontend (Svelte 5): Sheet + <SpreadBase>",
+	"type": "module",
+	"private": true,
+	"license": "MIT",
+	"svelte": "./src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"svelte": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./theme-daisyui.css": "./src/theme-daisyui.css"
+	},
+	"scripts": {
+		"check": "svelte-check --tsconfig ./tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@lucide/svelte": "^1.47.0",
+		"@spreadbase/core": "0.1.0",
+		"jspreadsheet-ce": "^5.0.4",
+		"jsuites": "^6.4.3"
+	},
+	"peerDependencies": {
+		"daisyui": "^5.0.0",
+		"svelte": "^5.0.0",
+		"tailwindcss": "^4.0.0"
+	},
+	"devDependencies": {
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.11"
+	}
+}

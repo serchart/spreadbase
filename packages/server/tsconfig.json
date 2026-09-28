@@ -1,15 +1,15 @@
 {
 	"compilerOptions": {
-		"target": "ES2022",
-		"module": "ESNext",
-		"moduleResolution": "bundler",
+		"target": "ES2023",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		"strict": true,
+		"noUncheckedIndexedAccess": true,
 		"skipLibCheck": true,
 		"noEmit": true,
-		"types": ["node"],
-		"paths": { "@spreadbase/core": ["../core/src/index.ts"] }
+		"types": ["node"]
 	},
-	"include": ["src", "../core/src"]
+	"include": ["src"]
 }

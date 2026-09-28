@@ -1,19 +1,25 @@
 {
 	"name": "@spreadbase/server",
 	"version": "0.1.0",
+	"description": "SpreadBase para el backend: motor de la hoja, fuentes de datos y helpers HTTP para Express",
 	"type": "module",
 	"private": true,
+	"license": "MIT",
 	"exports": {
-		".": "./src/index.ts",
-		"./engine": "./src/engine.ts"
+		".": "./src/index.ts"
 	},
-	"scripts": { "check": "tsc --noEmit" },
+	"scripts": {
+		"check": "tsc --noEmit"
+	},
 	"dependencies": {
-		"@spreadbase/core": "*",
-		"express": "^5.2.1"
+		"@spreadbase/core": "0.1.0"
+	},
+	"peerDependencies": {
+		"express": "^5.0.0"
 	},
 	"devDependencies": {
 		"@types/express": "^5.0.6",
-		"@types/node": "^24.13.6"
+		"@types/node": "^24.13.6",
+		"express": "^5.2.1"
 	}
 }

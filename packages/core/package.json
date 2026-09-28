@@ -1,13 +1,14 @@
 {
 	"name": "@spreadbase/core",
 	"version": "0.1.0",
+	"description": "Tipos del protocolo y validación compartidos por @spreadbase/server y @spreadbase/client",
 	"type": "module",
 	"private": true,
+	"license": "MIT",
 	"exports": {
-		".": "./src/index.ts",
-		"./values": "./src/values.ts",
-		"./sheet": "./src/sheet.ts",
-		"./protocol": "./src/protocol.ts"
+		".": "./src/index.ts"
 	},
-	"scripts": { "check": "tsc --noEmit" }
+	"scripts": {
+		"check": "tsc --noEmit"
+	}
 }
