@@ -1,0 +1,15 @@
+{
+	"name": "spreadbase-example-tests",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Pruebas E2E del proyecto: API real y navegador real, por módulo. Ver docs/09-estrategia-pruebas.md",
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"devDependencies": {
+		"playwright": "^1.63.0",
+		"vitest": "^4.1.11"
+	}
+}

@@ -9,22 +9,21 @@ lote que detecta choques entre usuarios.
 Estado: **en construcción**. Diseño en `docs/`.
 
 ```
-packages/core    esquema compartido, tipos y validación (front y back)
-packages/server  motor y router Express + adaptadores de almacenamiento
-packages/svelte  <SpreadBase> — el grid, historial, borrador y panel
-apps/demo        hoja de prueba con 50 000 filas sintéticas
+packages/server  @spreadbase/server — motor, fuentes de datos y helpers HTTP (backend)
+packages/client  @spreadbase/client — Sheet + <SpreadBase>: la hoja, historial, borrador y paneles (frontend)
+packages/core    @spreadbase/core — tipos y validación compartidos; llega con los otros dos
+examples/basic   ejemplo didáctico: back + front mínimos
+playground/      banco de desarrollo: 50 000 filas, pruebas E2E y rendimiento
 tests/           pruebas E2E por módulo (API real + navegador)
+
+examples/sandbox copia probada de OpenCollect de la que se extraen los paquetes (temporal)
 ```
 
 ## Desarrollo
 
-```bash
-npm install
-npm run check
-npm run demo    # apps/demo, cuando exista
-npm run test    # raíz de pruebas, cuando exista
-```
+Mientras se extraen los paquetes, lo que funciona es la copia probada:
+ver `examples/sandbox/README.md`.
 
 Las apps que lo usen mientras no se publique apuntan al repo local
-(`"@spreadbase/svelte": "file:../SpreadBase/packages/svelte"`, igual para
-`core` y `server`).
+(`"@spreadbase/client": "file:../SpreadBase/packages/client"` en el front,
+`"@spreadbase/server": "file:../SpreadBase/packages/server"` en el back).

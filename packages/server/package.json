@@ -2,5 +2,18 @@
 	"name": "@spreadbase/server",
 	"version": "0.1.0",
 	"type": "module",
-	"private": true
+	"private": true,
+	"exports": {
+		".": "./src/index.ts",
+		"./engine": "./src/engine.ts"
+	},
+	"scripts": { "check": "tsc --noEmit" },
+	"dependencies": {
+		"@spreadbase/core": "*",
+		"express": "^5.2.1"
+	},
+	"devDependencies": {
+		"@types/express": "^5.0.6",
+		"@types/node": "^24.13.6"
+	}
 }

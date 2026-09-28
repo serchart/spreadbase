@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"strict": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"types": ["node"],
+		"paths": { "@spreadbase/core": ["../core/src/index.ts"] }
+	},
+	"include": ["src", "../core/src"]
+}

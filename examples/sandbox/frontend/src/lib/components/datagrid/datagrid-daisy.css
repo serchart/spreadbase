@@ -1,0 +1,63 @@
+/*
+	Adaptador del tema del DataGrid a daisyUI.
+
+	Reasigna las variables `--dg-*` (ver `datagrid.css`) a los tokens del tema
+	activo. Vive fuera del componente: el DataGrid no sabe nada de daisyUI, y
+	otro proyecto puede escribir su propio adaptador o no usar ninguno.
+
+	`:root` (especificidad 0,1,0) gana a los valores por defecto del componente,
+	que están en `:where(:root)`, sin depender del orden de carga.
+
+	Decisiones de color:
+	- **Selección en `info`**, no en `primary`: en Jardín `primary` es amarillo,
+	  casi el mismo tono que `warning`, que marca las celdas editadas. Una
+	  selección amarilla sobre una celda editada no se distinguiría.
+	- **Rango copiado en `base-content`**: trazo oscuro sobre claro y claro sobre
+	  oscuro, como en Excel y Sheets, sin competir con ningún color de estado.
+	- **Líneas de la rejilla** mezclando `base-content` al 12 % con la superficie:
+	  sutiles como en Sheets y con el mismo contraste relativo en temas oscuros.
+	  `base-300` sería demasiado marcado para una rejilla densa.
+	- **Estados** como tinte suave de `warning`/`success`/`error` sobre
+	  `base-100`, con el color pleno solo en el acento.
+*/
+:root {
+	--dg-font-family: var(--font-sans);
+	--dg-font-size: 12px;
+	--dg-header-font-size: 12px;
+	--dg-header-font-weight: 500;
+	--dg-popover-font-size: 13px;
+
+	--dg-bg: var(--color-base-100);
+	--dg-fg: var(--color-base-content);
+	--dg-fg-muted: color-mix(in oklab, var(--color-base-content) 62%, var(--color-base-100));
+	--dg-grid-line: color-mix(in oklab, var(--color-base-content) 12%, var(--color-base-100));
+
+	--dg-header-bg: var(--color-base-200);
+	--dg-header-fg: color-mix(in oklab, var(--color-base-content) 75%, var(--color-base-200));
+	--dg-header-active-bg: color-mix(in oklab, var(--color-info) 28%, var(--color-base-200));
+	--dg-header-active-fg: var(--color-base-content);
+	--dg-frozen-edge: var(--color-base-300);
+
+	--dg-selection-bg: color-mix(in oklab, var(--color-info) 14%, transparent);
+	--dg-selection-border: var(--color-info);
+	--dg-copy-border: var(--color-base-content);
+
+	--dg-dirty-bg: color-mix(in oklab, var(--color-warning) 22%, var(--color-base-100));
+	--dg-dirty-accent: var(--color-warning);
+	--dg-new-bg: color-mix(in oklab, var(--color-success) 14%, var(--color-base-100));
+	--dg-new-accent: var(--color-success);
+	--dg-invalid-bg: color-mix(in oklab, var(--color-error) 16%, var(--color-base-100));
+	--dg-invalid-accent: var(--color-error);
+	/* Conflicto (§11.14): naranja derivado de warning + error, distinto de editada y de error. */
+	--dg-conflict-accent: color-mix(in oklab, var(--color-warning) 50%, var(--color-error));
+
+	--dg-popover-bg: var(--color-base-100);
+	--dg-popover-fg: var(--color-base-content);
+	--dg-popover-border: var(--color-base-300);
+	--dg-popover-shadow: 0 12px 32px oklch(0% 0 0 / 0.18);
+	--dg-hover-bg: var(--color-base-200);
+	--dg-input-border: var(--color-base-300);
+	--dg-accent: var(--color-primary);
+	--dg-accent-fg: var(--color-primary-content);
+	--dg-radius: var(--radius-field);
+}

@@ -1,0 +1,869 @@
+/*
+	Tema del DataGrid.
+
+	Todo lo que se ve dentro de la hoja —celdas, encabezados, selección, rango
+	copiado, estados de celda, selectores, calendario, editores y menú
+	contextual— sale de estas variables `--dg-*`. Ninguna regla de este archivo
+	lleva un color literal.
+
+	Tres capas, de menor a mayor prioridad:
+
+	1. **Valores por defecto** (este bloque, en `:where(:root)`, especificidad 0):
+	   claros y neutros, al estilo de Google Sheets. Con ellos el componente se ve
+	   bien sin nada más, que es lo que necesita como librería.
+	2. **Adaptador de tema** (`datagrid-daisy.css` en este proyecto): reasigna las
+	   variables a los tokens del tema activo en `:root`. Como las variables se
+	   resuelven en el navegador, cambiar de tema repinta la hoja sin JS.
+	3. **Prop `theme`** del componente: variables en línea sobre `.oc-grid`, solo
+	   para esa instancia.
+
+	Van en `:root` y no en `.oc-grid` porque los editores flotantes se montan en
+	`<body>`, fuera del componente. Los overrides por instancia se copian al
+	editor al abrirlo (ver `mountOverlay` en `cellTypes.ts`).
+*/
+:where(:root) {
+	/* Tipografía */
+	--dg-font-family: inherit;
+	--dg-font-size: 12px;
+	--dg-header-font-size: 12px;
+	--dg-header-font-weight: 500;
+	--dg-popover-font-size: 13px;
+
+	/* Hoja */
+	--dg-bg: #ffffff;
+	--dg-fg: #1f1f1f;
+	--dg-fg-muted: #6b6f75;
+	--dg-grid-line: #e1e3e6;
+
+	/* Encabezados de columna y números de fila */
+	--dg-header-bg: #f8f9fa;
+	--dg-header-fg: #444746;
+	--dg-header-active-bg: #d3e3fd;
+	--dg-header-active-fg: #0b57d0;
+
+	/* Borde entre las columnas fijas y la zona que se desplaza */
+	--dg-frozen-edge: #c4c7c5;
+
+	/* Selección y rango copiado */
+	--dg-selection-bg: rgb(26 115 232 / 0.1);
+	--dg-selection-border: #1a73e8;
+	--dg-copy-border: #1a73e8;
+
+	/* Estados de celda */
+	--dg-dirty-bg: #fef7e0;
+	--dg-dirty-accent: #f9ab00;
+	--dg-new-bg: #e6f4ea;
+	--dg-new-accent: #1e8e3e;
+	--dg-invalid-bg: #fce8e6;
+	--dg-invalid-accent: #d93025;
+
+	/* Flotantes: editores, lista de opciones, calendario, menú contextual */
+	--dg-popover-bg: #ffffff;
+	--dg-popover-fg: #1f1f1f;
+	--dg-popover-border: #dadce0;
+	--dg-popover-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+	--dg-hover-bg: #f1f3f4;
+	--dg-input-border: #dadce0;
+	--dg-accent: #1a73e8;
+	--dg-accent-fg: #ffffff;
+	--dg-radius: 6px;
+}
+
+/* ------------------------------------------------------------------------
+   jspreadsheet: hoja, encabezados, selección
+   Se anteponen `.oc-grid` para ganar a las reglas de la librería, que usan
+   `.jss_worksheet > tbody > tr > td` (0,1,3). Aplica también a la subtabla
+   del panel de cambios, que es otra instancia dentro del mismo componente.
+------------------------------------------------------------------------ */
+
+.oc-grid .jss_worksheet {
+	font-family: var(--dg-font-family);
+	font-size: var(--dg-font-size);
+	color: var(--dg-fg);
+	background-color: var(--dg-bg);
+}
+
+.oc-grid .jss_content {
+	/* La librería pone una sombra gris en línea al contenedor de scroll. */
+	box-shadow: none !important;
+	background-color: var(--dg-bg);
+}
+
+/*
+	Barras de scroll de la hoja. jspreadsheet define las suyas sobre
+	`.jss_content` (8 px, gris fijo) y le ganan a cualquier regla global. Zona
+	de agarre de 10 px con trazo visible de 4 px, que crece a 6 px al pasar por
+	encima. Firefox, que no entiende el pseudo-elemento, usa `thin`.
+*/
+.oc-grid .jss_content {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in oklab, var(--dg-fg) 25%, transparent) transparent;
+}
+
+@supports selector(::-webkit-scrollbar) {
+	.oc-grid .jss_content {
+		scrollbar-width: auto;
+		scrollbar-color: auto;
+	}
+}
+
+.oc-grid .jss_content::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.oc-grid .jss_content::-webkit-scrollbar-track,
+.oc-grid .jss_content::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+.oc-grid .jss_content::-webkit-scrollbar-thumb {
+	background-color: color-mix(in oklab, var(--dg-fg) 25%, transparent);
+	background-clip: padding-box;
+	border: 3px solid transparent;
+	border-radius: 999px;
+}
+
+.oc-grid .jss_content::-webkit-scrollbar-thumb:hover {
+	background-color: color-mix(in oklab, var(--dg-fg) 45%, transparent);
+	border-width: 2px;
+}
+
+.oc-grid .jss_worksheet > colgroup + thead > tr > td,
+.oc-grid .jss_worksheet > thead > tr > td {
+	background-color: var(--dg-header-bg);
+	color: var(--dg-header-fg);
+	border-top-color: var(--dg-grid-line);
+	border-left-color: var(--dg-grid-line);
+	font-size: var(--dg-header-font-size);
+	font-weight: var(--dg-header-font-weight);
+}
+
+.oc-grid .jss_worksheet > thead > tr > td.selected,
+.oc-grid .jss_worksheet > tbody > tr.selected > td:first-child {
+	background-color: var(--dg-header-active-bg);
+	color: var(--dg-header-active-fg);
+}
+
+.oc-grid .jss_worksheet > tbody > tr > td {
+	border-top-color: var(--dg-grid-line);
+	border-left-color: var(--dg-grid-line);
+	color: var(--dg-fg);
+	/* `!important`: con `wordWrap` jspreadsheet escribe `white-space` en línea. */
+	white-space: nowrap !important;
+	overflow: hidden !important;
+	text-overflow: ellipsis;
+}
+
+/* Última columna y última fila: cierran la rejilla con el mismo color. */
+.oc-grid .jss_worksheet > tbody > tr > td:last-child {
+	border-right-color: var(--dg-grid-line);
+}
+.oc-grid .jss_worksheet > tbody > tr:last-child > td {
+	border-bottom-color: var(--dg-grid-line);
+}
+
+/* Números de fila: misma superficie que el encabezado de columnas. */
+.oc-grid .jss_worksheet > tbody > tr > td:first-child {
+	background-color: var(--dg-header-bg);
+	color: var(--dg-header-fg);
+}
+
+/* Solo lectura se distingue por tono, no por texto ilegible. */
+.oc-grid .jss_worksheet > tbody > tr > td.readonly {
+	color: var(--dg-fg-muted);
+}
+
+.oc-grid .jss_worksheet .highlight,
+.oc-grid .jss_worksheet .selection {
+	background-color: var(--dg-selection-bg);
+}
+
+.oc-grid .jss_worksheet .highlight-selected {
+	background-color: transparent;
+}
+
+.oc-grid .jss_worksheet .highlight-top {
+	border-top-color: var(--dg-selection-border);
+	box-shadow: 0 -1px var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .highlight-left {
+	border-left-color: var(--dg-selection-border);
+	box-shadow: -1px 0 var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .highlight-top.highlight-left {
+	box-shadow: -1px -1px var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .highlight-right {
+	border-right-color: var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .highlight-bottom {
+	border-bottom-color: var(--dg-selection-border);
+}
+
+/* Rango de arrastre (rellenar hacia abajo). */
+.oc-grid .jss_worksheet .selection-top {
+	border-top-color: var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .selection-left {
+	border-left-color: var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .selection-right {
+	border-right-color: var(--dg-selection-border);
+}
+.oc-grid .jss_worksheet .selection-bottom {
+	border-bottom-color: var(--dg-selection-border);
+}
+
+/* Punteado propio de la librería; el nuestro es `.oc-copy`, más abajo. */
+.oc-grid .jss_worksheet .copying-top {
+	border-top-color: var(--dg-copy-border);
+}
+.oc-grid .jss_worksheet .copying-left {
+	border-left-color: var(--dg-copy-border);
+}
+.oc-grid .jss_worksheet .copying-right {
+	border-right-color: var(--dg-copy-border);
+}
+.oc-grid .jss_worksheet .copying-bottom {
+	border-bottom-color: var(--dg-copy-border);
+}
+
+/* Asa de arrastre de la esquina de la selección. */
+.oc-grid .jss_corner {
+	background-color: var(--dg-selection-border);
+	border-color: var(--dg-bg);
+}
+
+/* ------------------------------------------------------------------------
+   Estados de celda pintados por el componente
+------------------------------------------------------------------------ */
+
+.oc-grid td.oc-cell-new {
+	background-color: var(--dg-new-bg) !important;
+}
+
+.oc-grid td.oc-cell-dirty {
+	background-color: var(--dg-dirty-bg) !important;
+	box-shadow: inset 2px 0 0 var(--dg-dirty-accent);
+}
+
+.oc-grid td.oc-cell-invalid {
+	background-color: var(--dg-invalid-bg) !important;
+	box-shadow: inset 0 0 0 1px var(--dg-invalid-accent);
+}
+
+/*
+	Celda que acaba de llegar del remoto al combinar (G-15): resaltado en `info`
+	que se desvanece solo en 6 s —lo que dura `MERGE_HIGHLIGHT_MS`—, sin tener
+	que repintar la hoja para quitarlo. Con movimiento reducido no se anima: se
+	mantiene fijo y desaparece de golpe al final.
+*/
+.oc-grid td.oc-cell-merged {
+	animation: oc-merged 6s ease-in forwards;
+}
+@keyframes oc-merged {
+	0%,
+	50% {
+		background-color: color-mix(in oklab, var(--color-info) 26%, var(--color-base-100));
+		box-shadow: inset 0 0 0 1px var(--color-info);
+	}
+	100% {
+		background-color: transparent;
+		box-shadow: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.oc-grid td.oc-cell-merged {
+		animation-timing-function: steps(1, end);
+	}
+}
+
+/*
+	Celda en conflicto tras guardar (§11.14): borde naranja discontinuo, para que
+	no se confunda con editada (amarillo, borde izquierdo) ni con error (rojo,
+	borde continuo). Va después de ambas: si una celda es las dos cosas, manda
+	el conflicto, que es lo que el usuario tiene que resolver.
+*/
+.oc-grid td.oc-cell-conflict {
+	outline: 1.5px dashed var(--dg-conflict-accent);
+	outline-offset: -2px;
+}
+
+/*
+	Fila marcada como eliminada (fuente remota, G-7): sigue en su sitio hasta
+	guardar, pero se lee como «fuera»: texto atenuado y tachado en el color de
+	error. Sin fondo de color: un bloque rojo competiría con los errores reales.
+*/
+.oc-grid td.oc-row-deleted {
+	color: var(--dg-fg-muted) !important;
+	text-decoration: line-through;
+	text-decoration-color: var(--dg-invalid-accent);
+	opacity: 0.55;
+}
+
+/*
+	Perímetro punteado del rango copiado.
+
+	Va en un **pseudo-elemento propio**, y esa es la decisión importante. El
+	intento anterior lo dibujaba con capas de `background-image` sobre el
+	propio `<td>`, y fallaba por dos motivos a la vez:
+
+	1. jspreadsheet marca las columnas de catálogo con
+	   `.jss_worksheet > tbody > tr > td.jss_dropdown`, especificidad (0,2,3),
+	   para pintar el chevron como `background-image`. Eso ganaba a la regla del
+	   punteado y descartaba sus cuatro capas.
+	2. El `box-shadow: inset` de celda inválida se pinta por encima de las
+	   capas de fondo, así que tapaba el trazo donde había error.
+
+	Un `::after` no compite con ninguna de las dos: es una capa aparte, se
+	dibuja sobre el fondo y sobre el `box-shadow`, y usa `border` de verdad.
+	En la hoja el pseudo-elemento solo lo emplea `td:first-child` (la cabecera
+	de fila, que nunca es una celda de datos), así que no hay solape.
+
+	`position: absolute` con `inset: 0` no altera el ancho de la celda: la
+	tabla no se mueve un píxel al copiar.
+*/
+.oc-grid td.oc-copy {
+	position: relative;
+}
+
+.oc-grid td.oc-copy::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 1;
+	border: 0 dashed var(--dg-copy-border);
+}
+
+/* Cada celda aporta solo los lados que caen en el borde del rango, de modo
+   que el conjunto se lea como un recuadro y no como una rejilla. */
+.oc-grid td.oc-copy-t::after {
+	border-top-width: 2px;
+}
+.oc-grid td.oc-copy-b::after {
+	border-bottom-width: 2px;
+}
+.oc-grid td.oc-copy-l::after {
+	border-left-width: 2px;
+}
+.oc-grid td.oc-copy-r::after {
+	border-right-width: 2px;
+}
+
+/* ------------------------------------------------------------------------
+   Celdas con selector: lista fija y fuente externa comparten aspecto
+------------------------------------------------------------------------ */
+
+/*
+	El chevron se reserva su propio hueco en el flujo en lugar de flotar como
+	fondo. Por eso el texto se recorta antes de alcanzarlo y no puede pasarle
+	por debajo, que era el defecto del dropdown nativo.
+*/
+.oc-grid td.oc-picker-cell {
+	padding-right: 3px !important;
+}
+
+.oc-picker {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	width: 100%;
+	min-width: 0;
+}
+
+.oc-picker__text {
+	flex: 1 1 auto;
+	/* Sin `min-width: 0` un flex item no baja de su contenido y el chevron
+	   quedaría empujado fuera de la celda. */
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/* 14 px: cabe en una fila de 12 px de texto sin estirarla. */
+.oc-picker__chevron {
+	flex: 0 0 auto;
+	display: grid;
+	place-items: center;
+	width: 14px;
+	height: 14px;
+	border-radius: 3px;
+	color: var(--dg-fg-muted);
+	cursor: pointer;
+	transition:
+		background-color var(--oc-t-fast, 120ms) var(--oc-ease, ease),
+		color var(--oc-t-fast, 120ms) var(--oc-ease, ease);
+}
+
+.oc-picker__chevron svg {
+	width: 12px;
+	height: 12px;
+	fill: currentColor;
+}
+
+.oc-picker__chevron:hover {
+	background-color: var(--dg-hover-bg);
+	color: var(--dg-fg);
+}
+
+/* ------------------------------------------------------------------------
+   Columna de acción: un botón por fila
+   Botón fantasma compacto: se reconoce como botón sin competir con los datos,
+   y encaja en una fila de 12 px sin estirarla.
+------------------------------------------------------------------------ */
+
+.oc-grid .jss_worksheet > tbody > tr > td:has(> .oc-action) {
+	padding: 1px 3px;
+}
+
+.oc-action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	max-width: 100%;
+	height: 20px;
+	padding: 0 6px;
+	border: 1px solid transparent;
+	border-radius: var(--dg-radius);
+	background: transparent;
+	color: var(--dg-fg);
+	font: inherit;
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--oc-t-fast, 120ms) var(--oc-ease, ease),
+		border-color var(--oc-t-fast, 120ms) var(--oc-ease, ease);
+}
+
+.oc-action:hover {
+	background-color: var(--dg-hover-bg);
+	border-color: var(--dg-grid-line);
+}
+
+.oc-action svg {
+	flex: none;
+}
+
+.oc-action span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------------
+   Texto recortado a N líneas (`clampedTextCell`) y su globo
+------------------------------------------------------------------------ */
+
+/*
+	La celda se reconoce con `:has()` y no con una clase propia: jspreadsheet
+	reescribe el `className` del `<td>` después de pintarlo (queda solo
+	`readonly`), así que cualquier clase añadida se pierde.
+*/
+.oc-grid .jss_worksheet > tbody > tr > td:has(> .oc-clamp) {
+	vertical-align: top;
+}
+
+/* `white-space` en el propio div: el `<td>` sigue en `nowrap` y se heredaría. */
+.oc-clamp {
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: var(--dg-clamp-lines, 2);
+	line-clamp: var(--dg-clamp-lines, 2);
+	overflow: hidden;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+	/* Guiones al partir palabras («comp-leto»); requiere `lang` en <html>. */
+	hyphens: auto;
+}
+
+.oc-cell-popover {
+	position: fixed;
+	z-index: 10000;
+	width: 280px;
+	padding: 4px;
+	background-color: var(--dg-popover-bg);
+	border: 1px solid var(--dg-popover-border);
+	border-radius: var(--dg-radius);
+	box-shadow: var(--dg-popover-shadow);
+	opacity: 0;
+	transform: translateY(-2px);
+	transition:
+		opacity var(--oc-t-fast, 120ms) var(--oc-ease, ease),
+		transform var(--oc-t-fast, 120ms) var(--oc-ease, ease);
+}
+
+.oc-cell-popover.is-open {
+	opacity: 1;
+	transform: none;
+}
+
+.oc-cell-popover__text {
+	display: block;
+	width: 100%;
+	max-height: 160px;
+	box-sizing: border-box;
+	padding: 4px 6px;
+	border: 0;
+	background: transparent;
+	color: var(--dg-popover-fg);
+	font-family: var(--dg-font-family);
+	font-size: var(--dg-popover-font-size);
+	line-height: 1.4;
+	resize: none;
+	outline: none;
+	overflow-y: auto;
+}
+
+.oc-image-empty {
+	color: var(--dg-fg-muted);
+}
+
+/* Del alto de una fila de 12 px: una miniatura más alta estira toda la fila. */
+.oc-image-thumb {
+	display: block;
+	max-width: 28px;
+	max-height: 16px;
+	object-fit: cover;
+	border-radius: 3px;
+	border: 1px solid var(--dg-grid-line);
+}
+
+/* ------------------------------------------------------------------------
+   Editores flotantes (montados en <body>)
+------------------------------------------------------------------------ */
+
+.oc-cell-editor {
+	position: fixed;
+	z-index: 10000;
+	box-sizing: border-box;
+	padding: 8px;
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+	border: 1px solid var(--dg-popover-border);
+	border-radius: var(--dg-radius);
+	box-shadow: var(--dg-popover-shadow);
+	font-family: var(--dg-font-family);
+	font-size: var(--dg-popover-font-size);
+}
+
+.oc-cell-editor__input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 5px 8px;
+	border: 1px solid var(--dg-input-border);
+	border-radius: var(--dg-radius);
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+	font: inherit;
+	outline: none;
+}
+
+.oc-cell-editor__input:focus {
+	border-color: var(--dg-accent);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--dg-accent) 20%, transparent);
+}
+
+.oc-cell-editor__list {
+	margin-top: 6px;
+	max-height: 220px;
+	overflow-y: auto;
+}
+
+.oc-cell-editor__option {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 5px 8px;
+	border-radius: calc(var(--dg-radius) - 2px);
+	cursor: pointer;
+}
+
+.oc-cell-editor__option:hover,
+.oc-cell-editor__option.is-active {
+	background-color: var(--dg-hover-bg);
+}
+
+.oc-cell-editor__value,
+.oc-cell-editor__hint,
+.oc-cell-editor__toggle {
+	color: var(--dg-fg-muted);
+}
+
+.oc-cell-editor__value {
+	font-size: 0.85em;
+	font-variant-numeric: tabular-nums;
+}
+
+.oc-cell-editor__hint {
+	padding: 8px;
+}
+
+.oc-cell-editor__preview {
+	margin-top: 8px;
+	min-height: 60px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: var(--dg-hover-bg);
+	border-radius: var(--dg-radius);
+}
+
+.oc-cell-editor__preview img {
+	max-width: 100%;
+	max-height: 120px;
+	border-radius: calc(var(--dg-radius) - 2px);
+}
+
+.oc-cell-editor__actions,
+.oc-cal__foot {
+	display: flex;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.oc-cell-editor__actions {
+	justify-content: flex-end;
+}
+
+.oc-cell-editor__actions button,
+.oc-cal__foot button {
+	font: inherit;
+	font-size: 0.9em;
+	padding: 4px 10px;
+	border: 1px solid var(--dg-input-border);
+	border-radius: var(--dg-radius);
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+	cursor: pointer;
+}
+
+.oc-cal__foot button {
+	flex: 1;
+}
+
+.oc-cell-editor__actions button:hover,
+.oc-cal__foot button:hover {
+	background-color: var(--dg-hover-bg);
+}
+
+.oc-cell-editor__actions button.is-primary,
+.oc-cal__foot button.is-primary {
+	background-color: var(--dg-accent);
+	border-color: var(--dg-accent);
+	color: var(--dg-accent-fg);
+}
+
+.oc-cell-editor__actions button.is-primary:hover,
+.oc-cal__foot button.is-primary:hover {
+	background-color: color-mix(in oklab, var(--dg-accent) 88%, var(--dg-popover-fg));
+}
+
+.oc-cell-editor__toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 6px;
+	font-size: 0.9em;
+}
+
+/* --- calendario --- */
+
+.oc-cal__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin: 8px 0 6px;
+}
+
+.oc-cal__title {
+	font-weight: 600;
+	text-transform: capitalize;
+}
+
+.oc-cal__nav {
+	width: 24px;
+	height: 24px;
+	border: 0;
+	background: transparent;
+	border-radius: var(--dg-radius);
+	font-size: 1.1em;
+	line-height: 1;
+	color: var(--dg-fg-muted);
+	cursor: pointer;
+}
+
+.oc-cal__nav:hover {
+	background-color: var(--dg-hover-bg);
+	color: var(--dg-popover-fg);
+}
+
+.oc-cal__dow,
+.oc-cal__grid {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 2px;
+}
+
+.oc-cal__dow {
+	margin-bottom: 3px;
+}
+
+.oc-cal__dow span {
+	text-align: center;
+	font-size: 0.8em;
+	font-weight: 600;
+	color: var(--dg-fg-muted);
+}
+
+.oc-cal__day {
+	aspect-ratio: 1;
+	border: 0;
+	background: transparent;
+	border-radius: var(--dg-radius);
+	font: inherit;
+	font-size: 0.92em;
+	color: var(--dg-popover-fg);
+	cursor: pointer;
+}
+
+.oc-cal__day:hover {
+	background-color: var(--dg-hover-bg);
+}
+
+/* Los días de relleno se ven, pero no compiten con el mes en curso. */
+.oc-cal__day.is-outside {
+	color: var(--dg-fg-muted);
+	opacity: 0.55;
+}
+
+.oc-cal__day.is-today {
+	box-shadow: inset 0 0 0 1px var(--dg-fg-muted);
+	font-weight: 700;
+}
+
+/* El foco de teclado se distingue de la selección: son estados distintos. */
+.oc-cal__day.is-cursor {
+	box-shadow: inset 0 0 0 2px var(--dg-selection-border);
+}
+
+.oc-cal__day.is-selected {
+	background-color: var(--dg-accent);
+	color: var(--dg-accent-fg);
+	font-weight: 700;
+}
+
+.oc-cal__day.is-selected:hover {
+	background-color: color-mix(in oklab, var(--dg-accent) 88%, var(--dg-popover-fg));
+}
+
+.oc-cal__time {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 9px;
+	color: var(--dg-fg-muted);
+}
+
+.oc-cal__time input {
+	flex: 1;
+	font: inherit;
+	padding: 4px 6px;
+	border: 1px solid var(--dg-input-border);
+	border-radius: var(--dg-radius);
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+}
+
+/* ------------------------------------------------------------------------
+   Menú contextual de jspreadsheet (jSuites)
+------------------------------------------------------------------------ */
+
+.jss_contextmenu.jcontextmenu {
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+	border: 1px solid var(--dg-popover-border);
+	border-radius: var(--dg-radius);
+	box-shadow: var(--dg-popover-shadow);
+	font-family: var(--dg-font-family);
+	font-size: var(--dg-font-size);
+}
+
+.jss_contextmenu.jcontextmenu > div a {
+	color: var(--dg-popover-fg);
+}
+
+.jss_contextmenu.jcontextmenu > div span {
+	color: var(--dg-fg-muted);
+}
+
+.jss_contextmenu.jcontextmenu > div:hover {
+	background-color: var(--dg-hover-bg);
+}
+
+.jss_contextmenu.jcontextmenu .jcontextmenu-disabled a,
+.jss_contextmenu.jcontextmenu .jcontextmenu-disabled::before {
+	color: var(--dg-fg-muted);
+	opacity: 0.55;
+}
+
+.jss_contextmenu.jcontextmenu hr {
+	border-color: var(--dg-grid-line);
+}
+
+/* ------------------------------------------------------------------------
+   Leyenda del pie
+------------------------------------------------------------------------ */
+
+.oc-grid .swatch {
+	display: inline-block;
+	width: 11px;
+	height: 11px;
+	border-radius: 3px;
+}
+
+.oc-grid .swatch--dirty {
+	background-color: var(--dg-dirty-bg);
+	box-shadow: inset 2px 0 0 var(--dg-dirty-accent);
+}
+.oc-grid .swatch--new {
+	background-color: var(--dg-new-bg);
+	box-shadow: inset 0 0 0 1px var(--dg-new-accent);
+}
+.oc-grid .swatch--invalid {
+	background-color: var(--dg-invalid-bg);
+	box-shadow: inset 0 0 0 1px var(--dg-invalid-accent);
+}
+.oc-grid .swatch--conflict {
+	outline: 1.5px dashed var(--dg-conflict-accent);
+	outline-offset: -1.5px;
+}
+.oc-grid .swatch--deleted {
+	background: linear-gradient(
+		to bottom right,
+		transparent calc(50% - 0.5px),
+		var(--dg-invalid-accent) 50%,
+		transparent calc(50% + 0.5px)
+	);
+	box-shadow: inset 0 0 0 1px var(--dg-grid-line);
+	opacity: 0.8;
+}
+
+/*
+	Conflicto (§11.14, G-17). daisyUI no trae naranja: se deriva de warning +
+	error para que siga a cada tema. Global a propósito: lo usan la toolbar y el
+	panel, que no siempre están dentro de `.oc-grid`.
+*/
+.oc-badge-conflict {
+	--oc-conflict: color-mix(in oklab, var(--color-warning) 50%, var(--color-error));
+	background-color: var(--oc-conflict);
+	border-color: var(--oc-conflict);
+	color: var(--color-error-content);
+}
+.oc-text-conflict {
+	color: color-mix(in oklab, var(--color-warning) 50%, var(--color-error));
+}
