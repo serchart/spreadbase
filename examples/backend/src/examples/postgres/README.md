@@ -31,6 +31,14 @@ Reglas de negocio del ejemplo:
 | Lanzamiento | `date` | Calendario |
 | Último surtido | `datetime` | Calendario con hora |
 
+**La hoja de usuarios** (`/postgres?sheet=users`) muestra la **contraseña**
+(`PASSWORD`, [`docs/04-tipos-de-columna.md`](../../../../../docs/04-tipos-de-columna.md)):
+se escribe en claro, SpreadBase guarda `hashPassword(plain)` (scrypt, en
+`common/passwords.js`) y nunca la devuelve. «Activo» es una casilla
+(`BOOLEAN`); la hoja no borra usuarios. Sus rutas se montan con el atajo
+`sheetRouter` (`users.routes.js`); las de productos, a mano: están las dos
+formas. Contraseña de la semilla: `demo-12345`.
+
 **La columna lookup, organizada como se recomienda** (`03-lookup.md` §3): el
 módulo de usuarios define una vez cómo se elige un usuario
 (`users.service.js` → `this.lookup`, con su SQL), y la hoja es una función que
@@ -48,14 +56,17 @@ src/examples/postgres/
 ├── db/pool.js                       el pool de la app (SpreadBase usa este)
 ├── db/migrations/001_products.sql   tablas del dominio
 ├── db/migrations/002_catalog.sql    users + las columnas de foto, responsable, fechas
+├── db/migrations/003_users_sheet.sql  contraseña y rol de los usuarios
 ├── db/setup.js                      crea las tablas y siembra 2 000 usuarios y 500 productos
-├── common/{errors,auth}.js
+├── common/{errors,auth,passwords}.js
 └── core/
     ├── orchestrator/                instancia los servicios (como Aggy)
     └── api/
         ├── index.js                 los módulos de la API
         ├── users/
-        │   └── users.service.js         SQL de usuarios + `lookup`: cómo se elige uno desde cualquier hoja
+        │   ├── users.sheet.js           la hoja de usuarios: contraseña y casilla
+        │   ├── users.service.js         SQL de usuarios + `lookup` + la hoja (SpreadBase + postgresSource)
+        │   └── users.routes.js          /users/sheet con sheetRouter
         └── products/
             ├── products.sheet.js        productsSheet({ users }): columnas de la hoja
             ├── products.service.js      SpreadBase + postgresSource + handlers
@@ -87,6 +98,10 @@ npm run front            # la app de ejemplos: http://localhost:5180/postgres
 ```
 
 Qué probar:
+
+- En **Usuarios**, cambia una contraseña (doble clic): el campo empieza vacío; guarda y
+  mira la tabla: `SELECT left(password_hash, 20) FROM users` muestra `scrypt$…`. Recarga
+  antes de guardar: la contraseña escrita no se conserva (no va al borrador).
 
 - Abre «Responsable» (el ▾ o doble clic): busca «oscar var», baja con ↓ y elige con Enter.
   Desplázate al fondo de la mini tabla: carga el tramo siguiente.

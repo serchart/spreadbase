@@ -73,6 +73,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-19** | **La transacción la trae la fuente.** Si la fuente tiene `transaction`, el motor corre el lote dentro: bloquea las filas (`lock`), compara, aplica y guarda la respuesta idempotente. Los handlers reciben la transacción en `ctx.tx` y escriben con ella. Quien usa la librería no la configura. Sin transacción (memoria), el motor aplica los lotes de uno en uno. Detalle: `02-fuentes-transacciones-handlers.md` | ✅ |
 | **SB-20** | **Un error de dominio aborta el lote entero.** Si un handler lanza, la transacción se deshace y no queda nada escrito; el cliente conserva sus cambios. Tratarlo por fila, como un conflicto, queda para cuando un caso real lo pida | ✅ |
 | **SB-21** | **Columna `lookup`: elegir un registro de otro recurso, configurada en el servidor** (2026-09-28). Se guarda `value` (el id) y se ve `display`. El popover es una mini tabla HTML con el tema de la hoja —no otra jspreadsheet—, con encabezado fijo (ninguno si hay una sola columna) y **paginada desde el principio**. La columna declara `search` (paginado), `byIds` (nombres de cada página y validación al guardar) y `resolve` (opcional, para pegar). Pegar resuelve en tres pasos —memoria de lo copiado, nombres conocidos, una sola petición con los textos únicos— y se aplica como un solo paso del historial. SpreadBase exige solo la forma del objeto `lookup`; que lo defina el módulo dueño del recurso y que la hoja sea una función con sus dependencias es la organización recomendada, no un requisito. Detalle: `03-lookup.md` | ✅ |
+| **SB-22** | **Contraseña como tipo de columna; el hash lo pone el motor** (2026-09-28). La columna `PASSWORD` declara `hash(plain, ctx)` (obligatoria: sin ella no arranca). Lo guardado nunca sale: el motor lo cambia por una marca opaca (`pwd:…`, por fila) en toda fila que devuelve, sea cual sea la fuente; la concurrencia por campo funciona sobre la marca. Handlers y fuente solo ven el hash. No se filtra ni se ordena por ella. En el cliente, vacío es «no cambiarla» y nunca se guarda en el borrador local. Junto con ella entra `BOOLEAN` (casilla). Detalle: `04-tipos-de-columna.md` | ✅ |
 
 ---
 
@@ -409,8 +410,8 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | Directorio | Cubre |
 |---|---|
 | `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
-| `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor, y L-1 a L-5 de la columna lookup sobre el ejemplo de Postgres |
-| `tests/postgres/` | `postgresSource` (23) y columnas lookup (15) contra una base real |
+| `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor; L-1 a L-5 (lookup) y T-1 a T-5 (contraseña y casilla) sobre el ejemplo de Postgres |
+| `tests/postgres/` | `postgresSource` (23), columnas lookup (15) y contraseña y booleano (11) contra una base real |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -434,6 +435,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 13 | Ejemplos en un solo servidor y una sola app (SB-11) | ✅ |
 | 14 | Columna `lookup` (SB-21): protocolo, motor, popover con mini tabla paginada, pegado en tres pasos; 15 pruebas del motor y 5 de navegador | ✅ |
 | 15 | Ejemplo de Postgres con un campo de cada tipo: texto, número, select, lookup, imagen, fecha y fecha-hora | ✅ |
+| 16 | Tipos `PASSWORD` (SB-22) y `BOOLEAN`; hoja de usuarios en el ejemplo de Postgres; 11 pruebas del motor y T-1 a T-5 en navegador | ✅ |
 
 ### Pendientes conocidos
 
@@ -450,9 +452,9 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 - **Nombres heredados:** las clases CSS siguen con prefijo `oc-` (`oc-grid`,
   `oc-cell-dirty`) y las pruebas dependen de ellas. Renombrar a `sb-` es un
   cambio mecánico que conviene hacer antes de publicar.
-- **Tipos solo de cliente:** `password`, `action` (botón por fila) y
-  `remote-select` existen en el cliente pero no en `core`: el servidor no los
-  declara ni los valida. `remote-select` queda sustituido por `lookup` (SB-21).
+- **Tipos solo de cliente:** `action` (botón por fila) y `remote-select`
+  existen en el cliente pero no en `core`: el servidor no los declara ni los
+  valida. `remote-select` queda sustituido por `lookup` (SB-21).
 - **Fecha-hora sin zona:** `postgresSource` la lee como `AAAA-MM-DD HH:mm`, el
   formato del cliente, en la zona de la sesión de la base. Leer otro formato
   hacía que `from` y `base` no coincidieran con lo guardado (conflictos y

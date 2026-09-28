@@ -11,6 +11,7 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
+import { isPasswordMark } from '@spreadbase/core';
 import { positionFloating } from './internal/floating';
 import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, LookupColumnDef, Option } from './types';
 
@@ -424,7 +425,12 @@ function buildPickerEditor(source: PickerSource) {
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -706,7 +712,12 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -1037,7 +1048,12 @@ function buildDateEditor(withTime: boolean) {
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -1197,7 +1213,12 @@ function buildImageEditor(column: ColumnDef) {
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -1222,9 +1243,19 @@ function buildImageEditor(column: ColumnDef) {
 // Editor: password (enmascarado)
 // ---------------------------------------------------------------------------
 
+/**
+ * La celda de una contraseña: la marca del servidor (`pwd:…`, «hay una
+ * guardada») se ve como ocho puntos; una contraseña nueva, con un punto por
+ * carácter. El valor real nunca se pinta.
+ */
+function passwordDots(value: CellValue): string {
+	if (isBlank(value)) return '';
+	return isPasswordMark(value) ? '••••••••' : '•'.repeat(Math.min(String(value).length, 12));
+}
+
 function buildPasswordEditor() {
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
-		cell.textContent = isBlank(value) ? '' : '•'.repeat(Math.min(String(value).length, 12));
+		cell.textContent = passwordDots(value);
 	};
 
 	return {
@@ -1245,14 +1276,21 @@ function buildPasswordEditor() {
 		) {
 			disposeActiveEditor();
 			const overlay = mountOverlay(cell, 240);
+			// Con una guardada, el campo empieza vacío: la marca no es la contraseña, y
+			// dejarlo vacío es «no cambiarla» (SB-22).
+			const saved = isPasswordMark(value);
 			overlay.innerHTML = `
-				<input class="oc-cell-editor__input" type="password" autocomplete="new-password" />
+				<input class="oc-cell-editor__input" type="password" autocomplete="new-password"
+				       placeholder="${saved ? 'Nueva contraseña' : 'Contraseña'}" />
 				<label class="oc-cell-editor__toggle"><input type="checkbox" /> Mostrar</label>
+				${saved ? '<div class="oc-cell-editor__hint">Déjala vacía para no cambiarla</div>' : ''}
 			`;
 			const input = overlay.querySelector('input[type="password"]') as HTMLInputElement;
 			const toggle = overlay.querySelector('input[type="checkbox"]') as HTMLInputElement;
-			input.value = value == null ? '' : String(value);
+			input.value = value == null || saved ? '' : String(value);
 			placeOverlay(overlay, cell);
+			/** Vacío conserva lo que había; nunca borra una contraseña guardada por accidente. */
+			const typed = (): CellValue => (input.value === '' ? value : input.value);
 
 			toggle.addEventListener('change', () => {
 				input.type = toggle.checked ? 'text' : 'password';
@@ -1262,7 +1300,7 @@ function buildPasswordEditor() {
 			input.addEventListener('keydown', (e: KeyboardEvent) => {
 				e.stopPropagation();
 				if (e.key === 'Enter') {
-					if (activeEditor) activeEditor.value = input.value || null;
+					if (activeEditor) activeEditor.value = typed();
 					closeThroughInstance(instance, cell, true);
 				} else if (e.key === 'Escape') {
 					closeThroughInstance(instance, cell, false);
@@ -1271,11 +1309,16 @@ function buildPasswordEditor() {
 
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) {
-					if (activeEditor) activeEditor.value = input.value || null;
+					if (activeEditor) activeEditor.value = typed();
 					closeThroughInstance(instance, cell, true);
 				}
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -1338,7 +1381,12 @@ function buildTextEditor(paint: (cell: HTMLTableCellElement, value: CellValue) =
 			const onDocMouseDown = (e: MouseEvent) => {
 				if (!overlay.contains(e.target as Node)) commit();
 			};
-			setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
+			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
+			// «cerraría» un editor que ya no existe, dejando la celda en null.
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
 
 			activeEditor = {
 				cell,
@@ -1775,11 +1823,80 @@ const actionType: CellTypeDef = {
 	}
 };
 
+/** Texto → booleano: lo que suele venir de Excel o de otra hoja. `null` si no se reconoce. */
+function toBoolean(raw: unknown): boolean | null {
+	if (typeof raw === 'boolean') return raw;
+	if (isBlank(raw)) return null;
+	const s = normalizeForSearch(String(raw).trim());
+	if (['true', '1', 'si', 'yes', 'x', 'verdadero', 'activo'].includes(s)) return true;
+	if (['false', '0', 'no', 'falso', 'inactivo'].includes(s)) return false;
+	return null;
+}
+
+/**
+ * Casilla. Un clic (o la barra espaciadora, o Enter) la alterna: no hay editor
+ * que abrir para un sí o no. Se pinta con el `checkbox` de daisyUI, así toma
+ * el tema de la app. Al copiar viaja «Sí» o «No».
+ */
+function buildBooleanEditor(column: ColumnDef) {
+	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
+		cell.classList.add('oc-bool-cell');
+		let box = cell.querySelector<HTMLInputElement>(':scope > input.oc-bool');
+		if (!box) {
+			cell.innerHTML = '';
+			box = document.createElement('input');
+			box.type = 'checkbox';
+			box.tabIndex = -1;
+			box.className = 'oc-bool checkbox checkbox-sm';
+			box.setAttribute('aria-label', column.label);
+			cell.appendChild(box);
+		}
+		box.checked = value === true;
+		box.indeterminate = value === null || value === undefined;
+		box.disabled = !!column.readOnly;
+	};
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return value;
+		},
+		// Abrir el editor (doble clic, Enter, teclear) alterna y confirma de inmediato.
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+			const overlay = document.createElement('div');
+			activeEditor = { cell, overlay, value: value !== true, original: value, dispose: () => {} };
+			// Se confirma en el siguiente turno: jspreadsheet termina de abrir la edición después de llamar aquí.
+			setTimeout(() => closeThroughInstance(instance, cell, true), 0);
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			paint(cell, result);
+			return result;
+		}
+	};
+}
+
+const booleanType: CellTypeDef = {
+	name: 'boolean',
+	align: 'center',
+	parse: (raw) => toBoolean(raw),
+	format: (value) => (value === true ? 'Sí' : value === false ? 'No' : ''),
+	equals: (a, b) => (isBlank(a) && isBlank(b)) || a === b,
+	fromClipboard: (raw) => toBoolean(raw),
+	validate: (value, column) => requiredError(value, column),
+	toColumn: (column) => ({ type: buildBooleanEditor(column), align: 'center' })
+};
+
 const passwordType: CellTypeDef = {
 	name: 'password',
 	align: 'left',
 	parse: (raw) => (isBlank(raw) ? null : String(raw)),
-	format: (value) => (isBlank(value) ? '' : '•'.repeat(Math.min(String(value).length, 12))),
+	format: (value) => passwordDots(value),
 	equals: looseEquals,
 	// Nunca se exponen secretos al portapapeles del sistema.
 	toClipboard: () => '',
@@ -1787,9 +1904,12 @@ const passwordType: CellTypeDef = {
 	validate: (value, column) => {
 		const req = requiredError(value, column);
 		if (req) return req;
-		if (isBlank(value)) return null;
+		// La marca del servidor es «hay una guardada»: no hay nada que validar.
+		if (isBlank(value) || isPasswordMark(value)) return null;
 		const s = String(value);
-		if (s.length < (column.min ?? 8)) return `Mínimo ${column.min ?? 8} caracteres`;
+		const min = column.minLength ?? column.min ?? 8;
+		if (s.length < min) return `Mínimo ${min} caracteres`;
+		if (column.maxLength && s.length > column.maxLength) return `Máximo ${column.maxLength} caracteres`;
 		return null;
 	},
 	toColumn: () => ({ type: buildPasswordEditor(), align: 'left' })
@@ -1826,6 +1946,7 @@ export function listCellTypes(): string[] {
 	selectType,
 	remoteSelectType,
 	lookupType,
+	booleanType,
 	imageType,
 	passwordType,
 	actionType

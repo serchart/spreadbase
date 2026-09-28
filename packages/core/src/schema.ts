@@ -16,8 +16,20 @@ export const types = {
 	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). */
 	IMAGE: 'image',
 	/** Llave de un registro de otro recurso, elegido en una mini tabla (SB-21). */
-	LOOKUP: 'lookup'
+	LOOKUP: 'lookup',
+	/** Casilla: `true` o `false`. */
+	BOOLEAN: 'boolean',
+	/**
+	 * Contraseña (SB-22): se escribe en claro, el servidor guarda `hash(plain)` y
+	 * nunca la devuelve; al leer viaja una marca opaca (`pwd:…`) o `null`.
+	 */
+	PASSWORD: 'password'
 } as const;
+
+/** Prefijo de la marca con la que viaja una contraseña guardada. */
+export const PASSWORD_MARK = 'pwd:';
+/** ¿Es la marca de una contraseña guardada (y no una contraseña nueva)? */
+export const isPasswordMark = (v: unknown): boolean => typeof v === 'string' && v.startsWith(PASSWORD_MARK);
 
 export type ColumnType = (typeof types)[keyof typeof types];
 
@@ -91,6 +103,8 @@ export interface ColumnSpec {
 	readOnly?: boolean;
 	/** Vacío no permitido. */
 	required?: boolean;
+	/** Texto y contraseña. En contraseña, default 8. */
+	minLength?: number;
 	maxLength?: number;
 	/** Expresión regular, como texto para que viaje en JSON. */
 	pattern?: string;
@@ -100,6 +114,11 @@ export interface ColumnSpec {
 	options?: Option[];
 	/** Solo `lookup`: de dónde salen sus registros. */
 	lookup?: LookupSpec;
+	/**
+	 * Solo `password`, y obligatoria: convierte la contraseña en claro en lo que
+	 * se guarda (bcrypt, argon2, scrypt…). No viaja.
+	 */
+	hash?: (plain: string, ctx: Record<string, unknown>) => string | Promise<string>;
 	/** Entra en la búsqueda de texto (`?search=`). Sin ninguna marcada, entran todas las de texto. */
 	searchable?: boolean;
 	defaultValue?: CellValue;
@@ -142,12 +161,12 @@ export interface SheetSchema {
 	columns: Record<string, SchemaColumn>;
 }
 
-export type SchemaColumn = Omit<ColumnSpec, 'validate' | 'lookup'> & { lookup?: LookupSchema };
+export type SchemaColumn = Omit<ColumnSpec, 'validate' | 'lookup' | 'hash'> & { lookup?: LookupSchema };
 
 export function toSchema(def: SheetDefinition): SheetSchema {
 	const idField = def.idField ?? 'id';
 	const columns: SheetSchema['columns'] = {};
-	for (const [field, { validate: _validate, lookup, ...spec }] of Object.entries(def.columns)) {
+	for (const [field, { validate: _validate, hash: _hash, lookup, ...spec }] of Object.entries(def.columns)) {
 		const column: SchemaColumn = field === idField ? { ...spec, readOnly: true } : { ...spec };
 		if (lookup) {
 			column.lookup = {
@@ -183,6 +202,7 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 		case 'text': {
 			if (typeof value !== 'string') return 'Debe ser texto';
 			if (value.trim() === '' && spec.required) return 'No admite vacío';
+			if (spec.minLength !== undefined && value.length < spec.minLength) return `Mínimo ${spec.minLength} caracteres`;
 			if (spec.maxLength !== undefined && value.length > spec.maxLength) return `Máximo ${spec.maxLength} caracteres`;
 			if (spec.pattern && value !== '' && !new RegExp(spec.pattern).test(value)) {
 				return spec.patternMessage ?? 'Formato inválido';
@@ -203,6 +223,18 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 			return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? null : 'Fecha y hora inválida';
 		case 'select':
 			return spec.options?.some((o) => o.value === value) ? null : 'Valor fuera del catálogo';
+		case 'boolean':
+			return typeof value === 'boolean' ? null : 'Debe ser verdadero o falso';
+		// Lo que se escribe es la contraseña nueva, en claro. La marca que viaja al
+		// leer no es una contraseña: devolverla tal cual es «no la cambié».
+		case 'password': {
+			if (typeof value !== 'string') return 'Debe ser texto';
+			if (isPasswordMark(value)) return 'Escribe la contraseña nueva';
+			const min = spec.minLength ?? 8;
+			if (value.length < min) return `Mínimo ${min} caracteres`;
+			if (spec.maxLength !== undefined && value.length > spec.maxLength) return `Máximo ${spec.maxLength} caracteres`;
+			return null;
+		}
 		case 'image':
 			return typeof value === 'string' && IMAGE_URL.test(value) ? null : 'URL de imagen inválida';
 		// Que el registro exista lo comprueba el motor con `lookup.byIds`, de una vez por lote.

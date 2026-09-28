@@ -35,7 +35,8 @@ export interface ColumnDef {
 	/** Valor por defecto al crear una fila nueva. */
 	defaultValue?: CellValue | (() => CellValue);
 
-	// --- text ---
+	// --- text y password ---
+	minLength?: number;
 	maxLength?: number;
 	pattern?: RegExp;
 	patternMessage?: string;

@@ -101,11 +101,25 @@ los productos como estaban.
 | **L-4** | Pegar texto de fuera | Pegar 5 líneas: homónimo, nombre único, inexistente, un id, el único repetido | **Una** petición de `resolve` con los 4 textos únicos; el único y el id se resuelven; el homónimo «Ambiguo: N coincidencias» y abre el buscador filtrado; el inexistente en rojo; deshacer quita el pegado entero | ✅ |
 | **L-5** | Copiar y pegar dentro de la hoja | Copiar un responsable con homónimos y pegarlo en otra fila; guardar | Cero peticiones; sin ambigüedad; la API guarda el mismo id | ✅ |
 
+## 7. Contraseña y casilla (`tipos.test.ts`, SB-22)
+
+Sobre `/postgres?sheet=users`. Necesita el ejemplo de Postgres encendido; si no
+responde, se omite. Deja los usuarios como estaban (contraseña de la semilla:
+`demo-12345`).
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **T-1** | Carga | Contraseña como `••••••••`; casilla según el valor; ninguna celda marcada; ni rastro del hash en la página | ✅ |
+| **T-2** | Cambiar la contraseña | El editor empieza vacío con «Déjala vacía para no cambiarla»; confirmar vacío no cambia nada; una nueva queda editada y **no aparece en IndexedDB**; al guardar, la marca cambia. Cubre además el listener de «clic fuera» que quedaba vivo tras un cierre rápido y vaciaba la celda al siguiente clic | ✅ |
+| **T-3** | Contraseña corta | Celda inválida «Mínimo 10 caracteres»; no se envía | ✅ |
+| **T-4** | Casilla | Un clic la alterna; deshacer y rehacer; se guarda | ✅ |
+| **T-5** | Copiar una contraseña | El portapapeles queda vacío | ✅ |
+
 ---
 
 ## Estado
 
-Los 32 escenarios están automatizados, más los 5 de la columna lookup:
+Los 32 escenarios están automatizados, más los 5 de la columna lookup y los 5 de contraseña y casilla:
 
 | Archivo | Escenarios |
 |---|---|
@@ -116,6 +130,7 @@ Los 32 escenarios están automatizados, más los 5 de la columna lookup:
 | `concurrencia.test.ts` | C-1 a C-12 |
 | `red.test.ts` | R-1 a R-3 |
 | `lookup.test.ts` | L-1 a L-5 (ejemplo Postgres) |
+| `tipos.test.ts` | T-1 a T-5 (ejemplo Postgres, usuarios) |
 
 Dependen de la política del servidor: C-3 y C-11 solo corren con `merge`, C-4
 solo con `strict`, y C-5 comprueba lo que toca en cada una. Para cubrir todo,

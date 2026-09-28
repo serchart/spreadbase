@@ -1279,6 +1279,36 @@ export class GridController {
 		return null;
 	}
 
+	// -- contraseñas fuera del borrador (SB-22) ---------------------------------
+	//
+	// Una contraseña escrita y no guardada no se persiste en el navegador: en su
+	// lugar va lo que había (la marca del servidor, o nada en una fila nueva).
+	// Al recargar, esa celda vuelve a su estado anterior y hay que escribirla
+	// otra vez. Deshacer y rehacer sobre ella, tras recargar, no la cambian.
+
+	private get secretFields(): string[] {
+		return this.columns.filter((c) => c.type === 'password').map((c) => c.field);
+	}
+
+	private scrubRow(row: GridRow): GridRow {
+		const secrets = this.secretFields;
+		if (secrets.length === 0) return row;
+		const original = this.baseline.get(row.__key);
+		const out: GridRow = { ...row };
+		for (const field of secrets) out[field] = (original?.[field] ?? null) as CellValue;
+		return out;
+	}
+
+	private scrubChange(change: HistoryChange): HistoryChange {
+		if (change.kind === 'cell') {
+			if (!this.secretFields.includes(change.field)) return change;
+			const kept = (this.baseline.get(change.rowKey)?.[change.field] ?? null) as CellValue;
+			return { ...change, before: kept, after: kept };
+		}
+		if (change.kind === 'insert' || change.kind === 'delete') return { ...change, row: this.scrubRow(change.row) };
+		return change;
+	}
+
 	/** Escribe en IndexedDB lo que cambió desde la última vez. */
 	private async flushDraft(): Promise<void> {
 		if (!this.draftEnabled || !this.draftReady) return;
@@ -1300,15 +1330,16 @@ export class GridController {
 				deleteRows.push(key);
 				continue;
 			}
+			const secrets = this.secretFields;
 			const dirty = this.columns
-				.filter((c) => this.dirtyCells.has(cellId(key, c.field)))
+				.filter((c) => this.dirtyCells.has(cellId(key, c.field)) && !secrets.includes(c.field))
 				.map((c) => c.field);
 			upsertRows.push({
 				gridId,
 				rowKey: key,
 				id: row[this.idField] ?? null,
 				state,
-				current: { ...row },
+				current: this.scrubRow(row),
 				original: state === 'created' ? null : (this.baseline.get(key) ?? null),
 				dirty,
 				rowVersion: (row.__version ?? null) as CellValue,
@@ -1322,7 +1353,7 @@ export class GridController {
 		const current = new Set(this.actions.map((a) => a.seq));
 		const putActions = this.actions
 			.filter((a) => !this.persistedSeqs.has(a.seq))
-			.map((a) => ({ gridId, seq: a.seq, changes: a.changes }));
+			.map((a) => ({ gridId, seq: a.seq, changes: a.changes.map((c) => this.scrubChange(c)) }));
 		const deleteActions = [...this.persistedSeqs].filter((seq) => !current.has(seq));
 		this.persistedSeqs = current;
 		this.persistedCursor = this.cursor;
@@ -1502,7 +1533,7 @@ export class GridController {
 		}
 		const payload: PersistedState = {
 			v: STORAGE_VERSION,
-			rows: this.rows,
+			rows: this.rows.map((r) => this.scrubRow(r)),
 			baseline: [...this.baseline.entries()],
 			dirty: [...this.dirtyCells],
 			created: [...this.createdKeys],

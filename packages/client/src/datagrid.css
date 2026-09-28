@@ -948,3 +948,14 @@
 .oc-text-conflict {
 	color: color-mix(in oklab, var(--color-warning) 50%, var(--color-error));
 }
+
+/* -- boolean: casilla centrada --------------------------------------------- */
+
+.oc-bool-cell {
+	text-align: center;
+}
+
+.oc-bool {
+	vertical-align: middle;
+	cursor: pointer;
+}

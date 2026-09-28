@@ -8,5 +8,5 @@ export type { PostgresSourceOptions, PoolLike, Queryable } from './postgresSourc
 export { parseListQuery, parseBatch, parseLookupQuery, parseResolve, sheetRouter } from './http.ts';
 export type { SheetRouterOptions } from './http.ts';
 export { SpreadBaseError, ValidationError, NotFoundError, errorHandler, notFoundHandler } from './errors.ts';
-export { types, toSchema } from '@spreadbase/core';
+export { types, toSchema, PASSWORD_MARK, isPasswordMark } from '@spreadbase/core';
 export type * from '@spreadbase/core';

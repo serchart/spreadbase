@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { fold, isBlank, sameValue, toSchema, validateValue } from '@spreadbase/core';
+import { PASSWORD_MARK, fold, isBlank, isPasswordMark, sameValue, toSchema, validateValue } from '@spreadbase/core';
 import type {
 	BatchInput,
 	BatchResult,
@@ -101,6 +101,7 @@ export class SpreadBase {
 	private readonly memoryStore = memoryIdempotency();
 	/** Sin transacción, los lotes se aplican de uno en uno: leer, comparar y escribir no se intercalan. */
 	private queue: Promise<unknown> = Promise.resolve();
+	private readonly passwordFields: string[];
 
 	constructor({ source, handlers, ...definition }: SpreadBaseOptions) {
 		if (Object.keys(definition.columns).length === 0) throw new Error(`La hoja ${definition.id} no tiene columnas`);
@@ -116,6 +117,15 @@ export class SpreadBase {
 				throw new Error(`La columna "${field}" (lookup) necesita lookup.value, lookup.display, lookup.search y lookup.byIds`);
 			}
 		}
+		// Sin `hash`, una contraseña se guardaría en claro: no se arranca.
+		for (const [field, spec] of Object.entries(definition.columns)) {
+			if (spec.type === 'password' && typeof spec.hash !== 'function') {
+				throw new Error(`La columna "${field}" (password) necesita hash(plain, ctx): nunca se guarda en claro`);
+			}
+		}
+		this.passwordFields = Object.entries(definition.columns)
+			.filter(([, spec]) => spec.type === 'password')
+			.map(([field]) => field);
 		source.attach?.(definition);
 	}
 
@@ -135,7 +145,8 @@ export class SpreadBase {
 
 	/** Un tramo de filas. Con columnas `lookup`, trae el nombre de cada id en `labels` (SB-21). */
 	async list(query: ListQuery, context: Record<string, unknown> = {}): Promise<Page> {
-		const page = await this.source.list(this.checkQuery(query));
+		const page = { ...(await this.source.list(this.checkQuery(query))) };
+		page.rows = page.rows.map((row) => this.mask(row));
 		const lookups = this.lookupFields();
 		if (lookups.length === 0) return page;
 		const labels: Record<string, Record<string, string>> = {};
@@ -194,9 +205,48 @@ export class SpreadBase {
 	}
 
 	async get(id: string): Promise<Row> {
-		const row = await this.source.get(id);
+		const row = await this.read(this.source, id);
 		if (!row) throw new NotFoundError(`No existe la fila ${id}`);
 		return row;
+	}
+
+	// -- contraseñas (SB-22) ----------------------------------------------------
+
+	/**
+	 * Lo guardado en una columna `password` nunca sale: se cambia por una marca
+	 * opaca derivada de ello (otro hash, de un solo sentido). La marca cambia
+	 * cuando cambia la contraseña, así que la concurrencia por campo sigue
+	 * funcionando sin exponer nada. Lo hace el motor, no cada fuente: aunque una
+	 * fuente o un handler devuelvan el hash, lo que sale ya va enmascarado.
+	 */
+	private mask<R extends Record<string, unknown>>(row: R): R {
+		if (this.passwordFields.length === 0) return row;
+		const out: Record<string, unknown> = { ...row };
+		for (const field of this.passwordFields) {
+			const stored = out[field];
+			out[field] = isBlank(stored)
+				? null
+				: isPasswordMark(stored)
+					? stored
+					: // Con el id de la fila: dos filas con lo mismo guardado no dan la misma marca.
+						PASSWORD_MARK +
+						createHash('sha256').update(`${String(row[this.idField])}\u0000${String(stored)}`).digest('hex').slice(0, 16);
+		}
+		return out as R;
+	}
+
+	/** Una fila de la fuente, ya enmascarada. */
+	private async read(source: SheetSource, id: string): Promise<Row | undefined> {
+		const row = await source.get(id);
+		return row ? this.mask(row) : undefined;
+	}
+
+	/** Cambia cada contraseña en claro por `hash(plain)`, justo antes de escribir. */
+	private async hashPasswords(values: Record<string, CellValue>, ctx: BatchContext): Promise<void> {
+		for (const field of this.passwordFields) {
+			const plain = values[field];
+			if (typeof plain === 'string' && plain !== '') values[field] = await this.definition.columns[field]!.hash!(plain, ctx);
+		}
 	}
 
 	/**
@@ -212,10 +262,13 @@ export class SpreadBase {
 	/** Filtros sobre columnas desconocidas se ignoran; ordenar por una desconocida es un error. */
 	private checkQuery(query: ListQuery): ListQuery {
 		const columns = this.definition.columns;
-		if (query.sort && !(query.sort.field in columns)) {
+		if (query.sort && (!(query.sort.field in columns) || this.passwordFields.includes(query.sort.field))) {
 			throw new ValidationError(`No se puede ordenar por "${query.sort.field}"`);
 		}
-		const filters = Object.fromEntries(Object.entries(query.filters).filter(([field]) => field in columns));
+		// Filtrar por una contraseña sería un oráculo para adivinar el hash: se ignora.
+		const filters = Object.fromEntries(
+			Object.entries(query.filters).filter(([field]) => field in columns && !this.passwordFields.includes(field))
+		);
 		return { ...query, filters };
 	}
 
@@ -297,7 +350,7 @@ export class SpreadBase {
 		// -- ediciones: concurrencia por campo (G-14) y política (G-15)
 		const toUpdate: { id: string; values: Record<string, CellValue>; row: Row }[] = [];
 		for (const { id, rowVersion, changes, base } of input.updates) {
-			const row = await source.get(id);
+			const row = await this.read(source, id);
 			if (!row) {
 				result.conflicts.push({ op: 'update', id, reason: 'not_found', remote: null });
 				continue;
@@ -332,7 +385,7 @@ export class SpreadBase {
 		// -- bajas: eliminar lo que otro editó es siempre conflicto (G-16)
 		const toDelete: { id: string; row: Row }[] = [];
 		for (const { id, rowVersion } of input.deletes) {
-			const row = await source.get(id);
+			const row = await this.read(source, id);
 			// Ya no existe: lo que el cliente quería ya ocurrió. No es un conflicto.
 			if (!row) {
 				result.deleted.push(id);
@@ -345,13 +398,15 @@ export class SpreadBase {
 			toDelete.push({ id, row });
 		}
 
-		// -- aplicar: los handlers de dominio si los hay; si no, la fuente
+		// -- aplicar: los handlers de dominio si los hay; si no, la fuente.
+		// Las contraseñas llegan ya como hash: ni los handlers ni la fuente ven el texto en claro.
+		for (const u of toUpdate) await this.hashPasswords(u.values, ctx);
 		const updated = this.handlers.updateMany
 			? await this.withVersions(source, await this.handlers.updateMany(toUpdate, ctx))
 			: await sequential(toUpdate, (u) => source.update(u.id, u.values));
 		updated.forEach((row, i) => {
 			const u = toUpdate[i]!;
-			result.updated.push({ ...row });
+			result.updated.push(this.mask({ ...row }));
 			events.push({ sheet: this.id, op: 'update', id: u.id, fields: Object.keys(u.values), rowVersion: row.rowVersion });
 		});
 
@@ -362,13 +417,14 @@ export class SpreadBase {
 			events.push({ sheet: this.id, op: 'delete', id: d.id, fields: [], rowVersion: null });
 		}
 
-		const toInsert = input.creates.map((c) => ({ values: c.values }));
+		const toInsert = input.creates.map((c) => ({ values: { ...c.values } }));
+		for (const c of toInsert) await this.hashPasswords(c.values, ctx);
 		const created = this.handlers.insertMany
 			? await this.withVersions(source, await this.handlers.insertMany(toInsert, ctx))
 			: await sequential(toInsert, (c) => source.insert(c.values));
 		created.forEach((row, i) => {
 			const c = input.creates[i]!;
-			result.created.push({ key: c.key, row: { ...row } });
+			result.created.push({ key: c.key, row: this.mask({ ...row }) });
 			events.push({ sheet: this.id, op: 'create', id: String(row[this.idField]), fields: Object.keys(c.values), rowVersion: row.rowVersion });
 		});
 
@@ -423,7 +479,7 @@ export class SpreadBase {
 			if (seen.has(u.id)) problems.push({ path: `updates[${i}].id`, message: 'Fila repetida en el lote' });
 			seen.add(u.id);
 			const targets = Object.fromEntries(Object.entries(u.changes).map(([f, c]) => [f, c?.to]));
-			const current = (await source.get(u.id)) ?? {};
+			const current = (await this.read(source, u.id)) ?? {};
 			check(`updates[${i}].changes`, targets, { ...current, ...targets });
 		}
 		input.deletes.forEach((d, i) => {

@@ -955,6 +955,14 @@ Uso:
 			return;
 		}
 
+		// Casilla: un clic la alterna, como en cualquier hoja de cálculo.
+		if (target?.matches?.('input.oc-bool')) {
+			event.preventDefault();
+			const td = target.closest('td');
+			if (td && worksheet && !target.hasAttribute('disabled')) worksheet.openEditor(td);
+			return;
+		}
+
 		const chevron = target?.closest?.('.oc-picker__chevron');
 		if (!chevron || !worksheet) return;
 		const td = chevron.closest('td');

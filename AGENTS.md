@@ -23,7 +23,7 @@
 - Fuente de Postgres y columnas lookup: `npm test -- --project postgres`, con
   `DATABASE_URL` en `.env` (Docker local: contenedor `spreadbase-pg`, puerto
   5433). No necesita los ejemplos encendidos.
-- `tests/grid/lookup.test.ts` corre sobre la página `/postgres`: necesita
+- `tests/grid/lookup.test.ts` y `tests/grid/tipos.test.ts` corren sobre la página `/postgres`: necesitan
   `npm run postgres:setup` y el backend con `DATABASE_URL`; si no responde, se
   omite (no falla).
 - Un ejemplo nuevo: carpeta en `examples/backend/src/examples/<nombre>/`

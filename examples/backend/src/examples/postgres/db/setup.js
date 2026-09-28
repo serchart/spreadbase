@@ -15,7 +15,7 @@ if (process.argv.includes('--reset')) {
 // La vista se recrea en cada migración; una versión anterior con menos columnas
 // no se puede reemplazar, así que se quita primero.
 await pool.query('DROP VIEW IF EXISTS v_products');
-for (const file of ['001_products.sql', '002_catalog.sql']) {
+for (const file of ['001_products.sql', '002_catalog.sql', '003_users_sheet.sql']) {
 	await pool.query(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'));
 }
 
@@ -103,6 +103,16 @@ if (pending.length > 0) {
 		);
 	}
 	console.log(`Completadas las columnas nuevas de ${pending.length} productos.`);
+}
+
+// Contraseñas de la semilla: un solo hash para todos (scrypt es lento a propósito;
+// 2 000 hashes distintos tardarían minutos). La contraseña es «demo-12345».
+const noPassword = await pool.query('SELECT count(*)::int AS n FROM users WHERE password_hash IS NULL');
+if (noPassword.rows[0].n > 0) {
+	const { hashPassword } = await import('../common/passwords.js');
+	await pool.query('UPDATE users SET password_hash = $1 WHERE password_hash IS NULL', [await hashPassword('demo-12345')]);
+	await pool.query(`UPDATE users SET role = CASE WHEN id <= 'usr_0005' THEN 'admin' WHEN id <= 'usr_0050' THEN 'supervisor' ELSE 'ejecutivo' END`);
+	console.log(`Contraseña y rol a ${noPassword.rows[0].n} usuarios (contraseña: demo-12345).`);
 }
 
 console.log('Base del ejemplo lista.');

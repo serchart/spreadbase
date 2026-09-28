@@ -1,4 +1,6 @@
-import { types } from '@spreadbase/server';
+import { SpreadBase, postgresSource, types } from '@spreadbase/server';
+import { ValidationError } from '../../../common/errors.js';
+import { usersSheet } from './users.sheet.js';
 
 const COLUMNS = 'id, name, email, avatar';
 /** Minúsculas y sin acentos, en SQL; `fold` hace lo mismo en JS. */
@@ -32,6 +34,31 @@ class UsersService {
 			byIds: (ids, ctx) => this.byIds(ids, ctx),
 			resolve: (texts, ctx) => this.byNames(texts, ctx)
 		};
+
+		/**
+		 * La hoja de usuarios. Escribe la fuente (sin SQL propio); los handlers solo
+		 * traducen el choque del correo único a un error de dominio. La contraseña
+		 * les llega ya como hash.
+		 */
+		const source = postgresSource({ pool: this.pool, table: 'users', createId: () => `usr_${crypto.randomUUID().slice(0, 8)}` });
+		this.sheet = new SpreadBase({
+			...usersSheet,
+			source,
+			handlers: {
+				insertMany: (items, { tx }) => this.#uniqueEmail(() => sequential(items, (i) => tx.insert(i.values))),
+				updateMany: (items, { tx }) => this.#uniqueEmail(() => sequential(items, (i) => tx.update(i.id, i.values)))
+			}
+		});
+	}
+
+	/** El correo es único en la tabla: el choque se explica en vez de un 500. */
+	async #uniqueEmail(write) {
+		try {
+			return await write();
+		} catch (error) {
+			if (error.code === '23505') throw new ValidationError('Ya existe un usuario con ese correo');
+			throw error;
+		}
 	}
 
 	/**
@@ -64,6 +91,13 @@ class UsersService {
 		]);
 		return rows;
 	}
+}
+
+/** En una transacción, una consulta a la vez. */
+async function sequential(items, fn) {
+	const out = [];
+	for (const item of items) out.push(await fn(item));
+	return out;
 }
 
 export default UsersService;
