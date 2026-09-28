@@ -4,10 +4,11 @@
 
 - `packages/core|server|client`: la librería (`@spreadbase/*`). Diseño y
   decisiones SB-1… en `docs/01-diseno.md`.
-- `playground/`: banco de desarrollo (backend en capas + frontend SvelteKit,
-  50 000 filas). Las E2E corren contra él.
-- `examples/basic/`: ejemplo didáctico mínimo. `examples/postgres/`: backend JS
-  estilo Aggy sobre Postgres (fuente, transacción y handlers).
+- `examples/`: **un** servidor (`examples/backend`, base común + una carpeta
+  por ejemplo en `src/examples/`) y **una** app (`examples/frontend`, índice +
+  una página por ejemplo). Ejemplos: `basic`, `postgres` (backend JS estilo
+  Aggy), `cases` (50 000 filas en capas; contra él corren las E2E) y `local`
+  (sin servidor).
 - `tests/`: E2E por módulo (`protocol/`, `grid/`) y fuentes contra una base
   real (`postgres/`).
 
@@ -15,13 +16,17 @@
 
 - Tipos: `npm run check` (todos los workspaces) o `npm run check -w @spreadbase/<paquete>`.
 - Código puro del cliente (propiedades del historial): `npm run test:unit`.
-- E2E, con el playground encendido (cada uno en su terminal):
-  `npm run playground:back` y `npm run playground:front`; luego `npm test`.
+- E2E, con los ejemplos encendidos (cada uno en su terminal):
+  `npm run back` y `npm run front`; luego `npm test`.
   **Las pruebas reinician la hoja de casos.** Para la política `strict`:
-  `CASES_POLICY=strict npm run playground:back` y `npm test -- protocol`.
+  `CASES_POLICY=strict npm run back` y `npm test -- protocol`.
 - Fuente de Postgres: `npm test -- --project postgres`, con `DATABASE_URL` en
   `.env` (Docker local: contenedor `spreadbase-pg`, puerto 5433). No necesita
-  el playground.
+  los ejemplos encendidos.
+- Un ejemplo nuevo: carpeta en `examples/backend/src/examples/<nombre>/`
+  montada en `app.ts` bajo `/api/<nombre>`, página en
+  `examples/frontend/src/routes/<nombre>/` y entrada en `src/lib/examples.ts`.
+  No se crean servidores nuevos.
 - Un cambio en `packages/client` que se vea en pantalla se prueba también en el
   navegador (`tests/grid/`), no solo con tipos.
 - Servidores en segundo plano: apagar el árbol completo (los `tsx watch`

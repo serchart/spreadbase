@@ -3,10 +3,10 @@ import { defineConfig } from 'vitest/config';
 /**
  * E2E de caja negra, por módulo (docs/01-diseno.md §7).
  *
- * - `e2e`: protocolo y navegador contra el playground encendido. Un test puede
+ * - `e2e`: protocolo y navegador contra los ejemplos encendidos (la hoja de casos). Un test puede
  *   llamar a la API y manejar el navegador.
  * - `postgres`: las fuentes de datos contra una base real (`DATABASE_URL`). No
- *   necesitan el playground.
+ *   necesitan los ejemplos encendidos.
  * - En serie: las pruebas comparten la base del entorno de test y la reinician.
  */
 export default defineConfig({

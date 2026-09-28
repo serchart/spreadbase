@@ -30,7 +30,7 @@ async function addRow(grid: GridPage, name: string) {
 describe('red', () => {
 	it('R-1 · doble clic en Guardar crea una sola fila', async () => {
 		const { page } = await user('A');
-		const grid = await new GridPage(page).open(`${FRONT_URL}/`);
+		const grid = await new GridPage(page).open(`${FRONT_URL}/cases`);
 		await addRow(grid, 'Doble Clic SA');
 		await uiButton(page, 'Guardar').first().dblclick();
 		await page.locator('dialog[open]').first().waitFor();
@@ -39,7 +39,7 @@ describe('red', () => {
 
 	it('R-2 · se corta la red tras aplicar: el reintento usa la misma llave y no duplica (G-12)', async () => {
 		const { page } = await user('A');
-		const grid = await new GridPage(page).open(`${FRONT_URL}/`);
+		const grid = await new GridPage(page).open(`${FRONT_URL}/cases`);
 		await addRow(grid, 'Corte de Red SA');
 
 		const keys: string[] = [];
@@ -68,7 +68,7 @@ describe('red', () => {
 	it('R-3 · servidor caído al abrir: aviso y Reintentar', async () => {
 		const { page } = await user('A');
 		await page.route('**/api/cases/schema', (route) => route.abort('connectionrefused'));
-		await page.goto(`${FRONT_URL}/`);
+		await page.goto(`${FRONT_URL}/cases`);
 		await expect.poll(() => page.getByText('No se pudo abrir la hoja').count(), { timeout: 15_000 }).toBe(1);
 
 		await page.unroute('**/api/cases/schema');

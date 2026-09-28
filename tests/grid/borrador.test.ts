@@ -17,7 +17,7 @@ beforeEach(async () => {
 
 async function open() {
 	const u = await user('A');
-	const grid = await new GridPage(u.page).open(`${FRONT_URL}/`);
+	const grid = await new GridPage(u.page).open(`${FRONT_URL}/cases`);
 	return { ...u, grid };
 }
 
@@ -48,7 +48,7 @@ describe('borrador', () => {
 		await makeChanges(grid);
 		await flushDraft(grid);
 		await page.reload();
-		await grid.open(`${FRONT_URL}/`);
+		await grid.open(`${FRONT_URL}/cases`);
 		await expect.poll(() => grid.restoreNotice().count()).toBe(1);
 		await expectChanges(grid);
 	});
@@ -58,7 +58,7 @@ describe('borrador', () => {
 		await makeChanges(grid);
 		await flushDraft(grid);
 		await page.reload();
-		await grid.open(`${FRONT_URL}/`);
+		await grid.open(`${FRONT_URL}/cases`);
 		await expectChanges(grid);
 
 		await grid.toolbar('Deshacer');
@@ -77,7 +77,7 @@ describe('borrador', () => {
 		const context = (A as unknown as { context: BrowserContext }).context;
 		const page = await context.newPage();
 		await A.page.close();
-		const grid = await new GridPage(page).open(`${FRONT_URL}/`);
+		const grid = await new GridPage(page).open(`${FRONT_URL}/cases`);
 		await expectChanges(grid);
 	});
 
@@ -88,7 +88,7 @@ describe('borrador', () => {
 		await grid.closeDialog();
 		await flushDraft(grid);
 		await page.reload();
-		await grid.open(`${FRONT_URL}/`);
+		await grid.open(`${FRONT_URL}/cases`);
 		await page.waitForTimeout(500);
 		expect(await grid.restoreNotice().count()).toBe(0);
 		expect(await grid.summary()).toBe('Cambios 0');

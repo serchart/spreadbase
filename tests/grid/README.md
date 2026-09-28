@@ -1,6 +1,6 @@
 # tests/grid — la hoja en el navegador
 
-Escenarios de usuario sobre la hoja del playground, en Chrome real
+Escenarios de usuario sobre la hoja de casos de los ejemplos (`/cases`), en Chrome real
 (Playwright). Cada escenario comprueba **lo que se ve** (texto y clases de las
 celdas, contadores, diálogos) y, cuando importa el resultado final, **lo que
 quedó en el servidor** (API).

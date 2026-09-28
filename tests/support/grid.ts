@@ -1,5 +1,5 @@
 /**
- * Acceso al DataGrid del playground, a través de la interfaz (doc 09 §4:
+ * Acceso a la hoja de los ejemplos, a través de la interfaz (doc 09 §4:
  * Playwright lee la UI y Vitest compara; el resultado final, cuando importa,
  * se verifica además por la API).
  */

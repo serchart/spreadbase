@@ -18,7 +18,7 @@ beforeEach(async () => {
 /** Abre la hoja remota para un usuario. */
 async function open(name: string) {
 	const u = await user(name);
-	const grid = await new GridPage(u.page).open(`${FRONT_URL}/`);
+	const grid = await new GridPage(u.page).open(`${FRONT_URL}/cases`);
 	return { ...u, grid };
 }
 
@@ -206,7 +206,7 @@ describe('conflicto detectado antes de guardar (C-9)', () => {
 		await saveOk(B.grid);
 
 		await A.page.reload();
-		await A.grid.open(`${FRONT_URL}/`);
+		await A.grid.open(`${FRONT_URL}/cases`);
 		const r10 = A.grid.rowById('case_000010');
 		const r12 = A.grid.rowById('case_000012');
 		await expect.poll(() => A.grid.state(r10, 'Cliente')).toContain('oc-cell-conflict');

@@ -7,26 +7,18 @@
 		"packages/core",
 		"packages/server",
 		"packages/client",
-		"playground/backend",
-		"playground/frontend",
-		"examples/basic/backend",
-		"examples/basic/frontend",
-		"examples/postgres/backend",
-		"examples/postgres/frontend",
+		"examples/backend",
+		"examples/frontend",
 		"tests"
 	],
 	"scripts": {
 		"check": "npm run check --workspaces --if-present",
+		"back": "npm run dev -w @spreadbase/examples-backend",
+		"front": "npm run dev -w @spreadbase/examples-frontend",
+		"postgres:setup": "npm run postgres:setup -w @spreadbase/examples-backend",
+		"postgres:reset": "npm run postgres:reset -w @spreadbase/examples-backend",
 		"test": "npm test -w @spreadbase/tests",
-		"test:unit": "npm test -w @spreadbase/client",
-		"playground:back": "npm run dev -w @spreadbase/playground-backend",
-		"playground:front": "npm run dev -w @spreadbase/playground-frontend",
-		"basic:back": "npm run dev -w @spreadbase/example-basic-backend",
-		"basic:front": "npm run dev -w @spreadbase/example-basic-frontend",
-		"postgres:setup": "npm run setup -w @spreadbase/example-postgres-backend",
-		"postgres:reset": "npm run setup -w @spreadbase/example-postgres-backend -- --reset",
-		"postgres:back": "npm run dev -w @spreadbase/example-postgres-backend",
-		"postgres:front": "npm run dev -w @spreadbase/example-postgres-frontend"
+		"test:unit": "npm test -w @spreadbase/client"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",

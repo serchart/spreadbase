@@ -54,7 +54,7 @@ Uso:
 		 * así que se adapta al redimensionar sin números mágicos.
 		 *
 		 * Es el modo de las vistas que **son** una hoja (`/cases`, `/customers`),
-		 * frente al playground, donde la grilla es un bloque dentro de una página.
+		 * frente a una página donde la grilla es un bloque entre otros.
 		 */
 		fill?: boolean;
 		/**

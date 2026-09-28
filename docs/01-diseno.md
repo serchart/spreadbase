@@ -62,10 +62,10 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-8** | **Tiempo real: se diseña ya, se construye después.** Todo lote aplicado emite un evento `{ sheet, id, fields, rowVersion }`. Más adelante ese evento alimenta presencia, cursores de otros usuarios y Redis. Mientras tanto, nada del diseño debe cerrarle la puerta | ✅ |
 | **SB-9** | **Repo privado, licencia MIT al publicar.** Scope npm `@spreadbase` reservado | ✅ |
 | **SB-10** | **Tres paquetes: `server`, `client` y `core`** (§3). Quien usa la librería instala `server` en el back y `client` en el front; `core` llega como dependencia de ambos, como `socket.io-parser` con `socket.io` y `socket.io-client` | ✅ |
-| **SB-11** | **Dos apps en el repo, con propósitos distintos:** `examples/basic`, didáctica, para developers que llegan a la librería; y `playground/`, banco de desarrollo con 50 000 filas, `mutate`/`reset`, latencia simulada y banco de rendimiento, contra el que corren las E2E (§7) | ✅ |
+| **SB-11** | **Un servidor y una app para todos los ejemplos** (revisada 2026-09-28). `examples/backend` tiene la base común y una carpeta por ejemplo en `src/examples/`, montada bajo `/api/<nombre>`; `examples/frontend` tiene un índice y una página por ejemplo. Ejemplos: básico (didáctico), Postgres (backend JS estilo Aggy), casos (50 000 filas en capas, `mutate`/`reset`, latencia; contra él corren las E2E) y sin servidor. Un ejemplo nuevo es una carpeta, no un servidor | ✅ |
 | **SB-12** | **La definición se escribe en el backend por defecto y viaja al front.** El backend es la autoridad: valida lo que se guarda. Sirve el esquema en `GET <base>/schema`; el front se conecta con `new Sheet(url)` y solo agrega lo visual o lo exclusivo del cliente. **Sin servidor** (datos locales u otra fuente), la definición se escribe en el front. No hay archivo compartido entre front y back. Detalle en §4.2 | ✅ |
 | **SB-13** | **En el backend, SpreadBase se usa por piezas, una por capa** (`routes → controller → service`, como Aggy y OpenCollect): el motor es un objeto del servicio, `core` y `server` dan helpers para el controlador y las rutas. `sheetRouter(sheet, { context })` monta las cinco rutas del protocolo; es opcional y no rompe las capas, porque el motor sigue en el servicio. Detalle en §4.1 | ✅ |
-| **SB-14** | **Se parte del código probado, no de reimplementaciones.** Los paquetes se extrajeron de la copia fiel de OpenCollect (verificada con E2E y navegador) y el `playground/` es esa copia sobre los paquetes. Lo que había antes en `packages/` y `apps/demo` se retiró | ✅ |
+| **SB-14** | **Se parte del código probado, no de reimplementaciones.** Los paquetes se extrajeron de la copia fiel de OpenCollect (verificada con E2E y navegador) y el ejemplo de casos (`examples/backend/src/examples/cases`) es esa copia sobre los paquetes. Lo que había antes en `packages/` y `apps/demo` se retiró | ✅ |
 | **SB-15** | **Validar el diseño con un segundo consumidor distinto** antes de darlo por bueno (p. ej. el ledger de cargos o usuarios de OpenCollect). Si sirve para dos dominios, la abstracción es correcta; hasta entonces no se generaliza por adelantado | ✅ |
 | **SB-16** | **Los avisos de `merge` los calcula el servidor con lo que manda el cliente.** Cada edición lleva `base`: los valores que el cliente leyó en las columnas escribibles que **no** tocó. Un campo de `base` cuyo valor actual ya es otro lo cambió otro usuario → aviso. Solo columnas escribibles: un cambio del sistema en una de solo lectura (el DPD del ledger) no es «otro usuario». La huella de SB-4 se calcula sobre las mismas columnas | ✅ |
 | **SB-17** | **Mismo campo, mismo valor, no es conflicto.** Si otro dejó el campo justo en el valor que pide el cliente, se aplica sin preguntar; igual al guardar que al recargar | ✅ |
@@ -178,7 +178,7 @@ router.use('/portfolio', authenticate, sheetRouter(casesService.portfolio, {
 
 | Situación | Qué usar |
 |---|---|
-| Quickstart, `examples/basic`, `playground/`, herramientas internas | `sheetRouter()` |
+| Quickstart, ejemplo básico, herramientas internas | `sheetRouter()` |
 | Módulo con autenticación común a todas sus rutas | `sheetRouter()` detrás del middleware, con `context` |
 | Algo distinto por ruta: permisos para leer y para guardar, logs propios, rutas extra | Controlador y rutas a mano |
 
@@ -227,7 +227,7 @@ new Sheet('/api/cases/portfolio', {
 });
 ```
 
-**Sin servidor** (fuente local, la del ledger del playground de OpenCollect):
+**Sin servidor** (fuente local; la página «Sin servidor» de los ejemplos):
 la definición se escribe en el front.
 
 ```ts
@@ -358,19 +358,18 @@ SpreadBase/
 │   ├── core/          @spreadbase/core
 │   ├── server/        @spreadbase/server
 │   └── client/        @spreadbase/client
-├── examples/
-│   └── basic/         didáctico: hoja chica, back + front mínimos, código comentado
-├── playground/        banco de desarrollo: 50 000 filas, mutate/reset, latencia, rendimiento
-│   ├── backend/
-│   └── frontend/
-├── tests/             E2E por módulo contra el playground (§7)
+├── examples/          un servidor y una app para todos los ejemplos (SB-11)
+│   ├── backend/       base común (src/app.ts) + src/examples/{basic,postgres,cases}
+│   └── frontend/      índice + una página por ejemplo (basic, postgres, cases, local)
+├── tests/             E2E por módulo contra los ejemplos, y fuentes contra una base real (§7)
 └── docs/
 ```
 
-**`playground/backend`** está en capas como un módulo de OpenCollect
-(`src/modules/cases/cases.routes → cases.controller → cases.service`), con las
-rutas escritas a mano. **`examples/basic`** usa el atajo `sheetRouter()`. Entre
-los dos cubren las dos formas del §4.1.
+El ejemplo de **casos** está en capas como un módulo de OpenCollect
+(`cases.routes → cases.controller → cases.service`), con las rutas escritas a
+mano. El **básico** usa el atajo `sheetRouter()`. El de **Postgres** es un
+backend JS con la estructura de Aggy (orquestador, `core/api/<módulo>`). Entre
+los tres cubren las formas del §4.1.
 
 **Estilos del cliente.** Los componentes solo usan clases de Tailwind/daisyUI y
 sus propios CSS. La app declara `@source` hacia `@spreadbase/client/src` para
@@ -417,14 +416,15 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 2 | Copia probada de OpenCollect como punto de partida | ✅ |
 | 3 | Commit del punto de partida | ✅ |
 | 4 | `core`: tipos de columna y del protocolo, normalización y validación | ✅ |
-| 5 | `server`: `SpreadBase`, `memorySource`, `parseListQuery`/`parseBatch`, `sheetRouter()`, `idempotent()`. Backend del `playground/` en capas. Protocolo en verde con `merge` y `strict` | ✅ |
-| 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Frontend del `playground/` (con y sin servidor). Propiedad del historial y recorrido en navegador en verde | ✅ |
-| 7 | `examples/basic` (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
+| 5 | `server`: `SpreadBase`, `memorySource`, `parseListQuery`/`parseBatch`, `sheetRouter()`. Ejemplo de casos en capas. Protocolo en verde con `merge` y `strict` | ✅ |
+| 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Páginas con y sin servidor. Propiedad del historial y recorrido en navegador en verde | ✅ |
+| 7 | Ejemplo básico (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
 | 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
 | 9 | E2E de navegador en `tests/grid/`: los 32 escenarios (§7) | ✅ |
 | 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
-| 11 | `postgresSource` (SB-2, SB-4, SB-18, SB-19): 22 pruebas contra una base real y `examples/postgres` verificado en navegador | ✅ |
+| 11 | `postgresSource` (SB-2, SB-4, SB-18, SB-19): 23 pruebas contra una base real y el ejemplo Postgres verificado en navegador | ✅ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
+| 13 | Ejemplos en un solo servidor y una sola app (SB-11) | ✅ |
 
 ### Pendientes conocidos
 

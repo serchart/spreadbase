@@ -17,7 +17,7 @@ beforeEach(async () => {
 describe('hoja contra el servidor', () => {
 	it('pide el esquema, edita, sobrevive a salir de la ventana y a recargar, y guarda', async () => {
 		const { page, shot } = await user('A');
-		const grid = await new GridPage(page).open(`${FRONT_URL}/`);
+		const grid = await new GridPage(page).open(`${FRONT_URL}/cases`);
 
 		// Las columnas llegaron del servidor: la página no define ninguna.
 		expect([...grid.columns.keys()]).toEqual(expect.arrayContaining(['ID', 'Cliente', 'RFC', 'Etapa', 'Atiende']));
@@ -42,7 +42,7 @@ describe('hoja contra el servidor', () => {
 		// Recargar: el borrador vuelve de IndexedDB.
 		await page.waitForTimeout(600);
 		await page.reload();
-		await grid.open(`${FRONT_URL}/`);
+		await grid.open(`${FRONT_URL}/cases`);
 		await expect.poll(() => grid.cell(grid.rowById('case_000001'), 'Cliente').innerText()).toBe('SB PRUEBA SA');
 		expect(await grid.state(grid.rowById('case_000001'), 'Cliente')).toContain('oc-cell-dirty');
 		await shot('restaurado');

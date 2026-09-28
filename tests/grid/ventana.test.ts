@@ -16,7 +16,7 @@ beforeEach(async () => {
 
 async function open() {
 	const u = await user('A');
-	const grid = await new GridPage(u.page).open(`${FRONT_URL}/`);
+	const grid = await new GridPage(u.page).open(`${FRONT_URL}/cases`);
 	return { ...u, grid };
 }
 

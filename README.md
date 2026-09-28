@@ -12,10 +12,8 @@ Estado: **en construcción**. Diseño en `docs/`.
 packages/server  @spreadbase/server — motor, fuentes de datos y helpers HTTP (backend)
 packages/client  @spreadbase/client — Sheet + <SpreadBase>: la hoja, historial, borrador y paneles (frontend)
 packages/core    @spreadbase/core — tipos y validación compartidos; llega con los otros dos
-examples/basic   ejemplo didáctico: back + front mínimos
-examples/postgres catálogo sobre Postgres, backend JS con estructura de Aggy (fuente, transacción y handlers)
-playground/      banco de desarrollo: 50 000 filas, backend en capas, pruebas E2E y rendimiento
-tests/           pruebas E2E por módulo (API real + navegador)
+examples/        un servidor y una app para todos los ejemplos: básico, Postgres, casos (50 000 filas) y sin servidor
+tests/           E2E por módulo (API real + navegador) y fuentes contra una base real
 ```
 
 ## Así se usa
@@ -36,28 +34,24 @@ app.use('/api/contacts', sheetRouter(contacts));
 <SpreadBase {sheet} fill />
 ```
 
-Ejemplo completo en [`examples/basic`](examples/basic); un módulo en capas
-(`routes → controller → service`) en [`playground/backend`](playground/backend/src/modules/cases).
+Ejemplos en [`examples/`](examples): el básico, un backend JS al estilo de Aggy
+sobre Postgres, y un módulo en capas (`routes → controller → service`) con
+50 000 filas.
 
 ## Desarrollo
 
 ```bash
 npm install
-npm run check                 # tipos de todos los paquetes y apps
-npm run test:unit             # propiedades del historial (código puro)
+npm run check                    # tipos de todos los paquetes y apps
+npm run test:unit                # propiedades del historial (código puro)
 
-npm run playground:back       # http://localhost:4100   ┐ cada uno en
-npm run playground:front      # http://localhost:5180   ┘ su terminal
-npm test                      # E2E contra el playground (lo reinicia)
+npm run back                     # servidor de ejemplos: http://localhost:4100   ┐ cada uno en
+npm run front                    # app de ejemplos:      http://localhost:5180   ┘ su terminal
+npm test                         # E2E contra los ejemplos (reinicia la hoja de casos) + Postgres
 
-npm run basic:back            # http://localhost:4200
-npm run basic:front           # http://localhost:5280
-
-npm run postgres:setup        # tablas y semilla del ejemplo Postgres (necesita DATABASE_URL en .env)
-npm run postgres:reset        # vuelve a la semilla
-npm run postgres:back         # http://localhost:4300
-npm run postgres:front        # http://localhost:5380
-npm test -- --project postgres   # pruebas de postgresSource contra DATABASE_URL
+npm run postgres:setup           # tablas y semilla del ejemplo Postgres (necesita DATABASE_URL en .env)
+npm run postgres:reset           # vuelve a la semilla
+npm test -- --project postgres   # solo las pruebas de postgresSource
 ```
 
 Las apps que lo usen mientras no se publique apuntan al repo local

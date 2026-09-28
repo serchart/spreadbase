@@ -6,7 +6,7 @@
 
 **Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-4, SB-16 a SB-20)
 
-El ejemplo completo corre en [`examples/postgres`](../examples/postgres).
+El ejemplo completo corre en [`examples/backend/src/examples/postgres`](../examples/backend/src/examples/postgres), servido por el servidor común de ejemplos.
 
 ---
 
@@ -536,7 +536,7 @@ this.sheet = new SpreadBase({
 `memorySource` implementa lectura y escritura con un contador de versión, pero
 **no** transacción: el motor aplica los lotes de uno en uno dentro del proceso
 y guarda la idempotencia en memoria. Un error a mitad de lote no se deshace.
-Vale para demos, pruebas y el playground; no para producción.
+Vale para demos, pruebas y los ejemplos; no para producción.
 
 ```js
 source: memorySource({ rows: seed, createId: (n) => `prd_${n}` })

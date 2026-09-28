@@ -27,7 +27,7 @@ export interface MemorySource extends SheetSource {
 }
 
 /**
- * Fuente en memoria: para demos, pruebas y el playground.
+ * Fuente en memoria: para demos, pruebas y los ejemplos.
  *
  * **Vistas cacheadas.** Filtrar y ordenar decenas de miles de filas cuesta
  * decenas de ms, y el scroll pide una página tras otra con la misma consulta.

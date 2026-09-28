@@ -14,7 +14,7 @@ beforeEach(async () => {
 	await reset();
 });
 
-async function open(path = '/') {
+async function open(path = '/cases') {
 	const u = await user('A');
 	const grid = await new GridPage(u.page).open(`${FRONT_URL}${path}`);
 	return { ...u, grid };
@@ -136,7 +136,7 @@ describe('básicas', () => {
 
 		await page.waitForTimeout(600);
 		await page.reload();
-		await grid.open(`${FRONT_URL}/`);
+		await grid.open(`${FRONT_URL}/cases`);
 		await page.waitForTimeout(500);
 		expect(await grid.restoreNotice().count()).toBe(0);
 		expect(await grid.state(grid.rowById('case_000001'), 'Cliente')).not.toContain('oc-cell-dirty');

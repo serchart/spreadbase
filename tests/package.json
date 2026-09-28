@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.1.0",
 	"type": "module",
-	"description": "Pruebas E2E de SpreadBase: protocolo y navegador contra el playground, y fuentes de datos contra una base real",
+	"description": "Pruebas E2E de SpreadBase: protocolo y navegador contra los ejemplos, y fuentes de datos contra una base real",
 	"scripts": {
 		"test": "vitest run",
 		"test:watch": "vitest"

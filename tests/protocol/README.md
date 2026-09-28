@@ -1,11 +1,11 @@
 # tests/protocol — el protocolo HTTP de SpreadBase
 
 Las reglas del protocolo (`docs/01-diseno.md` §5) probadas por HTTP contra la
-hoja de casos del playground: 50 000 filas sintéticas en `/api/cases`.
+hoja de casos de los ejemplos: 50 000 filas sintéticas en `/api/cases`.
 
 ## Entorno
 
-- Playground encendido en modo test: `npm run playground:back` y `npm run playground:front`.
+- Ejemplos encendidos en modo test: `npm run back` y `npm run front`.
 - La «base» vive en memoria del backend: **reiniciarlo la reinicia**.
 - `support.ts`: `reset()` deja la base determinista, `mutate(id, fields)`
   simula a otro usuario cambiando campos concretos, `batch()` envía lotes.

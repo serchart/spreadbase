@@ -1,6 +1,6 @@
 # tests
 
-Pruebas E2E de SpreadBase contra el [playground](../playground). **Una prueba
+Pruebas E2E de SpreadBase contra los [ejemplos](../examples). **Una prueba
 cuenta una historia de usuario** y puede llamar a la API y manejar el
 navegador en la misma historia. Principios: `docs/01-diseno.md` §7.
 
@@ -13,11 +13,11 @@ npx playwright install chromium
 
 ## Antes de correr
 
-El playground encendido, cada uno en su terminal (las pruebas no lo arrancan):
+Los ejemplos encendidos, cada uno en su terminal (las pruebas no los arrancan):
 
 ```bash
-npm run playground:back
-npm run playground:front
+npm run back
+npm run front
 ```
 
 ## Correr (desde la raíz)
@@ -36,7 +36,7 @@ La suite salta automáticamente lo que no aplica a la política activa. Para
 cubrir las dos:
 
 ```bash
-CASES_POLICY=strict BATCH_LOG=0 npm run playground:back
+CASES_POLICY=strict BATCH_LOG=0 npm run back
 npm test -- protocol
 ```
 
@@ -46,8 +46,8 @@ npm test -- protocol
 |---|---|
 | `support/` | Entorno, cliente HTTP real, harness de Playwright (usuarios = contextos; consola y capturas por prueba), acceso a la hoja |
 | `protocol/` | Las reglas del protocolo por HTTP: lectura, lote, concurrencia por campo, idempotencia |
-| `grid/` | La hoja en el navegador, contra el servidor y sin él |
-| `postgres/` | `postgresSource` contra una base real (`DATABASE_URL`). Proyecto aparte: no necesita el playground (`npm test -- --project postgres`) |
+| `grid/` | La hoja en el navegador: páginas `/cases` (con servidor) y `/local` (sin él) |
+| `postgres/` | `postgresSource` contra una base real (`DATABASE_URL`). Proyecto aparte: no necesita los ejemplos encendidos (`npm test -- --project postgres`) |
 | `test-results/` | Capturas y consolas (no se versiona) |
 
 ## Artefactos

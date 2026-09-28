@@ -1,6 +1,0 @@
-@import 'tailwindcss';
-@plugin "daisyui";
-
-/* Las clases que usan los componentes de SpreadBase. Instalado desde npm sería:
-   @source "../node_modules/@spreadbase/client/src"; */
-@source "../../../../packages/client/src";
