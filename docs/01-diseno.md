@@ -272,8 +272,10 @@ magnitud.
 Reglas (probadas en OpenCollect, SB-5):
 
 - **Por cada campo que la petición cambia:** valor actual = `from` → se
-  aplica; distinto → `field_conflict`. La comparación es normalizada por tipo
-  (`1500` = `"1500.00"`).
+  aplica; distinto → `field_conflict`, **salvo que el valor actual ya sea el
+  que pide el cliente** (`to`): si los dos quieren lo mismo, no hay nada que
+  resolver. La misma regla aplica el cliente al recargar. La comparación es
+  normalizada por tipo (`1500` = `"1500.00"`).
 - **Cambios ajenos en otros campos**, según la política de la hoja, fijada en
   el servidor: `merge` los conserva y los informa en `notices`; `strict`
   rechaza la fila con `version_mismatch`.
@@ -375,7 +377,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | Directorio | Cubre |
 |---|---|
 | `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
-| `tests/grid/` | Navegador. Hoy: recorrido contra el servidor (esquema, editar, salir de la ventana, recargar, guardar) y sin servidor. Pendientes: ir a la fila, combinar, conflicto, bajas, altas |
+| `tests/grid/` | Navegador, 32 escenarios diseñados en su README. Hechos: recorrido con y sin servidor y concurrencia A/B (mismo campo Mío/Remoto, combinar, eliminar lo editado, editar lo eliminado, conflicto al recargar, lote mixto) |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -392,7 +394,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Frontend del `playground/` (con y sin servidor). Propiedad del historial y recorrido en navegador en verde | ✅ |
 | 7 | `examples/basic` (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
 | 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
-| 9 | E2E de navegador en `tests/grid/`: el resto de escenarios (§7) | 🟡 **siguiente** |
+| 9 | E2E de navegador en `tests/grid/`: concurrencia hecha; faltan básicas, ventana, borrador y red (§7) | 🟡 **siguiente** |
 | 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
 | 11 | `postgresSource` (SB-2, SB-4) | ⬜ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |

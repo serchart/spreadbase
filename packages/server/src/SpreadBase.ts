@@ -147,8 +147,10 @@ export class SpreadBase {
 
 			// Atajo: misma versión que leyó el cliente → nadie más tocó la fila.
 			if (row.rowVersion !== rowVersion) {
+				// Conflicto solo si otro dejó el campo en un valor distinto del que lee el
+				// cliente **y** del que quiere: si los dos quieren lo mismo, no hay nada que resolver.
 				const clashes: FieldConflict[] = fields
-					.filter(([field, change]) => !sameValue(row[field], change.from))
+					.filter(([field, change]) => !sameValue(row[field], change.from) && !sameValue(row[field], change.to))
 					.map(([field, change]) => ({ field, from: change.from, yours: change.to, remote: row[field] }));
 				if (clashes.length > 0) {
 					result.conflicts.push({ op: 'update', id, reason: 'field_conflict', fields: clashes, remote: { ...row } });

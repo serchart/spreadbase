@@ -67,6 +67,23 @@ describe('otro usuario cambió la fila (concurrencia por campo, G-14)', () => {
 		expect((await getCase('case_000004')).customer_name).toBe(remote.customer_name);
 	});
 
+	it('mismo campo, mismo valor → no es conflicto de campo', async () => {
+		const mine = await getCase('case_000005');
+		// Otro usuario deja el campo exactamente en el valor que yo quiero.
+		const other = await batch({ updates: [edit(mine, 'customer_name', 'IGUAL SA')] });
+		expect(other.body.conflicts).toEqual([]);
+
+		const { body } = await batch({ updates: [edit(mine, 'customer_name', 'IGUAL SA')] });
+		// Con `strict`, que otro tocara la fila basta para rechazarla, aunque coincidan.
+		if ((await policy()) === 'strict') {
+			expect(body.conflicts).toMatchObject([{ id: 'case_000005', reason: 'version_mismatch' }]);
+			return;
+		}
+		expect(body.conflicts).toEqual([]);
+		expect(body.updated[0]).toMatchObject({ id: 'case_000005', customer_name: 'IGUAL SA' });
+		expect((await getCase('case_000005')).customer_name).toBe('IGUAL SA');
+	});
+
 	it('campos distintos con política merge → se aplica, se conserva lo ajeno y se avisa', async (ctx) => {
 		if ((await policy()) !== 'merge') ctx.skip();
 		const mine = await getCase('case_000001');

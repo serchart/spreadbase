@@ -254,7 +254,7 @@
 								{/if}
 							</span>
 							<span class="flex min-w-0 items-center gap-2 text-xs text-base-content/70">
-								<span class="ident truncate">{row.id ?? 'sin id'}</span>
+								<span class="font-mono truncate">{row.id ?? 'sin id'}</span>
 								{#if row.okCells > 0}
 									<span aria-hidden="true">·</span>
 									<span class="tabular-nums shrink-0">{okText(row)}</span>
