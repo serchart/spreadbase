@@ -304,7 +304,8 @@ interface SheetSource {
 ```
 
 Hoy existe `memorySource` (vistas ordenadas en caché, `rowVersion` y versión
-por campo). El motor aplica los lotes de uno en uno, así que leer, comparar y
+por campo). Cómo conviven fuente, transacción y handlers, con un ejemplo en un
+proyecto anfitrión en JavaScript: `02-fuentes-transacciones-handlers.md`. El motor aplica los lotes de uno en uno, así que leer, comparar y
 escribir no se intercalan entre dos guardados.
 
 Requisitos de la tabla o vista para que la concurrencia funcione:
