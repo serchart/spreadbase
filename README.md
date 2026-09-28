@@ -13,16 +13,45 @@ packages/server  @spreadbase/server — motor, fuentes de datos y helpers HTTP (
 packages/client  @spreadbase/client — Sheet + <SpreadBase>: la hoja, historial, borrador y paneles (frontend)
 packages/core    @spreadbase/core — tipos y validación compartidos; llega con los otros dos
 examples/basic   ejemplo didáctico: back + front mínimos
-playground/      banco de desarrollo: 50 000 filas, pruebas E2E y rendimiento
+playground/      banco de desarrollo: 50 000 filas, backend en capas, pruebas E2E y rendimiento
 tests/           pruebas E2E por módulo (API real + navegador)
-
-examples/sandbox copia probada de OpenCollect de la que se extraen los paquetes (temporal)
 ```
+
+## Así se usa
+
+```ts
+// backend
+const contacts = new SpreadBase({ id: 'contacts', columns: { … }, source: memorySource({ rows }) });
+app.use('/api/contacts', sheetRouter(contacts));
+```
+
+```svelte
+<!-- frontend -->
+<script lang="ts">
+	import { Sheet, SpreadBase } from '@spreadbase/client';
+	const sheet = new Sheet('/api/contacts');
+</script>
+
+<SpreadBase {sheet} fill />
+```
+
+Ejemplo completo en [`examples/basic`](examples/basic); un módulo en capas
+(`routes → controller → service`) en [`playground/backend`](playground/backend/src/modules/cases).
 
 ## Desarrollo
 
-Mientras se extraen los paquetes, lo que funciona es la copia probada:
-ver `examples/sandbox/README.md`.
+```bash
+npm install
+npm run check                 # tipos de todos los paquetes y apps
+npm run test:unit             # propiedades del historial (código puro)
+
+npm run playground:back       # http://localhost:4100   ┐ cada uno en
+npm run playground:front      # http://localhost:5180   ┘ su terminal
+npm test                      # E2E contra el playground (lo reinicia)
+
+npm run basic:back            # http://localhost:4200
+npm run basic:front           # http://localhost:5280
+```
 
 Las apps que lo usen mientras no se publique apuntan al repo local
 (`"@spreadbase/client": "file:../SpreadBase/packages/client"` en el front,

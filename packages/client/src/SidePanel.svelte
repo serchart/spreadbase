@@ -33,7 +33,7 @@
 		<div class="min-w-0">
 			<h2 class="text-base font-semibold">{title}</h2>
 			{#if subtitle}
-				<p class="tabular text-xs text-base-content/70">{subtitle}</p>
+				<p class="tabular-nums text-xs text-base-content/70">{subtitle}</p>
 			{/if}
 		</div>
 		<button

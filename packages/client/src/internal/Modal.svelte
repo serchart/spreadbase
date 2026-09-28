@@ -139,7 +139,7 @@ igual que el resto del producto.
 	}
 
 	.oc-modal[open] .oc-panel {
-		animation: oc-pop var(--oc-t-base) var(--oc-ease);
+		animation: oc-pop var(--oc-t-base, 200ms) var(--oc-ease, cubic-bezier(0.32, 0.72, 0, 1));
 	}
 
 	@keyframes oc-pop {

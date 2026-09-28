@@ -337,7 +337,7 @@
 
 <!-- Se pasa solo si hay grupos activos: un contenedor de badges vacío también ocupa sitio. -->
 {#snippet groupBadges()}
-	<span class="tabular badge badge-sm badge-info">{controller.activeGroupCount}</span>
+	<span class="tabular-nums badge badge-sm badge-info">{controller.activeGroupCount}</span>
 {/snippet}
 
 {#snippet actionGroups(list: ToolbarButton[][], onrun: (b: ToolbarButton) => void)}
@@ -479,34 +479,34 @@
 							errores en sólido: lo urgente pesa más que lo destructivo.
 						-->
 						{#if !expanded}
-							<span class="tabular badge badge-sm badge-neutral badge-soft">{s.total}</span>
+							<span class="tabular-nums badge badge-sm badge-neutral badge-soft">{s.total}</span>
 							{#if controller.errorCount > 0}
-								<span class="tabular badge badge-sm badge-error">{controller.errorCount}</span>
+								<span class="tabular-nums badge badge-sm badge-error">{controller.errorCount}</span>
 							{/if}
 							<!-- Tercer badge, solo con conflictos (G-17): naranja, ni error ni editada. -->
 							{#if s.conflicts > 0}
-								<span class="tabular badge badge-sm oc-badge-conflict">{s.conflicts}</span>
+								<span class="tabular-nums badge badge-sm oc-badge-conflict">{s.conflicts}</span>
 							{/if}
 						{:else}
 							{#if s.total === 0}
-								<span class="tabular badge badge-sm badge-ghost">0</span>
+								<span class="tabular-nums badge badge-sm badge-ghost">0</span>
 							{/if}
 							{#if s.created > 0}
-								<span class="tabular badge badge-sm badge-success" title="Filas nuevas">+{s.created}</span>
+								<span class="tabular-nums badge badge-sm badge-success" title="Filas nuevas">+{s.created}</span>
 							{/if}
 							{#if s.updated > 0}
-								<span class="tabular badge badge-sm badge-warning" title="Filas editadas">~{s.updated}</span>
+								<span class="tabular-nums badge badge-sm badge-warning" title="Filas editadas">~{s.updated}</span>
 							{/if}
 							{#if s.deleted > 0}
 								<span
-									class="tabular badge badge-sm badge-error badge-soft"
+									class="tabular-nums badge badge-sm badge-error badge-soft"
 									title="Filas eliminadas"
 									>−{s.deleted}</span
 								>
 							{/if}
 							{#if controller.errorCount > 0}
 								<span
-									class="tabular badge badge-sm badge-error"
+									class="tabular-nums badge badge-sm badge-error"
 									title={`${controller.errorCount} ${controller.errorCount === 1 ? 'celda con error' : 'celdas con error'}`}
 								>
 									{controller.errorCount}
@@ -514,7 +514,7 @@
 							{/if}
 							{#if s.conflicts > 0}
 								<span
-									class="tabular badge badge-sm oc-badge-conflict"
+									class="tabular-nums badge badge-sm oc-badge-conflict"
 									title={`${s.conflicts} ${s.conflicts === 1 ? 'fila en conflicto' : 'filas en conflicto'}`}
 								>
 									⇄ {s.conflicts}
@@ -525,13 +525,13 @@
 				</PanelButton>
 			{:else}
 				{#if controller.dirtyCount > 0}
-					<span class="tabular badge badge-soft badge-warning">{controller.dirtyCount} editadas</span>
+					<span class="tabular-nums badge badge-soft badge-warning">{controller.dirtyCount} editadas</span>
 				{/if}
 				{#if controller.createdCount > 0}
-					<span class="tabular badge badge-soft badge-success">{controller.createdCount} nuevas</span>
+					<span class="tabular-nums badge badge-soft badge-success">{controller.createdCount} nuevas</span>
 				{/if}
 				{#if controller.deletedCount > 0}
-					<span class="tabular badge badge-soft badge-error">{controller.deletedCount} eliminadas</span>
+					<span class="tabular-nums badge badge-soft badge-error">{controller.deletedCount} eliminadas</span>
 				{/if}
 			{/if}
 		</div>

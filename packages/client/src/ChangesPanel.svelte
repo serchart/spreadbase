@@ -188,7 +188,7 @@
 						<GitMerge size={14} class={active ? '' : 'oc-text-conflict'} aria-hidden="true" />
 					{/if}
 					{f.label}
-					<span class="tabular {active ? 'opacity-80' : 'text-base-content/70'}">{f.count}</span>
+					<span class="tabular-nums {active ? 'opacity-80' : 'text-base-content/70'}">{f.count}</span>
 				</button>
 			{/each}
 		</div>
@@ -242,11 +242,11 @@
 								{:else}
 									<span class={STATE_BADGE[row.state]}>{STATE_LABEL[row.state]}</span>
 								{/if}
-								<span class="tabular font-semibold group-enabled:group-hover:underline"
+								<span class="tabular-nums font-semibold group-enabled:group-hover:underline"
 									>{rowTitle(row)}</span
 								>
 								{#if row.errorCells > 0}
-									<span class="tabular ml-auto badge badge-soft badge-sm badge-error">
+									<span class="tabular-nums ml-auto badge badge-soft badge-sm badge-error">
 										<CircleAlert size={12} aria-hidden="true" />
 										{row.errorCells}
 										{row.errorCells === 1 ? 'error' : 'errores'}
@@ -257,7 +257,7 @@
 								<span class="ident truncate">{row.id ?? 'sin id'}</span>
 								{#if row.okCells > 0}
 									<span aria-hidden="true">·</span>
-									<span class="tabular shrink-0">{okText(row)}</span>
+									<span class="tabular-nums shrink-0">{okText(row)}</span>
 								{/if}
 							</span>
 						</button>
@@ -334,7 +334,7 @@
 					onclick={() => (limit += PAGE)}
 				>
 					Mostrar {Math.min(PAGE, filtered.length - visible.length)} más
-					<span class="tabular text-base-content/70">({visible.length} de {filtered.length})</span>
+					<span class="tabular-nums text-base-content/70">({visible.length} de {filtered.length})</span>
 				</button>
 			{/if}
 		{/if}

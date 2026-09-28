@@ -9,6 +9,8 @@
 		"packages/client",
 		"playground/backend",
 		"playground/frontend",
+		"examples/basic/backend",
+		"examples/basic/frontend",
 		"tests"
 	],
 	"scripts": {

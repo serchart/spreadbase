@@ -1,12 +1,11 @@
-# tests/sandbox — casos de cobranza y DataGrid
+# tests/protocol — el protocolo HTTP de SpreadBase
 
-Módulo: **casos de cobranza** con 50 000 filas sintéticas y la hoja de
-cálculo que los edita (`docs/07-anexo-datagrid-engine.md`, engine §11).
+Las reglas del protocolo (`docs/01-diseno.md` §5) probadas por HTTP contra la
+hoja de casos del playground: 50 000 filas sintéticas en `/api/cases`.
 
 ## Entorno
 
-- Backend en modo sandbox: `cd backend && npm run dev`.
-- Frontend: `cd frontend && npm run dev`.
+- Playground encendido en modo test: `npm run playground:back` y `npm run playground:front`.
 - La «base» vive en memoria del backend: **reiniciarlo la reinicia**.
 - `support.ts`: `reset()` deja la base determinista, `mutate(id, fields)`
   simula a otro usuario cambiando campos concretos, `batch()` envía lotes.
@@ -31,13 +30,11 @@ cálculo que los edita (`docs/07-anexo-datagrid-engine.md`, engine §11).
   duplicar; misma llave con otro cuerpo → 422; sin llave, cada envío cuenta.
 
 Los casos ligados a `strict` se omiten cuando el servidor está en `merge` (lo
-leen de `/api/sandbox/catalogs`). Para cubrirlos, corre la suite contra un
+leen de `/api/cases/schema`). Para cubrirlos, corre la suite contra un
 servidor en `strict` (ver README de `tests/`).
 
 ## Correr solo este módulo
 
 ```bash
-cd tests && npm test -- sandbox        # API
-# con el navegador, cuando existan las pruebas de grid:
-cd tests && npm test -- sandbox/grid
+npm test -- protocol
 ```

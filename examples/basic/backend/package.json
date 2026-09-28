@@ -1,0 +1,22 @@
+{
+	"name": "@spreadbase/example-basic-backend",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@spreadbase/server": "0.1.0",
+		"cors": "^2.8.6",
+		"express": "^5.2.1"
+	},
+	"devDependencies": {
+		"@types/cors": "^2.8.19",
+		"@types/express": "^5.0.6",
+		"@types/node": "^24.13.6",
+		"tsx": "^4.23.13",
+		"typescript": "^6.0.3"
+	}
+}

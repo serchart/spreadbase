@@ -65,7 +65,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-11** | **Dos apps en el repo, con propósitos distintos:** `examples/basic`, didáctica, para developers que llegan a la librería; y `playground/`, banco de desarrollo con 50 000 filas, `mutate`/`reset`, latencia simulada y banco de rendimiento, contra el que corren las E2E (§7) | ✅ |
 | **SB-12** | **La definición se escribe en el backend por defecto y viaja al front.** El backend es la autoridad: valida lo que se guarda. Sirve el esquema en `GET <base>/schema`; el front se conecta con `new Sheet(url)` y solo agrega lo visual o lo exclusivo del cliente. **Sin servidor** (datos locales u otra fuente), la definición se escribe en el front. No hay archivo compartido entre front y back. Detalle en §4.2 | ✅ |
 | **SB-13** | **En el backend, SpreadBase se usa por piezas, una por capa** (`routes → controller → service`, como Aggy y OpenCollect): el motor es un objeto del servicio, `core` y `server` dan helpers para el controlador y las rutas. `sheetRouter(sheet, { context })` monta las cinco rutas del protocolo; es opcional y no rompe las capas, porque el motor sigue en el servicio. Detalle en §4.1 | ✅ |
-| **SB-14** | **Se parte del código probado, no de reimplementaciones.** La base es la copia fiel de OpenCollect en `examples/sandbox/` (verificada con E2E y navegador). Lo que había antes en `packages/` y `apps/demo` se sustituye por lo que se extraiga de esa copia | ✅ |
+| **SB-14** | **Se parte del código probado, no de reimplementaciones.** Los paquetes se extrajeron de la copia fiel de OpenCollect (verificada con E2E y navegador) y el `playground/` es esa copia sobre los paquetes. Lo que había antes en `packages/` y `apps/demo` se retiró | ✅ |
 | **SB-15** | **Validar el diseño con un segundo consumidor distinto** antes de darlo por bueno (p. ej. el ledger de cargos o usuarios de OpenCollect). Si sirve para dos dominios, la abstracción es correcta; hasta entonces no se generaliza por adelantado | ✅ |
 
 ---
@@ -194,12 +194,17 @@ Reglas para que las piezas encajen:
 <SpreadBase {sheet} fill />
 ```
 
-**Qué guarda `sheet`:** el estado del lado del cliente —el esquema recibido,
-la ventana de filas cargadas, los cambios pendientes, el historial, el borrador
-en IndexedDB, los conflictos y el estado del guardado—. Es el `GridController`
-actual con otro nombre. El componente solo lo dibuja. Tenerlo fuera del
-componente es lo que permite escucharlo (`sheet.pendingCount`), guardar desde
-otro botón (`sheet.save()`) o montar una barra propia.
+**Qué guarda `sheet`:** el esquema recibido (`sheet.schema`) y, cuando ya lo
+tiene, el controlador de la hoja (`sheet.grid`): la ventana de filas cargadas,
+los cambios pendientes, el historial, el borrador en IndexedDB, los conflictos
+y el estado del guardado. El componente solo lo dibuja. Tenerlo fuera del
+componente es lo que permite escucharlo (`sheet.grid?.rowSummary`,
+`sheet.grid?.hasPendingChanges`), guardar desde otro botón
+(`sheet.grid?.commands.save()`) o montar una barra propia (`<Toolbar>`).
+
+Crear un `Sheet` no hace peticiones: `<SpreadBase>` llama a `sheet.connect()`
+al montarse. Así se puede crear en el `<script>` de una página con SSR. Si
+falla, `sheet.error` dice por qué y el componente ofrece reintentar.
 
 **Lo que solo existe en el cliente** se agrega al crearlo: anchos, el buscador
 de un `remote-select`, editores propios.
@@ -214,7 +219,7 @@ new Sheet('/api/cases/portfolio', {
 la definición se escribe en el front.
 
 ```ts
-new Sheet({ id: 'charges', columns, load: loadCharges, save: saveCharges });
+new Sheet({ id: 'charges', columns, dataSource: { load: loadCharges, save: saveCharges } });
 ```
 
 **Límite de validación:** las reglas declarativas viajan con el esquema y el
@@ -283,13 +288,22 @@ Reglas (probadas en OpenCollect, SB-5):
 ### 5.3 Fuente de datos (SB-2, SB-4)
 
 ```ts
-interface SheetSource<Row> {
-	list(q: ListQuery): Promise<{ rows: Row[]; total: number }>;   // orden y filtros del servidor
-	position(id: string, q: ListQuery): Promise<number | null>;
-	getMany(ids: string[]): Promise<Row[]>;                         // con rowVersion
-	changedFieldsSince(id: string, version: number): Promise<string[]>;
+// packages/server/src/source.ts — cada método puede devolver el valor o una promesa
+interface SheetSource {
+	attach?(definition: SheetDefinition): void;          // conoce las columnas
+	list(q: ListQuery): Page;                             // orden y filtros; desempate por id
+	position(id: string, q: ListQuery): { position: number | null; total: number };
+	get(id: string): Row | undefined;                     // con rowVersion
+	changedFieldsSince(id: string, version: number): string[];
+	insert(values): Row;                                  // escritura directa, si no hay handlers
+	update(id: string, values): Row;                      // sube rowVersion y anota los campos
+	remove(id: string): void;
 }
 ```
+
+Hoy existe `memorySource` (vistas ordenadas en caché, `rowVersion` y versión
+por campo). El motor aplica los lotes de uno en uno, así que leer, comparar y
+escribir no se intercalan entre dos guardados.
 
 Requisitos de la tabla o vista para que la concurrencia funcione:
 
@@ -301,8 +315,9 @@ Requisitos de la tabla o vista para que la concurrencia funcione:
 
 ### 5.4 Eventos (SB-8)
 
-Cada lote aplicado emite, por fila, `{ sheet, id, fields, rowVersion }`. Hoy no
-lo consume nadie; es el enganche para tiempo real.
+Cada lote aplicado emite, por fila, `{ sheet, op, id, fields, rowVersion }` a
+quien se suscriba con `sheet.subscribe(fn)`. Hoy no lo consume nadie; es el
+enganche para tiempo real.
 
 ---
 
@@ -323,9 +338,15 @@ SpreadBase/
 └── docs/
 ```
 
-`examples/sandbox/` es **temporal**: la copia probada de OpenCollect de la que
-se extraen los paquetes (SB-14). Desaparece cuando `playground/` y
-`examples/basic` la cubran, igual que `apps/demo` y lo anterior de `packages/`.
+**`playground/backend`** está en capas como un módulo de OpenCollect
+(`src/modules/cases/cases.routes → cases.controller → cases.service`), con las
+rutas escritas a mano. **`examples/basic`** usa el atajo `sheetRouter()`. Entre
+los dos cubren las dos formas del §4.1.
+
+**Estilos del cliente.** Los componentes solo usan clases de Tailwind/daisyUI y
+sus propios CSS. La app declara `@source` hacia `@spreadbase/client/src` para
+que Tailwind genere esas clases, e importa `@spreadbase/client/theme-daisyui.css`
+para que la hoja tome los colores del tema.
 
 ---
 
@@ -353,8 +374,8 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 
 | Directorio | Cubre |
 |---|---|
-| `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia (hoy 23 casos) |
-| `tests/grid/` | Navegador: tramos, ir a la fila, borrador, combinar, conflicto, bajas, altas |
+| `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
+| `tests/grid/` | Navegador. Hoy: recorrido contra el servidor (esquema, editar, salir de la ventana, recargar, guardar) y sin servidor. Pendientes: ir a la fila, combinar, conflicto, bajas, altas |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -364,19 +385,31 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | # | Paso | Estado |
 |---|---|---|
 | 1 | Base del repo (workspaces, TypeScript, Vitest) | ✅ |
-| 2 | Copia probada de OpenCollect en `examples/sandbox/`: 22 casos de API + 1 omitido (`strict`), propiedad del historial, recorrido en navegador (editar, bajar, recargar, guardar) | ✅ |
-| 3 | Commit del estado actual como punto de partida | ⬜ **siguiente** |
-| 4 | `core`: tipos de columna y del protocolo, normalización y validación, extraídos de la copia | ⬜ |
-| 5 | `server`: `SpreadBase`, `memorySource`, helpers HTTP y `sheetRouter()`. Backend del `playground/` en capas. Pruebas de protocolo en `tests/protocol/` en verde | ⬜ |
-| 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Frontend del `playground/`. Propiedad del historial y recorrido en navegador en verde | ⬜ |
-| 7 | `examples/basic` | ⬜ |
-| 8 | Retirar `examples/sandbox`, `apps/demo` y el código anterior de `packages/` | ⬜ |
-| 9 | E2E de navegador en `tests/grid/` | ⬜ |
+| 2 | Copia probada de OpenCollect como punto de partida | ✅ |
+| 3 | Commit del punto de partida | ✅ |
+| 4 | `core`: tipos de columna y del protocolo, normalización y validación | ✅ |
+| 5 | `server`: `SpreadBase`, `memorySource`, `parseListQuery`/`parseBatch`, `sheetRouter()`, `idempotent()`. Backend del `playground/` en capas. Protocolo en verde con `merge` y `strict` | ✅ |
+| 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Frontend del `playground/` (con y sin servidor). Propiedad del historial y recorrido en navegador en verde | ✅ |
+| 7 | `examples/basic` (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
+| 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
+| 9 | E2E de navegador en `tests/grid/`: el resto de escenarios (§7) | 🟡 **siguiente** |
 | 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
 | 11 | `postgresSource` (SB-2, SB-4) | ⬜ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
 
-**Sobre el plan anterior:** sus pasos 2–5 (`core`, `server` con
-`SheetEngine`, `apps/demo`, `tests/engine`) se marcaron hechos, pero se
-escribieron reimplementando en lugar de extraer, y no se consideran base
-confiable (SB-14). Se sustituyen por los pasos 4–6 de esta tabla.
+### Pendientes conocidos
+
+- **Validación en dos implementaciones (SB-1 a medias).** Las reglas son una
+  sola —viajan en el esquema—, pero las aplican dos códigos: `validateValue`
+  de `core` en el servidor y los tipos de celda de `client` (`cellTypes.ts`,
+  heredado de OpenCollect) en el navegador. Unificarlos exige tocar el grid
+  probado; se hará con las pruebas del navegador completas.
+- **`client/types.ts` repite tipos del protocolo** (`BatchRequest`,
+  `BatchResponse`…) en lugar de importarlos de `core`.
+- **`handlers`:** el playground ejercita `insertMany`; `updateMany` y
+  `deleteMany` están implementados pero ninguna prueba los usa todavía.
+- **Nombres heredados:** las clases CSS siguen con prefijo `oc-` (`oc-grid`,
+  `oc-cell-dirty`) y las pruebas dependen de ellas. Renombrar a `sb-` es un
+  cambio mecánico que conviene hacer antes de publicar.
+- **Idempotencia en memoria:** vale para un proceso; con varios, irá a Redis o
+  a la base con el mismo contrato.

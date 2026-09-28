@@ -1308,7 +1308,7 @@ Uso:
 				<span><i class="swatch swatch--conflict"></i> Conflicto</span>
 			{/if}
 			<!-- Qué tramo del servidor hay en memoria. Hace visible la ventana deslizante. -->
-			<span class="tabular ml-auto">
+			<span class="tabular-nums ml-auto">
 				{#if controller.windowLoading}
 					<span class="loading loading-spinner loading-xs"></span>
 					Cargando {controller.windowLoading === 'down' ? 'siguientes' : 'anteriores'}…
@@ -1370,7 +1370,7 @@ Uso:
 				<li class="list-row items-center gap-3 py-2">
 					<span class="status status-warning" aria-hidden="true"></span>
 					<div class="min-w-0">
-						<div class="tabular text-xs font-semibold">
+						<div class="tabular-nums text-xs font-semibold">
 							{issue.row === 0 ? 'Fila nueva' : `Fila ${issue.row.toLocaleString('es-MX')}`} · {issue.label}
 						</div>
 						<div class="text-xs text-base-content/70">{issue.message}</div>
@@ -1425,15 +1425,15 @@ Uso:
 		<div class="stats w-full border border-base-300">
 			<div class="stat px-4 py-3">
 				<div class="stat-title text-xs">Filas creadas</div>
-				<div class="stat-value tabular text-2xl">{saveResult.summary.creates}</div>
+				<div class="stat-value tabular-nums text-2xl">{saveResult.summary.creates}</div>
 			</div>
 			<div class="stat px-4 py-3">
 				<div class="stat-title text-xs">Actualizadas</div>
-				<div class="stat-value tabular text-2xl">{saveResult.summary.updates}</div>
+				<div class="stat-value tabular-nums text-2xl">{saveResult.summary.updates}</div>
 			</div>
 			<div class="stat px-4 py-3">
 				<div class="stat-title text-xs">Eliminadas</div>
-				<div class="stat-value tabular text-2xl">{saveResult.summary.deletes}</div>
+				<div class="stat-value tabular-nums text-2xl">{saveResult.summary.deletes}</div>
 			</div>
 		</div>
 		{#if controller.remote && controller.lastMerges.length > 0}
@@ -1456,7 +1456,7 @@ Uso:
 					<ul class="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto">
 						{#each merges as m (m.rowKey)}
 							<li class="flex items-center gap-2 text-xs">
-								<span class="tabular shrink-0 font-semibold">
+								<span class="tabular-nums shrink-0 font-semibold">
 									{m.position === null ? 'Fila nueva' : `Fila ${(m.position + 1).toLocaleString('es-MX')}`}
 								</span>
 								<span class="min-w-0 flex-1 truncate">
