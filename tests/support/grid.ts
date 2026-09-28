@@ -167,6 +167,66 @@ export class GridPage {
 		await this.panelRow(id).getByRole('button', { name: action, exact: true }).click();
 	}
 
+	/** Pulsa un botón de la barra por su etiqueta («Deshacer», «Agregar fila»…). */
+	async toolbar(label: string): Promise<void> {
+		await uiButton(this.page, label).first().click();
+	}
+
+	/**
+	 * Texto del botón Cambios. Compacto (el ancho de la barra lo decide):
+	 * «Cambios N» con N filas pendientes, y los badges de errores y conflictos.
+	 */
+	summary(): Promise<string> {
+		return uiButton(this.page, 'Cambios').first().innerText().then((t) => t.replace(/\s+/g, ' ').trim());
+	}
+
+	/** Pie de la hoja: «Filas 1–60 de 50,000». Devuelve el primer número del tramo. */
+	async windowStart(): Promise<number> {
+		const text = await this.page.locator('.oc-grid__legend').innerText();
+		const m = text.match(/Filas ([\d,]+)/);
+		return m ? Number(m[1]!.replace(/,/g, '')) : NaN;
+	}
+
+	/** Número de fila e id de cada fila del servidor que hay en el DOM. */
+	async visibleRows(): Promise<{ n: number; id: string }[]> {
+		return this.page.locator(`${SHEET} tbody tr`).evaluateAll((trs) =>
+			trs
+				.map((tr) => ({ n: Number(tr.children[0]?.textContent?.trim()), id: tr.children[1]?.textContent?.trim() ?? '' }))
+				.filter((r) => Number.isFinite(r.n) && r.id.startsWith('case_'))
+		);
+	}
+
+	/**
+	 * Desplaza la hoja hacia un extremo, una y otra vez, hasta que se cumpla
+	 * `done`. Cada llegada al borde pide la página siguiente.
+	 */
+	async scrollUntil(direction: 'down' | 'up', done: () => Promise<boolean>, timeout = 45_000): Promise<void> {
+		const content = this.page.locator(`${SHEET} .jss_content`);
+		const deadline = Date.now() + timeout;
+		while (!(await done())) {
+			if (Date.now() > deadline) throw new Error(`scrollUntil(${direction}): no se cumplió en ${timeout} ms`);
+			await content.evaluate((el, dir) => (el.scrollTop = dir === 'down' ? el.scrollHeight : 0), direction);
+			await this.page.waitForTimeout(250);
+			await this.settle();
+		}
+	}
+
+	/** ¿La fila está dentro del área visible de la hoja? */
+	async inView(id: string): Promise<boolean> {
+		const row = this.rowById(id);
+		if ((await row.count()) === 0) return false;
+		const [box, view] = await Promise.all([
+			row.first().boundingBox(),
+			this.page.locator(`${SHEET} .jss_content`).boundingBox()
+		]);
+		return !!box && !!view && box.y >= view.y && box.y + box.height <= view.y + view.height + 1;
+	}
+
+	/** Aviso de borrador recuperado tras recargar. */
+	restoreNotice(): Locator {
+		return this.page.getByText('Recuperamos tus cambios sin guardar');
+	}
+
 	/** Posición del scroll de la hoja. */
 	async scrollTop(): Promise<number> {
 		return Number(await this.page.locator(`${SHEET} .jss_content`).evaluate((el) => (el as HTMLElement).scrollTop));

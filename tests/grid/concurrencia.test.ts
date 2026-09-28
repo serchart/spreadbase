@@ -253,3 +253,96 @@ describe('lote mixto, éxito parcial (C-11, G-11, G-13)', () => {
 		expect(await A.grid.panelRow('case_000003').count()).toBe(0);
 	});
 });
+
+describe('campos distintos con política strict (C-4)', () => {
+	it('cualquier cambio ajeno rechaza la fila; «Conservar mis cambios» la reaplica sobre la remota', async (ctx) => {
+		if ((await policy()) !== 'strict') ctx.skip();
+		const A = await open('A');
+		const B = await open('B');
+		await A.grid.editText('case_000001', 'Cliente', 'A SA');
+		await B.grid.editText('case_000001', 'RFC', 'BBB900101');
+		await saveOk(B.grid);
+
+		expect(await A.grid.save()).toContain('Guardado con conflictos');
+		await A.grid.reviewConflicts();
+		await A.grid.expand('case_000001');
+		await expect.poll(() => A.grid.panelRow('case_000001').innerText()).toContain('Otro usuario cambió esta fila.');
+		await A.grid.resolveRow('case_000001', 'Conservar mis cambios');
+		await saveOk(A.grid);
+		expect(await getCase('case_000001')).toMatchObject({ customer_name: 'A SA', customer_rfc: 'BBB900101' });
+	});
+});
+
+describe('mismo campo, mismo valor (C-5, SB-17)', () => {
+	it('no es conflicto: se guarda sin preguntar (con strict, sí se rechaza)', async () => {
+		const A = await open('A');
+		const B = await open('B');
+		await A.grid.editText('case_000001', 'Cliente', 'Igual SA');
+		await B.grid.editText('case_000001', 'Cliente', 'Igual SA');
+		await saveOk(B.grid);
+
+		const text = await A.grid.save();
+		if ((await policy()) === 'strict') {
+			expect(text).toContain('Guardado con conflictos');
+			return;
+		}
+		expect(text).toContain('Cambios guardados');
+		expect(text).not.toContain('combinó');
+		expect((await getCase('case_000001')).customer_name).toBe('Igual SA');
+	});
+});
+
+describe('los dos eliminan la misma fila (C-8)', () => {
+	it('se reporta como eliminada, sin conflicto', async () => {
+		const A = await open('A');
+		const B = await open('B');
+		await A.grid.deleteRow('case_000009');
+		await B.grid.deleteRow('case_000009');
+		await saveOk(B.grid);
+
+		const text = await A.grid.save();
+		expect(text).toContain('Cambios guardados');
+		expect(text).toMatch(/Eliminadas\s*1/);
+		await A.grid.closeDialog();
+		await expect.poll(() => A.grid.rowById('case_000009').count()).toBe(0);
+	});
+});
+
+describe('conflicto al volver a la ventana (C-10)', () => {
+	it('una fila retenida que otro cambió llega marcada en conflicto', async () => {
+		const A = await open('A');
+		const B = await open('B');
+		await A.grid.editText('case_000005', 'Cliente', 'A-5');
+		await A.grid.scrollUntil('down', async () => (await A.grid.windowStart()) >= 400);
+
+		await B.grid.editText('case_000005', 'Cliente', 'B-5');
+		await saveOk(B.grid);
+
+		await A.grid.scrollUntil('up', async () => (await A.grid.rowById('case_000005').count()) === 1);
+		await expect.poll(() => A.grid.state(A.grid.rowById('case_000005'), 'Cliente')).toContain('oc-cell-conflict');
+	});
+});
+
+describe('una fila en conflicto no se reenvía (C-12)', () => {
+	it('se guarda lo demás; la fila en conflicto sigue pendiente y de solo lectura', async () => {
+		const A = await open('A');
+		const B = await open('B');
+		await A.grid.editText('case_000001', 'Cliente', 'A SA');
+		await B.grid.editText('case_000001', 'Cliente', 'B SA');
+		await saveOk(B.grid);
+		expect(await A.grid.save()).toContain('Guardado con conflictos');
+		await A.grid.closeDialog();
+
+		// La fila en conflicto no se deja editar hasta resolverla.
+		await A.grid.cell(A.grid.rowById('case_000001'), 'Cliente').dblclick();
+		expect(await A.page.locator('.oc-grid__sheet td.editor input').count()).toBe(0);
+		await A.page.keyboard.press('Escape');
+
+		await A.grid.editText('case_000002', 'Cliente', 'A-2');
+		const text = await A.grid.save();
+		expect(text).toMatch(/Actualizadas\s*1/);
+		expect((await getCase('case_000002')).customer_name).toBe('A-2');
+		expect((await getCase('case_000001')).customer_name).toBe('B SA');
+		expect(await A.grid.state(A.grid.rowById('case_000001'), 'Cliente')).toContain('oc-cell-conflict');
+	});
+});

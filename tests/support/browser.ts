@@ -39,7 +39,8 @@ export function browserHarness() {
 		const failed = task.result?.state === 'fail';
 		for (const [name, user] of users) {
 			await writeFile(path.join(dir, `${name}-console.log`), user.logs.join('\n'));
-			if (failed) await user.page.screenshot({ path: path.join(dir, `${name}-fallo.png`), fullPage: true });
+			// Una prueba puede cerrar la pestaña a propósito: entonces no hay qué capturar.
+			if (failed && !user.page.isClosed()) await user.page.screenshot({ path: path.join(dir, `${name}-fallo.png`), fullPage: true });
 			await user.context.close();
 		}
 		// Una excepción de página que nadie miró invalida la prueba igual.

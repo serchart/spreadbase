@@ -404,7 +404,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | Directorio | Cubre |
 |---|---|
 | `tests/protocol/` | Las reglas del §5: lectura, lote, concurrencia por campo, idempotencia. 23 casos: con `merge` pasan 22 y se omite 1; con `strict`, 20 y se omiten 3 |
-| `tests/grid/` | Navegador, 32 escenarios diseñados en su README. Hechos: recorrido con y sin servidor y concurrencia A/B (mismo campo Mío/Remoto, combinar, eliminar lo editado, editar lo eliminado, conflicto al recargar, lote mixto) |
+| `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
 ---
@@ -421,7 +421,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 6 | `client`: `Sheet` + `<SpreadBase>` cargando `/schema`. Frontend del `playground/` (con y sin servidor). Propiedad del historial y recorrido en navegador en verde | ✅ |
 | 7 | `examples/basic` (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
 | 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
-| 9 | E2E de navegador en `tests/grid/`: concurrencia hecha; faltan básicas, ventana, borrador y red (§7) | 🟡 **siguiente** |
+| 9 | E2E de navegador en `tests/grid/`: los 32 escenarios (§7) | ✅ |
 | 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
 | 11 | `postgresSource` (SB-2, SB-4) | ⬜ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
