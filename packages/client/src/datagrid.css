@@ -955,7 +955,11 @@
 	text-align: center;
 }
 
-.oc-bool {
+.oc-bool-wrap {
+	display: inline-flex;
 	vertical-align: middle;
+}
+
+.oc-bool {
 	cursor: pointer;
 }

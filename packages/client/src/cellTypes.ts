@@ -1841,15 +1841,20 @@ function toBoolean(raw: unknown): boolean | null {
 function buildBooleanEditor(column: ColumnDef) {
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
 		cell.classList.add('oc-bool-cell');
-		let box = cell.querySelector<HTMLInputElement>(':scope > input.oc-bool');
+		let box = cell.querySelector<HTMLInputElement>(':scope > .oc-bool-wrap > input.oc-bool');
 		if (!box) {
 			cell.innerHTML = '';
+			// Envuelta a propósito: jspreadsheet estiliza `td > input` fuera de toda
+			// capa de CSS (sin borde, 12 px) y le ganaría al `checkbox` de daisyUI.
+			const wrap = document.createElement('span');
+			wrap.className = 'oc-bool-wrap';
 			box = document.createElement('input');
 			box.type = 'checkbox';
 			box.tabIndex = -1;
 			box.className = 'oc-bool checkbox checkbox-sm';
 			box.setAttribute('aria-label', column.label);
-			cell.appendChild(box);
+			wrap.appendChild(box);
+			cell.appendChild(wrap);
 		}
 		box.checked = value === true;
 		box.indeterminate = value === null || value === undefined;

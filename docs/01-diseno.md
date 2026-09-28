@@ -429,7 +429,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 7 | Ejemplo básico (verificado en navegador: esquema, validación por patrón, guardado) | ✅ |
 | 8 | Retirar la copia temporal, `apps/demo` y el código anterior de `packages/` | ✅ |
 | 9 | E2E de navegador en `tests/grid/`: los 32 escenarios (§7) | ✅ |
-| 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15) | ⬜ |
+| 10 | OpenCollect consume los paquetes y borra su copia; segundo consumidor (SB-15). **Primer módulo hecho:** `users` (`/settings/users`), instalado por ruta local, con contraseña, casilla y reglas de dominio en handlers. `/cases` sigue con la copia anterior | 🟡 |
 | 11 | `postgresSource` (SB-2, SB-4, SB-18, SB-19): 23 pruebas contra una base real y el ejemplo Postgres verificado en navegador | ✅ |
 | 12 | Colaboración en tiempo real (SB-8) | ⬜ |
 | 13 | Ejemplos en un solo servidor y una sola app (SB-11) | ✅ |
@@ -459,5 +459,12 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
   formato del cliente, en la zona de la sesión de la base. Leer otro formato
   hacía que `from` y `base` no coincidieran con lo guardado (conflictos y
   avisos falsos); con `timestamptz`, la hoja trabaja en la zona de la conexión.
+- **Orden por defecto:** sin `sort`, la lista sale por id. Con ids `uuid` (los
+  usuarios de OpenCollect) el orden parece aleatorio y una fila nueva cae en
+  cualquier parte al recargar. Falta un `defaultSort` en la definición.
+- **Instalación por ruta local:** mientras no se publique, un proyecto consume
+  los paquetes con `file:../../SpreadBase/packages/*`. En Vite hace falta
+  `resolve.dedupe: ['svelte']` (una sola copia de Svelte) y permitir la carpeta
+  en `server.fs.allow`; en Tailwind, `@source` hacia `node_modules/@spreadbase/client/src`.
 - **Idempotencia en memoria** (`memorySource`): vale para un proceso. Con
   Postgres ya va en la base, en la misma transacción que el lote.
