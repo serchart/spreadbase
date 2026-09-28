@@ -67,10 +67,16 @@
 {/snippet}
 
 <div class="relative shrink-0">
-	<!-- Copias de medición: fuera del flujo, no ocupan sitio ni reciben eventos. -->
-	<div class="pointer-events-none invisible absolute top-0 left-0 flex" aria-hidden="true" inert>
-		<span class="btn btn-sm gap-0" bind:offsetWidth={compactWidth}>{@render content(false)}</span>
-		<span class="btn btn-sm gap-0" bind:offsetWidth={fullWidth}>{@render content(true)}</span>
+	<!--
+		Copias de medición: fuera del flujo, no ocupan sitio ni reciben eventos.
+		Dentro de una caja recortada: sueltas, desbordaban a la derecha de la
+		barra y daban scroll horizontal a la página.
+	-->
+	<div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true" inert>
+		<div class="invisible flex w-max">
+			<span class="btn btn-sm gap-0" bind:offsetWidth={compactWidth}>{@render content(false)}</span>
+			<span class="btn btn-sm gap-0" bind:offsetWidth={fullWidth}>{@render content(true)}</span>
+		</div>
 	</div>
 
 	<!--

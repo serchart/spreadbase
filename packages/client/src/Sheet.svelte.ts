@@ -1,18 +1,23 @@
 import type { SheetSchema } from '@spreadbase/core';
 import { lookupKey } from './cellTypes';
+import { applyColumnOverrides, type ColumnOverride } from './columns';
 import { GridController } from './GridController.svelte';
 import { remoteClient, type RemoteOptions } from './remote';
-import type { ColumnDef, GridConfig, PageRequest } from './types';
+import type { ColumnAction, ColumnDef, GridConfig, PageRequest } from './types';
 
 type Remote = ReturnType<typeof remoteClient>;
 
 export interface SheetOptions extends RemoteOptions {
 	/**
-	 * Lo que solo existe en el cliente, por columna: ancho, el buscador de un
-	 * `remote-select`, un editor propio, una validación al teclear. Se mezcla
-	 * sobre lo que llega del servidor.
+	 * Lo que solo existe en el cliente, por columna (SB-23): un parche que se
+	 * mezcla sobre la columna del servidor (`{ width: 300 }`), o una función que
+	 * la recibe y devuelve la final. Un campo que no está en el esquema es una
+	 * columna solo del cliente (p. ej. `type: 'action'`), al principio o al
+	 * final (`at`), siempre de solo lectura.
 	 */
-	columns?: Record<string, Partial<ColumnDef>>;
+	columns?: Record<string, ColumnOverride>;
+	/** Atajo: un botón por fila al principio de la hoja, por acción (columnas `action`). */
+	actions?: ColumnAction[];
 	/** Borrador local. Con servidor, cualquier valor distinto de `none` usa IndexedDB. Default: `local`. */
 	persist?: GridConfig['persist'];
 	debug?: boolean;
@@ -28,7 +33,7 @@ export interface SheetOptions extends RemoteOptions {
  * Esquema del servidor → columnas del grid, con lo propio del cliente encima.
  * Una columna `lookup` busca y resuelve contra `/lookup/:field` (SB-21).
  */
-function toColumns(schema: SheetSchema, overrides: Record<string, Partial<ColumnDef>>, remote: Remote): ColumnDef[] {
+function toColumns(schema: SheetSchema, remote: Remote): ColumnDef[] {
 	return Object.entries(schema.columns).map(([field, spec]) => {
 		const { pattern, searchable: _searchable, lookup, ...rest } = spec;
 		const column: ColumnDef = { field, ...rest };
@@ -44,7 +49,7 @@ function toColumns(schema: SheetSchema, overrides: Record<string, Partial<Column
 				ambiguous: new Map()
 			};
 		}
-		return { ...column, ...overrides[field] };
+		return column;
 	});
 }
 
@@ -113,7 +118,7 @@ export class Sheet {
 			idField: schema.idField,
 			allowInsert: schema.allowInsert,
 			allowDelete: schema.allowDelete,
-			columns: toColumns(schema, options.columns ?? {}, remote),
+			columns: applyColumnOverrides(toColumns(schema, remote), options.columns, options.actions),
 			dataSource: {
 				loadPage,
 				locate: remote.locate,

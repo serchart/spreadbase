@@ -36,7 +36,20 @@ daría conflictos y avisos falsos.
 
 **Solo en el cliente** existen además `action` (un botón por fila, sin
 datos), `remote-select` (buscador escrito en el front; lo sustituye `LOOKUP`)
-y renderizadores propios. El servidor no los declara.
+y renderizadores propios. El servidor no los declara: se agregan desde
+`new Sheet(url, { columns, actions })` (SB-23).
+
+```ts
+new Sheet(url, {
+	actions: [{ label: 'Abrir', icon: SquareArrowOutUpRight, onclick: (row) => abrir(row.id) }],
+	columns: {
+		name: { width: 260 },                                    // parche sobre la del servidor
+		status: (col) => ({ ...col, label: 'Estado del contacto' }), // función: la recibe y devuelve la final
+		nota: { type: 'text', label: 'Nota', at: 'end' }         // solo del cliente (de solo lectura)
+	},
+	frozenColumns: 1                                             // la acción queda fija al desplazar
+});
+```
 
 ---
 

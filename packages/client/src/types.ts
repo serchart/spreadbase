@@ -438,12 +438,37 @@ export type GridToolbarAction =
 	| 'discard'
 	| 'save';
 
+/**
+ * Botón propio de la barra (SB-24): va en la sección de **acciones**, junto a
+ * Guardar, con su etiqueta visible. Para lo que la página hace con la hoja
+ * («Nuevo canal», «Importar»…), no para editar celdas.
+ */
+export interface GridToolbarButton {
+	label: string;
+	icon?: Component;
+	onclick: () => void;
+	/**
+	 * `outline` (default), `primary` o `ghost`. `primary` es para la acción
+	 * dominante de la vista; si ya lo es Guardar, lo habitual es `outline`.
+	 */
+	variant?: 'outline' | 'primary' | 'ghost';
+	disabled?: boolean;
+	/** Texto de ayuda (`title`). Default: la etiqueta. */
+	hint?: string;
+}
+
 export interface GridToolbarConfig {
 	/** `false` oculta la barra por completo. */
 	enabled?: boolean;
 	/**
-	 * Acciones agrupadas. Cada grupo se dibuja junto y separado del siguiente
-	 * por un divisor, como en Sheets u Office.
+	 * Botones propios, en la sección de acciones, después de Guardar (SB-24).
+	 * La barra queda: [edición, solo icono] [acciones, con texto] [paneles].
+	 */
+	actions?: GridToolbarButton[];
+	/**
+	 * Acciones de la hoja agrupadas. Cada grupo se dibuja junto y separado del
+	 * siguiente por un divisor, como en Sheets u Office. `save` no se dibuja con
+	 * su grupo: va siempre en la sección de acciones, con texto.
 	 *
 	 * Se pide una matriz y no una lista plana porque el agrupamiento **es**
 	 * información: «copiar, copiar filas, pegar» se leen como una familia, y

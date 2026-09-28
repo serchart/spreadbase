@@ -15,7 +15,7 @@
 -->
 <script lang="ts">
 	import type { GridController } from './GridController.svelte';
-	import type { GridToolbarAction, GridToolbarConfig } from './types';
+	import type { GridToolbarAction, GridToolbarButton, GridToolbarConfig } from './types';
 	import EllipsisVertical from '@lucide/svelte/icons/ellipsis-vertical';
 	import PanelButton from './PanelButton.svelte';
 	import ClipboardPaste from '@lucide/svelte/icons/clipboard-paste';
@@ -43,7 +43,8 @@
 	/**
 	 * Agrupación por defecto, ordenada como en Sheets y Office: primero el
 	 * historial, luego el portapapeles, luego la estructura de filas, y al final
-	 * lo que toca el servidor.
+	 * lo que toca el servidor. `save` no se queda en su grupo: va a la sección
+	 * de acciones (SB-24).
 	 *
 	 * El orden no es estético. Las acciones más frecuentes y más inocuas quedan a
 	 * la izquierda, donde el cursor llega antes; las irreversibles —descartar,
@@ -185,6 +186,7 @@
 	 */
 	const groups = $derived.by(() => {
 		const allowed = (action: GridToolbarAction) => {
+			if (action === 'save') return false;
 			if (action === 'addRow') return controller.config.allowInsert !== false;
 			if (action === 'deleteRow') return controller.config.allowDelete !== false;
 			return true;
@@ -193,6 +195,20 @@
 			.map((group) => group.filter(allowed).map((action) => buttonFor[action]))
 			.filter((group) => group.length > 0);
 	});
+
+	/**
+	 * Sección de **acciones** (SB-24): Guardar y los botones propios de la
+	 * página, con texto. Nunca se ocultan en ⋮: son lo que se viene a hacer.
+	 */
+	const saveButton = $derived(settings.groups.some((g) => g.includes('save')) ? buttonFor.save : null);
+	const customActions = $derived<GridToolbarButton[]>(toolbarConfig.actions ?? []);
+	const VARIANT: Record<NonNullable<GridToolbarButton['variant']>, string> = {
+		outline: 'btn-outline',
+		primary: 'btn-primary',
+		ghost: 'btn-ghost'
+	};
+	/** Ancho de la sección de acciones, para descontarlo del de edición. */
+	let actionsWidth = $state(0);
 
 	// -- desbordamiento del grupo de edición ---------------------------------
 
@@ -232,7 +248,8 @@
 	 */
 	const available = $derived.by(() => {
 		if (!barWidth) return 0;
-		if (!settings.status) return barWidth;
+		const actions = actionsWidth ? actionsWidth + PANEL_GAP : 0;
+		if (!settings.status) return barWidth - actions;
 		const panels = [
 			panelWidths.filters,
 			panelWidths.groups,
@@ -240,7 +257,7 @@
 		];
 		const compact = panels.reduce((sum, w) => sum + w.compact, 0);
 		const expansion = Math.max(0, ...panels.map((w) => w.full - w.compact));
-		return barWidth - compact - expansion - PANEL_GAP * panels.length;
+		return barWidth - actions - compact - expansion - PANEL_GAP * panels.length;
 	});
 	/** Ancho real de cada botón, medido en una fila invisible con todos. */
 	const widths = $state<Record<string, number>>({});
@@ -374,9 +391,15 @@
 	aria-label="Acciones de la hoja"
 	bind:clientWidth={barWidth}
 >
-	<div class="relative flex min-w-0 flex-1 items-center">
-		<!-- Fila de medición: todos los botones, invisibles, para conocer su ancho real. -->
-		<div class="pointer-events-none invisible absolute top-0 left-0 flex" aria-hidden="true" inert>
+	<!-- Edición: solo icono; lo que no cabe pasa a ⋮. -->
+	<div class="relative flex min-w-0 items-center">
+		<!--
+			Fila de medición: todos los botones, invisibles, para conocer su ancho
+			real. Va dentro de una caja recortada: suelta, desbordaba hacia la
+			derecha y daba scroll horizontal a la página que contiene la hoja.
+		-->
+		<div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true" inert>
+		<div class="invisible flex w-max">
 			{#each groups as group, groupIndex (groupIndex)}
 				{#if groupIndex === 1}
 					<span class="mx-2 h-5 w-px shrink-0" bind:offsetWidth={separatorWidth}></span>
@@ -387,6 +410,7 @@
 					</span>
 				{/each}
 			{/each}
+		</div>
 		</div>
 
 		{@render actionGroups(visibleGroups, (b) => b.run())}
@@ -419,6 +443,35 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Acciones: Guardar y los botones propios de la página, con texto (SB-24). -->
+	{#if saveButton || customActions.length}
+		<div class="flex shrink-0 items-center gap-2" role="group" aria-label="Acciones" bind:offsetWidth={actionsWidth}>
+			{#if groups.length}
+				<span class="mr-1 h-5 w-px shrink-0 bg-base-300" aria-hidden="true"></span>
+			{/if}
+			{#if saveButton}
+				{@render actionButton(saveButton, saveButton.run)}
+			{/if}
+			{#each customActions as custom, i (i)}
+				{@const Icon = custom.icon}
+				<button
+					type="button"
+					class="btn btn-sm {VARIANT[custom.variant ?? 'outline']}"
+					disabled={custom.disabled}
+					onmousedown={(e) => e.preventDefault()}
+					onclick={custom.onclick}
+					title={custom.hint ?? custom.label}
+				>
+					{#if Icon}<Icon size={16} strokeWidth={1.9} aria-hidden="true" />{/if}
+					{custom.label}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	<!-- Empuja los paneles al extremo derecho. -->
+	<span class="flex-1" aria-hidden="true"></span>
 
 	{#if settings.status}
 		<!-- El hover se limpia al salir del grupo entero, no de cada botón (ver `PanelButton`). -->

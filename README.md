@@ -34,6 +34,27 @@ app.use('/api/contacts', sheetRouter(contacts));
 <SpreadBase {sheet} fill />
 ```
 
+Las columnas las define el servidor; lo que es de la pantalla se ajusta en el
+cliente (SB-23):
+
+```ts
+new Sheet(url, {
+	columns: {
+		name: { width: 260 },                       // parche sobre la columna del servidor
+		status: (col) => ({ ...col, label: '…' }),  // función: recibe la del servidor y devuelve la final
+		nota: { type: 'text', label: 'Nota' }       // no está en el servidor: solo del cliente (solo lectura)
+	},
+	actions: [{ label: 'Abrir', icon, onclick: (row) => abrir(row.id) }] // atajo: columnas `action` al principio
+});
+```
+
+La barra tiene tres secciones —edición (solo icono), acciones (Guardar y las
+tuyas, con texto) y paneles— y acepta botones propios (SB-24):
+
+```svelte
+<SpreadBase {sheet} fill toolbar={{ actions: [{ label: 'Nuevo canal', icon: Plus, onclick: nuevo }] }} />
+```
+
 Ejemplos en [`examples/`](examples): el básico, un backend JS al estilo de Aggy
 sobre Postgres, y un módulo en capas (`routes → controller → service`) con
 50 000 filas.

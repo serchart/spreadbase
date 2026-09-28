@@ -1,5 +1,7 @@
 export { Sheet } from './Sheet.svelte';
 export type { SheetOptions } from './Sheet.svelte';
+export { applyColumnOverrides } from './columns';
+export type { ColumnOverride, ColumnPlacement } from './columns';
 export { default as SpreadBase } from './SpreadBase.svelte';
 export { default as SpreadsheetGrid } from './SpreadsheetGrid.svelte';
 export { default as Toolbar } from './Toolbar.svelte';
