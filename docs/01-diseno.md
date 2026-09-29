@@ -76,6 +76,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-22** | **Contraseña como tipo de columna; el hash lo pone el motor** (2026-09-28). La columna `PASSWORD` declara `hash(plain, ctx)` (obligatoria: sin ella no arranca). Lo guardado nunca sale: el motor lo cambia por una marca opaca (`pwd:…`, por fila) en toda fila que devuelve, sea cual sea la fuente; la concurrencia por campo funciona sobre la marca. Handlers y fuente solo ven el hash. No se filtra ni se ordena por ella. En el cliente, vacío es «no cambiarla» y nunca se guarda en el borrador local. Junto con ella entra `BOOLEAN` (casilla). Detalle: `04-tipos-de-columna.md` | ✅ |
 | **SB-23** | **Columnas del cliente sobre el esquema del servidor** (2026-09-28). El servidor define la hoja (SB-12), pero lo que es de la pantalla —qué hacer al pulsar, un ancho, un título— se decide en el cliente: `new Sheet(url, { columns, actions })`. `columns[field]` es un **parche** que se mezcla sobre la columna del servidor, o una **función** que la recibe y devuelve la final; el campo nunca se renombra. Un campo que no está en el esquema es una columna **solo del cliente** (`at: 'start' \| 'end'`), siempre de solo lectura: no hay dónde guardarla. `actions` es un **atajo**: cada acción es una columna `action` al principio (`__action_0`…), a la que después se le aplican los ajustes de `columns` como a cualquier otra. Por debajo es una sola función pura, `applyColumnOverrides` | ✅ |
 | **SB-24** | **La barra en tres secciones y extensible** (2026-09-28). De izquierda a derecha: **edición** (deshacer, portapapeles, filas, recargar, descartar; solo icono, lo que no cabe pasa a ⋮), **acciones** (Guardar y los botones propios de la página, con texto; nunca se ocultan) y **paneles** (Filtros, Grupos, Cambios; al extremo derecho). Los botones propios se pasan en `toolbar={{ actions: [{ label, icon, onclick, variant, disabled }] }}`; `variant` es `outline` por defecto, porque la acción primaria de la vista suele ser Guardar. Además, las filas invisibles con que la barra y `PanelButton` miden sus botones van dentro de una caja recortada: sueltas, desbordaban y daban scroll horizontal a la página que contiene la hoja | ✅ |
+| **SB-26** | **Kit de contrato** (2026-09-29): paquete `@spreadbase/testing` con `sheetContract()`, que una app corre contra cada hoja suya: cinco casos por HTTP (mismo campo, otro campo, eliminar lo editado, reintento idempotente, escritura externa) que prueban que su conexión al motor conserva la concurrencia. La suite completa sigue siendo de SpreadBase; la app no la repite. §7.1 | ✅ |
 | **SB-25** | **Formularios con las columnas y los editores de la hoja** (2026-09-29). `Field` y `FormState` se exportan como `Toolbar`: un formulario lee las columnas del esquema de una hoja (o de una lista propia), y cada campo usa el tipo de celda completo —`parse`, `format`, `validate` y el **mismo editor**, anclado al campo, que hace de anfitrión como jspreadsheet—. Así una fecha o un registro se eligen y se validan igual en la hoja y en un alta. Ajustes por columna solo en el formulario con `columns` (p. ej. `readOnly: false` para capturar en el alta lo que la hoja ya no deja cambiar). §4.3 | ✅ |
 
 ---
@@ -457,6 +458,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | `tests/grid/` | Navegador: los 32 escenarios de su README (básicas, ventana, borrador, concurrencia A/B y red), más el recorrido con y sin servidor; L-1 a L-5 (lookup) y T-1 a T-5 (contraseña y casilla) sobre el ejemplo de Postgres |
 | `tests/postgres/` | `postgresSource` (23), columnas lookup (15), contraseña y booleano (11) y orden (4) contra una base real |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
+| `tests/contract/` | El kit de contrato (SB-26) contra la hoja de casos (memoria) y la de productos (Postgres, escritura externa por SQL): 10 casos |
 
 ### 7.1 Qué garantiza SpreadBase y qué prueba la app (2026-09-29)
 
@@ -469,9 +471,32 @@ Lo que la app sí prueba en cada hoja es **su conexión** al motor, porque ahí
 puede romper la garantía sin tocar la librería: una vista sin una columna
 editable, una `versionColumn` que un handler o un proceso externo no actualiza,
 un handler que escribe fuera de `ctx.tx`, rutas que no pasan
-`Idempotency-Key`. Para eso, un **kit de contrato** reutilizable (pendiente):
-unos pocos casos que la app corre contra cada hoja suya con dos o tres
-parámetros.
+`Idempotency-Key`. Para eso está el **kit de contrato** (`@spreadbase/testing`,
+SB-26): la app lo llama una vez por hoja y registra cinco casos por HTTP.
+
+```ts
+import { edit, sheetContract } from '@spreadbase/testing';
+
+sheetContract({
+	name: 'clientes',
+	url: `${API}/api/customers/sheet`,          // la misma URL que new Sheet(url)
+	reset: () => post('/api/customers/dev/reset'),
+	edits: [edit.text('name'), edit.toggle('active')],
+	external: (id, field) => sql(`UPDATE customers SET ${field} = … WHERE id = $1`, [id])
+});
+```
+
+| Caso | Si falla, la hoja… |
+|---|---|
+| K-1 mismo campo → `field_conflict` y no pisa | no detecta versiones (huella o `versionColumn`) |
+| K-2 otro campo → se combina con aviso (`strict`: se rechaza) | su vista no trae una columna editable |
+| K-3 eliminar lo editado → conflicto (si admite bajas) | sus bajas no respetan la versión |
+| K-4 reintento con la misma llave → no duplica; otra petición con la llave → 422 | sus rutas no pasan `Idempotency-Key` |
+| K-5 otro proceso escribió por fuera → conflicto (si se da `external`) | lo que escribe fuera no mueve la versión |
+
+`edit.text`, `edit.toggle`, `edit.option` y `edit.lookup` generan valores
+válidos según el tipo de la columna (tomado del esquema); `edit.custom`, lo
+demás. El kit se prueba contra los ejemplos en `tests/contract/`.
 
 Una hoja con fuente local (`dataSource: { load, save }`) no tiene concurrencia:
 cada navegador tiene su copia.
@@ -501,6 +526,7 @@ cada navegador tiene su copia.
 | 17 | Orden por defecto de la hoja (`defaultSort`) y `collation` en `postgresSource` para ordenar texto en español (`es-x-icu`); 4 pruebas contra la base | ✅ |
 | 18 | Columnas del cliente y acciones por fila (SB-23): `columns` (parche o función, columnas solo del cliente) y `actions`; 9 pruebas unitarias y AC-1 a AC-3 en navegador sobre `/basic` | ✅ |
 | 19 | Barra en tres secciones con botones propios (SB-24) y sin desborde horizontal; AC-4 y AC-5 en navegador sobre `/basic` | ✅ |
+| 21 | Kit de contrato `@spreadbase/testing` (SB-26), probado contra casos y productos (`tests/contract/`) | ✅ |
 | 20 | Formularios con las columnas de la hoja: `Field` y `FormState` (SB-25), ejemplo `/form`, F-1…F-5 en navegador (`tests/grid/form.test.ts`) | ✅ |
 
 ### Pendientes conocidos

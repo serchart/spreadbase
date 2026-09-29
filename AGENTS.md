@@ -2,7 +2,8 @@
 
 ## Estructura
 
-- `packages/core|server|client`: la librería (`@spreadbase/*`). Diseño y
+- `packages/core|server|client`: la librería (`@spreadbase/*`); `packages/testing`:
+  el kit de contrato que las apps corren contra sus hojas (SB-26). Diseño y
   decisiones SB-1… en `docs/01-diseno.md`.
 - `examples/`: **un** servidor (`examples/backend`, base común + una carpeta
   por ejemplo en `src/examples/`) y **una** app (`examples/frontend`, índice +
@@ -10,8 +11,8 @@
   Aggy), `cases` (50 000 filas en capas; contra él corren las E2E), `local`
   (sin servidor) y `form` (formulario con `Field`/`FormState` sobre la hoja de
   `postgres`; solo página).
-- `tests/`: E2E por módulo (`protocol/`, `grid/`) y fuentes contra una base
-  real (`postgres/`).
+- `tests/`: E2E por módulo (`protocol/`, `grid/`, `contract/`) y fuentes contra
+  una base real (`postgres/`).
 
 ## Verificación
 

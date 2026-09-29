@@ -19,7 +19,7 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: 'e2e',
-					include: ['protocol/**/*.test.ts', 'grid/**/*.test.ts'],
+					include: ['protocol/**/*.test.ts', 'grid/**/*.test.ts', 'contract/**/*.test.ts'],
 					globalSetup: ['support/global-setup.ts']
 				}
 			},
