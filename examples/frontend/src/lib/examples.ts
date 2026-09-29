@@ -15,6 +15,13 @@ export const EXAMPLES = [
 		code: 'examples/backend/src/examples/postgres/'
 	},
 	{
+		href: '/form',
+		title: 'Formulario',
+		tag: 'Field · FormState · SB-25',
+		text: 'Un alta de producto con las columnas de la hoja de Postgres. Cada campo usa el mismo editor y las mismas reglas que su celda: el calendario, la lista y la mini tabla de «Responsable».',
+		code: 'examples/frontend/src/routes/form/'
+	},
+	{
 		href: '/cases',
 		title: 'Casos · 50 000 filas',
 		tag: 'capas · ventana · concurrencia',

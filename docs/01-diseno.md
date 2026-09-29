@@ -76,6 +76,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-22** | **Contraseña como tipo de columna; el hash lo pone el motor** (2026-09-28). La columna `PASSWORD` declara `hash(plain, ctx)` (obligatoria: sin ella no arranca). Lo guardado nunca sale: el motor lo cambia por una marca opaca (`pwd:…`, por fila) en toda fila que devuelve, sea cual sea la fuente; la concurrencia por campo funciona sobre la marca. Handlers y fuente solo ven el hash. No se filtra ni se ordena por ella. En el cliente, vacío es «no cambiarla» y nunca se guarda en el borrador local. Junto con ella entra `BOOLEAN` (casilla). Detalle: `04-tipos-de-columna.md` | ✅ |
 | **SB-23** | **Columnas del cliente sobre el esquema del servidor** (2026-09-28). El servidor define la hoja (SB-12), pero lo que es de la pantalla —qué hacer al pulsar, un ancho, un título— se decide en el cliente: `new Sheet(url, { columns, actions })`. `columns[field]` es un **parche** que se mezcla sobre la columna del servidor, o una **función** que la recibe y devuelve la final; el campo nunca se renombra. Un campo que no está en el esquema es una columna **solo del cliente** (`at: 'start' \| 'end'`), siempre de solo lectura: no hay dónde guardarla. `actions` es un **atajo**: cada acción es una columna `action` al principio (`__action_0`…), a la que después se le aplican los ajustes de `columns` como a cualquier otra. Por debajo es una sola función pura, `applyColumnOverrides` | ✅ |
 | **SB-24** | **La barra en tres secciones y extensible** (2026-09-28). De izquierda a derecha: **edición** (deshacer, portapapeles, filas, recargar, descartar; solo icono, lo que no cabe pasa a ⋮), **acciones** (Guardar y los botones propios de la página, con texto; nunca se ocultan) y **paneles** (Filtros, Grupos, Cambios; al extremo derecho). Los botones propios se pasan en `toolbar={{ actions: [{ label, icon, onclick, variant, disabled }] }}`; `variant` es `outline` por defecto, porque la acción primaria de la vista suele ser Guardar. Además, las filas invisibles con que la barra y `PanelButton` miden sus botones van dentro de una caja recortada: sueltas, desbordaban y daban scroll horizontal a la página que contiene la hoja | ✅ |
+| **SB-25** | **Formularios con las columnas y los editores de la hoja** (2026-09-29). `Field` y `FormState` se exportan como `Toolbar`: un formulario lee las columnas del esquema de una hoja (o de una lista propia), y cada campo usa el tipo de celda completo —`parse`, `format`, `validate` y el **mismo editor**, anclado al campo, que hace de anfitrión como jspreadsheet—. Así una fecha o un registro se eligen y se validan igual en la hoja y en un alta. Ajustes por columna solo en el formulario con `columns` (p. ej. `readOnly: false` para capturar en el alta lo que la hoja ya no deja cambiar). §4.3 | ✅ |
 
 ---
 
@@ -243,6 +244,47 @@ front las aplica igual que el back mientras se edita (obligatorio, mínimo y
 máximo, longitud, opciones, patrón). Una regla escrita como **función** en el
 backend («pagado ≤ importe») no viaja por HTTP: su error aparece al guardar,
 salvo que el dev la repita en el `Sheet`.
+
+### 4.3 Formularios con las columnas de la hoja (SB-25)
+
+Un alta con asistente, un filtro, un diálogo: lo que no es una hoja pero elige
+las mismas cosas. `Field` y `FormState` se usan fuera de la hoja igual que
+`Toolbar`: se importan y se ponen donde haga falta.
+
+```svelte
+<script lang="ts">
+	import { Field, FormState, Sheet } from '@spreadbase/client';
+
+	// Las columnas salen del esquema de la hoja, con sus búsquedas conectadas.
+	const form = new FormState(new Sheet('/api/contracts/sheet'), {
+		customer_id: null, start_date: null, payment_frequency: 'mensual'
+	}, {
+		// Ajustes solo aquí: el cliente es de solo lectura en la hoja, no en el alta.
+		columns: { customer_id: { readOnly: false, required: true } }
+	});
+</script>
+
+<Field {form} name="customer_id" />   <!-- la mini tabla de la celda -->
+<Field {form} name="start_date" />    <!-- el calendario de la celda -->
+<button onclick={() => (form.touchAll(), form.valid && next())}>Siguiente</button>
+```
+
+- **Los campos del formulario** son las claves del segundo argumento; la hoja
+  puede tener más columnas. También acepta una lista de `ColumnDef` escrita en
+  el cliente, sin servidor.
+- **El control es el de la celda.** En los tipos con editor propio (fecha,
+  fecha-hora, lista, `lookup`, imagen, contraseña) `Field` abre ese mismo
+  editor anclado al campo: el campo hace de anfitrión, como jspreadsheet en la
+  hoja (`closeEditor(celda, guardar)`), así que no hay una segunda versión del
+  calendario ni de la mini tabla. Texto y número son un `input` interpretado
+  con el `parse` del tipo; la casilla, un `checkbox`.
+- **Las reglas son las del tipo** (`validate`): obligatorio, patrón, rango,
+  «no corresponde a ningún registro». El error aparece al dejar el campo o con
+  `form.touchAll()`; `form.valid` las junta. El servidor sigue siendo la
+  autoridad al guardar.
+- Estilo con daisyUI (`fieldset`, `input`, `label`), como los demás componentes.
+
+Ejemplo: `/form` (alta de producto sobre la hoja de Postgres).
 
 ---
 
@@ -441,6 +483,7 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | 17 | Orden por defecto de la hoja (`defaultSort`) y `collation` en `postgresSource` para ordenar texto en español (`es-x-icu`); 4 pruebas contra la base | ✅ |
 | 18 | Columnas del cliente y acciones por fila (SB-23): `columns` (parche o función, columnas solo del cliente) y `actions`; 9 pruebas unitarias y AC-1 a AC-3 en navegador sobre `/basic` | ✅ |
 | 19 | Barra en tres secciones con botones propios (SB-24) y sin desborde horizontal; AC-4 y AC-5 en navegador sobre `/basic` | ✅ |
+| 20 | Formularios con las columnas de la hoja: `Field` y `FormState` (SB-25), ejemplo `/form`, F-1…F-5 en navegador (`tests/grid/form.test.ts`) | ✅ |
 
 ### Pendientes conocidos
 

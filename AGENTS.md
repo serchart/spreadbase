@@ -7,8 +7,9 @@
 - `examples/`: **un** servidor (`examples/backend`, base común + una carpeta
   por ejemplo en `src/examples/`) y **una** app (`examples/frontend`, índice +
   una página por ejemplo). Ejemplos: `basic`, `postgres` (backend JS estilo
-  Aggy), `cases` (50 000 filas en capas; contra él corren las E2E) y `local`
-  (sin servidor).
+  Aggy), `cases` (50 000 filas en capas; contra él corren las E2E), `local`
+  (sin servidor) y `form` (formulario con `Field`/`FormState` sobre la hoja de
+  `postgres`; solo página).
 - `tests/`: E2E por módulo (`protocol/`, `grid/`) y fuentes contra una base
   real (`postgres/`).
 
