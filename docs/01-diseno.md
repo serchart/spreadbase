@@ -458,6 +458,24 @@ Herramientas: Vitest 4.1.x como runner y Playwright 1.63.x como librería.
 | `tests/postgres/` | `postgresSource` (23), columnas lookup (15), contraseña y booleano (11) y orden (4) contra una base real |
 | `packages/client/src/…test.ts` | Propiedades del historial: deshacer una acción ≙ repetir todo sin ella |
 
+### 7.1 Qué garantiza SpreadBase y qué prueba la app (2026-09-29)
+
+La concurrencia —conflicto por campo, `merge`/`strict`, bloqueo en la
+transacción, idempotencia— es del motor y se prueba **aquí, una vez**
+(`protocol/`, `grid/concurrencia`, `postgres/source`). Una app que usa
+SpreadBase **no repite esa suite** por módulo.
+
+Lo que la app sí prueba en cada hoja es **su conexión** al motor, porque ahí
+puede romper la garantía sin tocar la librería: una vista sin una columna
+editable, una `versionColumn` que un handler o un proceso externo no actualiza,
+un handler que escribe fuera de `ctx.tx`, rutas que no pasan
+`Idempotency-Key`. Para eso, un **kit de contrato** reutilizable (pendiente):
+unos pocos casos que la app corre contra cada hoja suya con dos o tres
+parámetros.
+
+Una hoja con fuente local (`dataSource: { load, save }`) no tiene concurrencia:
+cada navegador tiene su copia.
+
 ---
 
 ## 8. Plan y estado
