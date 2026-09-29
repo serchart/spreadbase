@@ -1,7 +1,8 @@
 /**
  * Lo que el cliente agrega a una hoja del servidor, en el ejemplo básico
  * (`/basic`): columnas (SB-23) —un «Abrir» por fila, un parche y una
- * función— y un botón propio en la barra (SB-24).
+ * función—, botones propios en la barra (SB-24) y escribir celdas desde
+ * fuera de la hoja (SB-27).
  */
 import { describe, expect, it } from 'vitest';
 import { browserHarness } from '../support/browser.ts';
@@ -54,7 +55,7 @@ describe('columnas del cliente (SB-23)', () => {
 		const { page, grid } = await open();
 		const bar = page.getByRole('toolbar', { name: 'Acciones de la hoja' });
 		const actions = bar.getByRole('group', { name: 'Acciones' });
-		expect((await actions.innerText()).replace(/\s+/g, ' ').trim()).toBe('Guardar Cerrar contacto');
+		expect((await actions.innerText()).replace(/\s+/g, ' ').trim()).toBe('Guardar Cerrar contacto Límite en cero');
 
 		// El botón propio sigue al estado de la página.
 		const close = actions.getByRole('button', { name: 'Cerrar contacto' });
@@ -91,5 +92,24 @@ describe('columnas del cliente (SB-23)', () => {
 		});
 		expect(overflow).toEqual([]);
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+	});
+
+	it('AC-6 · escribir desde fuera (commands.setValues): la celda se repinta, queda por guardar y ⌘Z lo deshace', async () => {
+		const { page, grid, shot } = await open();
+		const row = grid.row(1);
+		const before = await grid.text(row, 'Límite de crédito');
+		expect(before).not.toBe('$0.00');
+		await row.getByRole('button', { name: 'Abrir' }).first().click();
+
+		const bar = page.getByRole('toolbar', { name: 'Acciones de la hoja' });
+		await bar.getByRole('button', { name: 'Límite en cero' }).click();
+		await expect.poll(() => grid.text(row, 'Límite de crédito')).toBe('$0.00');
+		expect(await grid.cell(row, 'Límite de crédito').getAttribute('class')).toContain('oc-cell-dirty');
+		expect(await page.locator('button[aria-label="Guardar"]').first().isDisabled()).toBe(false);
+		await shot('escrito');
+
+		await bar.getByRole('button', { name: 'Deshacer' }).click();
+		await expect.poll(() => grid.text(row, 'Límite de crédito')).toBe(before);
+		expect((await grid.cell(row, 'Límite de crédito').getAttribute('class')) ?? '').not.toContain('oc-cell-dirty');
 	});
 });

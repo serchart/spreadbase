@@ -5,13 +5,15 @@ Backend: examples/backend/src/examples/basic/
 
 Lo único del cliente: un botón «Abrir» por fila (`actions`) y dos ajustes
 sobre columnas del servidor, uno como parche y otro como función (SB-23); y
-un botón propio en la barra, junto a Guardar (SB-24).
+botones propios en la barra, junto a Guardar (SB-24). «Límite en cero» escribe
+en la hoja desde fuera con `grid.commands.setValues` (SB-27).
 -->
 <script lang="ts">
 	import { Sheet, SpreadBase } from '@spreadbase/client';
 	import type { GridRow } from '@spreadbase/client';
 	import SquareArrowOutUpRight from '@lucide/svelte/icons/square-arrow-out-up-right';
 	import X from '@lucide/svelte/icons/x';
+	import Eraser from '@lucide/svelte/icons/eraser';
 	import { API_URL } from '$lib/config';
 
 	let opened = $state<GridRow | null>(null);
@@ -31,7 +33,16 @@ un botón propio en la barra, junto a Guardar (SB-24).
 	// Botón propio en la sección de acciones de la barra (SB-24). Un `$derived`
 	// para que `disabled` siga al estado de la página.
 	const toolbar = $derived({
-		actions: [{ label: 'Cerrar contacto', icon: X, disabled: !opened, onclick: () => (opened = null) }]
+		actions: [
+			{ label: 'Cerrar contacto', icon: X, disabled: !opened, onclick: () => (opened = null) },
+			// Escribe en la fila abierta como si se tecleara: se repinta, queda por guardar y ⌘Z lo deshace (SB-27).
+			{
+				label: 'Límite en cero',
+				icon: Eraser,
+				disabled: !opened,
+				onclick: () => void sheet.grid?.commands.setValues([{ rowKey: String(opened!.id), field: 'credit_limit', value: 0 }])
+			}
+		]
 	});
 </script>
 

@@ -1296,7 +1296,12 @@ Uso:
 			save: () => handleSave(),
 			discard: () => handleDiscard(),
 			undo: () => handleUndo(),
-			redo: () => handleRedo()
+			redo: () => handleRedo(),
+			// Escribir desde fuera (SB-27): los datos en una sola acción y la hoja repintada.
+			setValues: async (changes) => {
+				controller.writeValues(changes);
+				await syncToSheet();
+			}
 		});
 	});
 

@@ -10,6 +10,7 @@ export { default as Field } from './Field.svelte';
 export { FormState } from './FormState.svelte';
 export type { FormStateOptions } from './FormState.svelte';
 export { GridController } from './GridController.svelte';
+export type { CellWrite } from './GridController.svelte';
 export { registerCellType, getCellType, listCellTypes } from './cellTypes';
 export { SpreadBaseApiError } from './remote';
 export type * from './types';

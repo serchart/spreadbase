@@ -81,6 +81,16 @@ export interface SheetCommands {
 	discard(): void | Promise<void>;
 	undo(): void | Promise<void>;
 	redo(): void | Promise<void>;
+	setValues(changes: CellWrite[]): void | Promise<void>;
+}
+
+/** Un valor escrito desde fuera de la hoja (un botón de la barra, un reparto). */
+export interface CellWrite {
+	/** Clave de la fila: su id (`idField`) como texto. */
+	rowKey: string;
+	field: string;
+	/** Crudo, como lo escribiría una persona: el tipo de la columna lo interpreta. */
+	value: unknown;
 }
 
 type DeletedRow = { key: string; id: unknown; row: GridRow };
@@ -529,8 +539,24 @@ export class GridController {
 		save: () => this.sheetCommands?.save(),
 		discard: () => this.sheetCommands?.discard(),
 		undo: () => this.sheetCommands?.undo(),
-		redo: () => this.sheetCommands?.redo()
+		redo: () => this.sheetCommands?.redo(),
+		/**
+		 * Escribe valores desde fuera de la hoja —un botón propio de la barra
+		 * (SB-24) que reparte, limpia o rellena— como si se hubieran tecleado:
+		 * se interpretan con el tipo de la columna, se validan, quedan marcados
+		 * como cambios y **se deshacen con un solo ⌘Z**. Con la hoja montada,
+		 * además la repinta; sin ella, solo cambia los datos.
+		 */
+		setValues: (changes: CellWrite[]) =>
+			this.sheetCommands ? this.sheetCommands.setValues(changes) : this.writeValues(changes)
 	};
+
+	/** Los valores en el controlador, en una sola acción del historial. */
+	writeValues(changes: CellWrite[]): void {
+		this.transaction(() => {
+			for (const { rowKey, field, value } of changes) this.setCellValueByKey(rowKey, field, value);
+		});
+	}
 
 	constructor(config: GridConfig) {
 		this.config = config;
