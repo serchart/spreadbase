@@ -496,7 +496,8 @@ sheetContract({
 
 `edit.text`, `edit.toggle`, `edit.option` y `edit.lookup` generan valores
 válidos según el tipo de la columna (tomado del esquema); `edit.custom`, lo
-demás. El kit se prueba contra los ejemplos en `tests/contract/`.
+demás. Con un solo campo editable (una hoja casi de solo lectura), K-2 se
+omite. El kit se prueba contra los ejemplos en `tests/contract/`.
 
 Una hoja con fuente local (`dataSource: { load, save }`) no tiene concurrencia:
 cada navegador tiene su copia.

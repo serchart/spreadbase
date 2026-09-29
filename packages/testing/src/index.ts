@@ -65,11 +65,12 @@ export interface SheetContractOptions {
 	/** Deja la hoja como la semilla. Corre antes de cada caso. */
 	reset: () => unknown | Promise<unknown>;
 	/**
-	 * Dos campos editables. El **primero** lo editan los dos usuarios con
+	 * Uno o dos campos editables. El **primero** lo editan los dos usuarios con
 	 * valores distintos (un texto, una opción, un registro: no una casilla,
-	 * que solo tiene un valor distinto). El segundo, uno solo.
+	 * que solo tiene un valor distinto). El segundo, uno solo; sin él (una hoja
+	 * con un único campo editable), K-2 se omite.
 	 */
-	edits: [Edit, Edit];
+	edits: [Edit] | [Edit, Edit];
 	/** Qué fila usar, de la primera página. Default: la primera. */
 	row?: (rows: Json[]) => Json | undefined;
 	/**
@@ -184,7 +185,8 @@ export function sheetContract(options: SheetContractOptions): void {
 			expect(String((await reread(row))[a.field])).toBe(String(mine));
 		});
 
-		it('K-2 · editan campos distintos: con merge se combinan y se avisa; con strict se rechaza', async () => {
+		it('K-2 · editan campos distintos: con merge se combinan y se avisa; con strict se rechaza', async (test) => {
+			if (!b) return test.skip();
 			const row = await target();
 			const theirs = await a.value(row, 'B', ctx());
 			await batch({ updates: [update(row, a.field, theirs)] });
@@ -230,7 +232,9 @@ export function sheetContract(options: SheetContractOptions): void {
 			expect(again.body).toEqual(first.body);
 			expect((await reread(row)).rowVersion).toBe(version);
 
-			const other = await batch({ updates: [update(row, b.field, await b.value(row, 'B', ctx()))] }, key);
+			// Otra petición con la misma llave (otro valor en el mismo campo si no hay segundo).
+			const second = b ?? a;
+			const other = await batch({ updates: [update(row, second.field, await second.value(row, 'B', ctx()))] }, key);
 			expect(other.status).toBe(422);
 		});
 
