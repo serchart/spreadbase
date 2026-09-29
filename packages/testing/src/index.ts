@@ -90,8 +90,9 @@ export const edit = {
 		field,
 		value: (row, who, { schema }) => {
 			const max = schema.columns[field]?.maxLength ?? 200;
-			const mark = ` (${who} ${Math.random().toString(36).slice(2, 6)})`;
-			return `${String(row[field] ?? '').slice(0, Math.max(0, max - mark.length))}${mark}`;
+			const current = String(row[field] ?? '');
+			const mark = `${current ? ' ' : ''}(${who} ${Math.random().toString(36).slice(2, 6)})`;
+			return `${current.slice(0, Math.max(0, max - mark.length))}${mark}`;
 		}
 	}),
 	/** Casilla: la contraria. Solo sirve como segundo campo. */
@@ -182,14 +183,14 @@ export function sheetContract(options: SheetContractOptions): void {
 			expect(second.body.conflicts).toHaveLength(1);
 			expect(second.body.conflicts[0]).toMatchObject({ op: 'update', reason: 'field_conflict' });
 			expect(second.body.conflicts[0].fields.map((f: Json) => f.field)).toEqual([a.field]);
-			expect(String((await reread(row))[a.field])).toBe(String(mine));
+			// Lo que guardó el primero (tal como lo normalizó el servidor) sigue ahí.
+			expect((await reread(row))[a.field]).toEqual(first.body.updated[0][a.field]);
 		});
 
 		it('K-2 · editan campos distintos: con merge se combinan y se avisa; con strict se rechaza', async (test) => {
 			if (!b) return test.skip();
 			const row = await target();
-			const theirs = await a.value(row, 'B', ctx());
-			await batch({ updates: [update(row, a.field, theirs)] });
+			const theirs = (await batch({ updates: [update(row, a.field, await a.value(row, 'B', ctx()))] })).body.updated[0][a.field];
 
 			const mine = await b.value(row, 'A', ctx());
 			const res = await batch({ updates: [update(row, b.field, mine)] });
@@ -203,8 +204,8 @@ export function sheetContract(options: SheetContractOptions): void {
 			// El aviso nombra lo que cambió el otro: la vista trae la columna.
 			expect(res.body.notices).toEqual([{ id: row[schema.idField], fields: [a.field] }]);
 			const now = await reread(row);
-			expect(String(now[a.field])).toBe(String(theirs));
-			expect(String(now[b.field])).toBe(String(mine));
+			expect(now[a.field]).toEqual(theirs);
+			expect(now[b.field]).toEqual(res.body.updated[0][b.field]);
 		});
 
 		it('K-3 · eliminar una fila que otro editó es conflicto y la fila sigue ahí', async (test) => {
