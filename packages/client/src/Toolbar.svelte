@@ -157,8 +157,8 @@
 				// Pareja de `ListChecks` (Cambios): la misma lista, tachada. Una
 				// flecha circular se confundía con Recargar.
 				icon: ListX,
-				label: 'Descartar',
-				hint: 'Descartar todos los cambios pendientes',
+				label: 'Cancelar',
+				hint: 'Cancelar todos los cambios pendientes',
 				disabled: off || !controller.hasPendingChanges || controller.saving,
 				run: cmd.discard
 			},
@@ -353,6 +353,10 @@
 {/snippet}
 
 <!-- Se pasa solo si hay grupos activos: un contenedor de badges vacío también ocupa sitio. -->
+{#snippet filterBadges()}
+	<span class="tabular-nums badge badge-sm badge-neutral">{controller.activeFilterCount}</span>
+{/snippet}
+
 {#snippet groupBadges()}
 	<span class="tabular-nums badge badge-sm badge-info">{controller.activeGroupCount}</span>
 {/snippet}
@@ -489,7 +493,11 @@
 				onhover={(inside) => hoverPanel('filters', inside)}
 				bind:compactWidth={panelWidths.filters.compact}
 				bind:fullWidth={panelWidths.filters.full}
+				title={controller.activeFilterCount > 0
+					? `${controller.activeFilterCount} ${controller.activeFilterCount === 1 ? 'filtro activo' : 'filtros activos'}`
+					: undefined}
 				onclick={() => controller.toggleFilters()}
+				badges={controller.activeFilterCount > 0 ? filterBadges : undefined}
 			/>
 			<!-- Grupos: carpetas virtuales. El badge solo aparece si hay alguno activo. -->
 			<PanelButton

@@ -7,9 +7,15 @@
  */
 
 import type { Component } from 'svelte';
-import type { AvatarSpec } from '@spreadbase/core';
+import type { AvatarSpec, ColumnFilter, ValuesResult } from '@spreadbase/core';
 
-export type { AvatarSpec };
+export type { AvatarSpec, ColumnFilter, ValuesResult };
+
+/** Orden de la hoja: una columna y su sentido (SB-33). */
+export interface SortSpec {
+	field: string;
+	dir: 'asc' | 'desc';
+}
 
 export type CellValue = string | number | boolean | null;
 
@@ -84,6 +90,13 @@ export interface ColumnDef {
 	 * Para lo que ya dice el contexto (el cliente, en la Ficha de ese cliente).
 	 */
 	hidden?: boolean;
+
+	/**
+	 * Se ordena y filtra desde su encabezado (SB-33). Lo pone `Sheet` en las
+	 * columnas del servidor que lo admiten; una columna solo del cliente no se
+	 * filtra (el servidor no la conoce). `false` lo apaga en una columna.
+	 */
+	filterable?: boolean;
 
 	// --- action ---
 	/** Botón por fila de las columnas `type: 'action'`. */
@@ -369,7 +382,14 @@ export interface BatchResponse {
 export interface PageRequest {
 	offset: number;
 	limit: number;
+	/** Orden de la persona (SB-33). Sin él, el de la hoja en el servidor. */
+	sort?: SortSpec | null;
+	/** Filtros por columna de la persona (SB-33). */
+	where?: ColumnFilter[];
 }
+
+/** La consulta vigente de la hoja, sin paginación: orden y filtros. */
+export type QueryState = Pick<PageRequest, 'sort' | 'where'>;
 
 export interface PageResult {
 	rows: Record<string, unknown>[];
@@ -403,7 +423,14 @@ export interface RemoteDataSource {
 	 * una fila fuera de la ventana (decisión G-1). Sin ella se usa la última
 	 * posición conocida, que puede haber cambiado si otros editaron.
 	 */
-	locate?: (id: unknown, signal: AbortSignal) => Promise<number | null>;
+	locate?: (id: unknown, signal: AbortSignal, query?: QueryState) => Promise<number | null>;
+	/**
+	 * La fuente respeta `sort` y `where` de `PageRequest` (SB-33): el grid
+	 * ofrece ordenar y filtrar desde el encabezado. `Sheet` la marca.
+	 */
+	queryable?: boolean;
+	/** Valores distintos de una columna dentro de la consulta: la lista con casillas del filtro. */
+	values?: (field: string, query: QueryState, signal?: AbortSignal) => Promise<ValuesResult>;
 	/**
 	 * Estrategia de desplazamiento (decisión G-5). `'window'`: ventana
 	 * deslizante que pide páginas al acercarse a un borde y descarta las del
@@ -460,6 +487,11 @@ export interface GridConfig {
 	 * (un contacto nuevo en la Ficha de un cliente es de ese cliente).
 	 */
 	fixedValues?: Record<string, CellValue>;
+	/**
+	 * Orden inicial (SB-33), en lugar del de la hoja en el servidor. La persona
+	 * lo cambia desde el encabezado; su elección se recuerda en la pestaña.
+	 */
+	sort?: SortSpec;
 }
 
 // ---------------------------------------------------------------------------

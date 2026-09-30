@@ -1,5 +1,5 @@
-import { fold } from '@spreadbase/core';
-import type { CellValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
+import { filterValueOf, fold, matchesFilter } from '@spreadbase/core';
+import type { CellValue, DistinctValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
 import type { SheetSource } from './source.ts';
 
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
@@ -14,6 +14,7 @@ export interface MemorySourceOptions {
 /** En memoria todo es síncrono: quien la usa directamente no tiene que esperar. */
 export interface MemorySource extends SheetSource {
 	list(query: ListQuery): Page;
+	values(field: string, query: ListQuery, limit: number): DistinctValue[];
 	position(id: string, query: ListQuery): { position: number | null; total: number };
 	get(id: string): Row | undefined;
 	insert(values: Record<string, CellValue>): Row;
@@ -73,16 +74,18 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 
 	function view(query: ListQuery): { rows: Row[]; key: string } {
 		compact();
-		const key = JSON.stringify([query.sort, query.filters, query.search]);
+		const key = JSON.stringify([query.sort, query.filters, query.search, query.where ?? []]);
 		const cached = views.get(key);
 		if (cached?.version === version) return { rows: cached.rows, key };
 
 		const filters = Object.entries(query.filters).map(([field, values]) => [field, new Set(values)] as const);
 		const needle = fold(query.search.trim());
 		const searchable = searchFields();
+		const where = (query.where ?? []).map((f) => [f, definition?.columns[f.field]?.type ?? 'text'] as const);
 		let result = rows.filter(
 			(r) =>
 				filters.every(([field, values]) => values.has(String(r[field] ?? ''))) &&
+				where.every(([f, type]) => matchesFilter(r[f.field], f, type)) &&
 				(needle === '' ||
 					idOf(r).includes(needle) ||
 					searchable.some((f) => typeof r[f] === 'string' && fold(r[f] as string).includes(needle)))
@@ -156,6 +159,25 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 				limit: query.limit,
 				version
 			};
+		},
+
+		values(field, query, limit) {
+			const { rows: result } = view({ ...query, sort: null });
+			const type = definition?.columns[field]?.type ?? 'text';
+			const counts = new Map<string, DistinctValue>();
+			for (const r of result) {
+				const value = filterValueOf(r[field], type);
+				const key = value === null ? '\u0000' : String(value);
+				const hit = counts.get(key);
+				if (hit) hit.count++;
+				else counts.set(key, { value, count: 1 });
+			}
+			// Las vacías primero; luego en el orden de la columna.
+			return [...counts.values()]
+				.sort((a, b) =>
+					a.value === null ? -1 : b.value === null ? 1 : type === 'number' ? Number(a.value) - Number(b.value) : collator.compare(String(a.value), String(b.value))
+				)
+				.slice(0, limit);
 		},
 
 		position(id, query) {

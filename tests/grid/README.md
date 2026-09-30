@@ -38,7 +38,7 @@ Estado: ✅ existe · ⬜ falta · 🟡 cubierto en parte.
 | **B-4** | Eliminar | Eliminar fila 8, intentar editarla, guardar | Tachada y atenuada; no cambia al editarla (G-7); `−1`; tras guardar desaparece; API 404 | ✅ |
 | **B-5** | Validación | Vaciar Cliente de la fila 4; guardar | Celda inválida; panel «Con error» la lista; el guardado no llega al servidor (API sin cambios) | ✅ |
 | **B-6** | Deshacer y rehacer | Editar, agregar y eliminar; ⌘Z ×3 y ⇧⌘Z ×3; lo mismo con los botones | Cada paso revierte y repone exacto; contadores coherentes | ✅ |
-| **B-7** | Descartar | Editar, agregar, eliminar; Descartar; recargar | Todo vuelve al original; tras recargar no hay aviso de recuperación | ✅ |
+| **B-7** | Cancelar | Editar, agregar, eliminar; «Cancelar» en la barra; recargar | Todo vuelve al original; tras recargar no hay aviso de recuperación | ✅ |
 | **B-8** | Sin servidor | Abrir `/local`, editar, ⌘Z, guardar | Carga su definición; edición y deshacer; guardado local sin errores | ✅ |
 
 ## 2. Ventana sobre 50 000 filas (`ventana.test.ts`)
@@ -157,6 +157,20 @@ valores de esa corrida (la hoja vive en memoria entre corridas).
 | **FR-4** | Conflicto | Otro cambió el mismo campo: aviso; «Guardar lo mío» lo pisa | ✅ |
 | **FR-5** | Combinar | Otro cambió otro campo: se guarda sin conflicto y el formulario muestra lo vigente | ✅ |
 
+## 11. Ordenar y filtrar desde el encabezado (`filtros.test.ts`, SB-33)
+
+Sobre `/cases` (50 000 filas). Los totales esperados se piden a la API con el
+mismo `where`.
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **FC-1** | Por valores | La lista trae las etapas por nombre, con cuentas que suman el total; dejar «Judicial» filtra la hoja; embudo en el encabezado y «1» en Filtros | ✅ |
+| **FC-2** | Por condición | DPD «mayor que» 150 y Cliente «contiene» GRUAS (sin acentos); los dos a la vez | ✅ |
+| **FC-3** | Ordenar | «De mayor a menor» en Vencido: la hoja en ese orden, la primera fila es la de la API | ✅ |
+| **FC-4** | Panel y memoria | «Entre 10 y 20»; recargar la página lo conserva; el panel lo dice en palabras y lo quita | ✅ |
+| **FC-5** | Con cambios pendientes | Un cambio sin guardar sobrevive a un filtro que no deja filas y a quitarlo | ✅ |
+| **FC-6** | Teclear en el menú | Con una celda activa, lo tecleado en el buscador y en la condición va al menú (no a la hoja); Enter aplica, Esc cierra; «Cambios 0» | ✅ |
+
 ---
 
 ## Estado
@@ -173,6 +187,7 @@ Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 d
 | `red.test.ts` | R-1 a R-3 |
 | `lookup.test.ts` | L-1 a L-5 (ejemplo Postgres) |
 | `tipos.test.ts` | T-1 a T-5 (ejemplo Postgres, usuarios) |
+| `filtros.test.ts` | FC-1 a FC-6 (SB-33) |
 | `avatar.test.ts` | AV-1 a AV-7 (casos y ejemplo Postgres) |
 | `archivos.test.ts` | AR-1 a AR-5 (casos y ejemplo Postgres) |
 | `ficha.test.ts` | FR-1 a FR-5 (ejemplo básico) |

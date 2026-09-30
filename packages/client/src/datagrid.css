@@ -1172,3 +1172,52 @@
 .oc-avatar-cell__editor {
 	display: contents;
 }
+
+/* -- Menú de columna en el encabezado (SB-33) ------------------------------ */
+
+/* Especificidad cero: una columna fija (`sticky`) conserva su posición y ya ancla al botón. */
+:where(.jss_worksheet > thead > tr > td.oc-th--menu) {
+	position: relative;
+}
+
+.jss_worksheet > thead > tr > td.oc-th--menu {
+	padding-right: 24px;
+}
+
+.oc-colmenu {
+	position: absolute;
+	top: 50%;
+	right: 3px;
+	transform: translateY(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	padding: 2px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	line-height: 0;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+
+td.oc-th--menu:hover > .oc-colmenu,
+.oc-colmenu:focus-visible,
+.oc-colmenu.is-active {
+	opacity: 1;
+}
+
+.oc-colmenu:hover {
+	background: color-mix(in oklab, currentColor 12%, transparent);
+}
+
+/*
+ * Activo (filtra u ordena): el color del texto del encabezado —el opuesto de su
+ * fondo, en tema claro u oscuro— con un fondo tenue, no el color de acento.
+ */
+.oc-colmenu.is-active {
+	color: inherit;
+	background: color-mix(in oklab, currentColor 14%, transparent);
+}

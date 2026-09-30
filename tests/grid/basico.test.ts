@@ -129,7 +129,7 @@ describe('básicas', () => {
 		await grid.toolbar('Agregar fila');
 		await grid.deleteRow('case_000003');
 
-		await grid.toolbar('Descartar');
+		await grid.toolbar('Cancelar');
 		await expect.poll(() => grid.text(grid.rowById('case_000001'), 'Cliente')).toBe(original);
 		expect(await grid.row('+').count()).toBe(0);
 		expect(await grid.state(grid.rowById('case_000003'), 'Cliente')).not.toContain('oc-row-deleted');

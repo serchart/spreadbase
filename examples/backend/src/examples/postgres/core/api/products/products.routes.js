@@ -13,6 +13,7 @@ export default function createProductsRoutes() {
 
 	router.get('/sheet/schema', (req, res) => controller.schema(req, res));
 	router.get('/sheet', (req, res) => controller.list(req, res));
+	router.get('/sheet/values/:field', (req, res) => controller.values(req, res));
 	router.get('/sheet/lookup/:field', (req, res) => controller.lookup(req, res));
 	router.post('/sheet/lookup/:field/resolve', (req, res) => controller.resolve(req, res));
 	router.get('/sheet/:id/position', (req, res) => controller.position(req, res));

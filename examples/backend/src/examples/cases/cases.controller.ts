@@ -21,6 +21,10 @@ export class CasesController {
 		res.json(await this.service.portfolio.list(parseListQuery(req.query)));
 	};
 
+	values = async (req: Request, res: Response) => {
+		res.json(await this.service.portfolio.values(String(req.params.field), parseListQuery(req.query)));
+	};
+
 	position = async (req: Request, res: Response) => {
 		res.json(await this.service.portfolio.position(String(req.params.id), parseListQuery(req.query)));
 	};

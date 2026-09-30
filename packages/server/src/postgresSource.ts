@@ -1,4 +1,5 @@
-import type { BatchResult, CellValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
+import { filterKind } from '@spreadbase/core';
+import type { BatchResult, CellValue, ColumnFilter, ColumnType, DistinctValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
 import type { IdempotencyStore, SheetSource, SheetTx } from './source.ts';
 
 /** Lo mínimo de `pg`: la librería no depende de él, recibe el pool de la app. */
@@ -53,6 +54,29 @@ const foldSearch = (s: string) =>
 		.replace(/[óò]/g, 'o')
 		.replace(/[úùü]/g, 'u')
 		.replace(/ñ/g, 'n');
+
+/** Escapa `\`, `%` y `_` para usar un texto literal dentro de `LIKE`. */
+const likeLiteral = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Cómo se agrupa y compara una columna en los filtros (SB-33), igual que
+ * `filterValueOf` de core: número como número, fecha-hora por su día, texto
+ * vacío como NULL.
+ */
+function filterExpr(col: string, type: ColumnType | undefined): string {
+	switch (type) {
+		case 'number':
+			return `${col}::float8`;
+		case 'date':
+			return `${col}::text`;
+		case 'datetime':
+			return `${col}::date::text`;
+		case 'boolean':
+			return `${col}::text`;
+		default:
+			return `NULLIF(${col}::text, '')`;
+	}
+}
 
 /**
  * Fuente sobre Postgres.
@@ -110,14 +134,93 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 
 	const selectList = () => `${columns().map(([f]) => selectExpr(f)).join(', ')}, ${versionExpr()} AS "rowVersion"`;
 
+	/**
+	 * Un filtro de columna (SB-33) en SQL. La regla de referencia es
+	 * `matchesFilter` de core (la usa la fuente en memoria): mismo trato de
+	 * vacíos, acentos, mayúsculas y días.
+	 */
+	function filterClause(filter: ColumnFilter, param: (value: unknown) => string): string | null {
+		if (!isColumn(filter.field)) return null;
+		const col = ident(filter.field);
+		const type = def().columns[filter.field]!.type;
+		const kind = filterKind(type);
+		const expr = filterExpr(col, type);
+		const blank = `${expr} IS NULL`;
+		switch (filter.op) {
+			case 'empty':
+				return blank;
+			case 'not_empty':
+				return `${expr} IS NOT NULL`;
+			case 'in': {
+				const values = filter.values ?? [];
+				const present = values.filter((v) => v !== null).map((v) => (typeof v === 'number' ? String(Number(v)) : String(v)));
+				const parts: string[] = [];
+				if (present.length) parts.push(`${expr}::text = ANY(${param(present)})`);
+				if (values.some((v) => v === null)) parts.push(blank);
+				return parts.length ? `(${parts.join(' OR ')})` : 'false';
+			}
+		}
+		if (kind === 'text') {
+			const text = SQL_FOLD(`${col}::text`);
+			const needle = foldSearch(String(filter.value ?? ''));
+			const like = (pattern: string) => `${text} LIKE ${param(pattern)}`;
+			switch (filter.op) {
+				case 'eq':
+					return `(${expr} IS NOT NULL AND ${text} = ${param(needle)})`;
+				case 'ne':
+					return `(${blank} OR ${text} <> ${param(needle)})`;
+				case 'contains':
+					return `(${expr} IS NOT NULL AND ${like(`%${likeLiteral(needle)}%`)})`;
+				case 'not_contains':
+					return `(${blank} OR NOT ${like(`%${likeLiteral(needle)}%`)})`;
+				case 'starts':
+					return `(${expr} IS NOT NULL AND ${like(`${likeLiteral(needle)}%`)})`;
+				case 'ends':
+					return `(${expr} IS NOT NULL AND ${like(`%${likeLiteral(needle)}`)})`;
+				default:
+					return 'false';
+			}
+		}
+		// Número o fecha: se compara el valor tipado (la fecha-hora, por su día).
+		const typed = kind === 'number' ? `${col}::numeric` : `${col}::date`;
+		const cast = kind === 'number' ? 'numeric' : 'date';
+		const v = (value: unknown) => `${param(String(value))}::${cast}`;
+		switch (filter.op) {
+			case 'eq':
+				return `${typed} = ${v(filter.value)}`;
+			case 'ne':
+				return `(${col} IS NULL OR ${typed} <> ${v(filter.value)})`;
+			case 'gt':
+				return `${typed} > ${v(filter.value)}`;
+			case 'gte':
+				return `${typed} >= ${v(filter.value)}`;
+			case 'lt':
+				return `${typed} < ${v(filter.value)}`;
+			case 'lte':
+				return `${typed} <= ${v(filter.value)}`;
+			case 'between':
+				return `${typed} BETWEEN ${v(filter.value)} AND ${v(filter.value2)}`;
+			default:
+				return 'false';
+		}
+	}
+
 	/** WHERE de filtros y búsqueda, con sus parámetros a partir de `start`. */
 	function where(query: ListQuery, start = 1): { sql: string; params: unknown[] } {
 		const clauses: string[] = [];
 		const params: unknown[] = [];
+		const param = (value: unknown) => {
+			params.push(value);
+			return `$${start + params.length - 1}`;
+		};
 		for (const [field, values] of Object.entries(query.filters)) {
 			if (!isColumn(field) || values.length === 0) continue;
 			params.push(values);
 			clauses.push(`${ident(field)}::text = ANY($${start + params.length - 1})`);
+		}
+		for (const filter of query.where ?? []) {
+			const clause = filterClause(filter, param);
+			if (clause) clauses.push(clause);
 		}
 		const needle = foldSearch(query.search.trim());
 		if (needle) {
@@ -134,12 +237,14 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 	/** El orden **siempre** termina en el id, para paginar sin repetir ni saltar filas. */
 	function orderBy(query: ListQuery): string {
 		const id = ident(idField);
-		if (!query.sort || !isColumn(query.sort.field)) return `ORDER BY ${id}`;
+		if (!query.sort || !isColumn(query.sort.field)) return `ORDER BY ${view}.${id}`;
 		const dir = query.sort.dir === 'desc' ? 'DESC' : 'ASC';
 		const type = def().columns[query.sort.field]?.type;
 		const textual = type === 'text' || type === 'select' || type === 'lookup';
 		const collate = options.collation && textual ? ` COLLATE ${ident(options.collation)}` : '';
-		return `ORDER BY ${ident(query.sort.field)}${collate} ${dir} NULLS LAST, ${id}`;
+		// Calificada con la vista: un nombre suelto en ORDER BY es la columna de *salida*, y la
+		// fecha-hora sale formateada a minuto (`selectExpr`): dos del mismo minuto empataban.
+		return `ORDER BY ${view}.${ident(query.sort.field)}${collate} ${dir} NULLS LAST, ${view}.${id}`;
 	}
 
 	/** Crea la tabla de idempotencia la primera vez (SB-18). */
@@ -214,6 +319,23 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 			},
 
 			get,
+
+			async values(field, query, limit) {
+				const w = where(query);
+				const type = def().columns[field]?.type;
+				const textual = type === 'text' || type === 'select' || type === 'lookup';
+				const collate = options.collation && textual ? ` COLLATE ${ident(options.collation)}` : '';
+				const { rows } = await db.query(
+					`SELECT value, count FROM (
+						SELECT ${filterExpr(ident(field), type)} AS value, count(*)::int AS count FROM ${view} ${w.sql} GROUP BY 1
+					) v ORDER BY v.value${collate} NULLS FIRST LIMIT $${w.params.length + 1}`,
+					[...w.params, limit]
+				);
+				return rows.map((r) => ({
+					value: r.value === null ? null : type === 'number' ? Number(r.value) : type === 'boolean' ? r.value === 'true' : String(r.value),
+					count: Number(r.count)
+				})) as DistinctValue[];
+			},
 
 			async insert(values) {
 				const fields = Object.keys(values).filter(isColumn);

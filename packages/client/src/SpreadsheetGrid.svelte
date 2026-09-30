@@ -23,6 +23,7 @@ Uso:
 	import ChangesPanel from './ChangesPanel.svelte';
 	import RestoreNotice from './RestoreNotice.svelte';
 	import FiltersPanel from './FiltersPanel.svelte';
+	import ColumnMenu from './ColumnMenu.svelte';
 	import GroupsPanel from './GroupsPanel.svelte';
 	import { grow, swap } from './internal/motion';
 	import Toolbar from './Toolbar.svelte';
@@ -262,8 +263,75 @@ Uso:
 		worksheet = instances[0];
 		paintStates(true);
 		applyFrozenColumns();
+		decorateHeaders();
 		attachWindowScroll();
 	}
+
+	// -- menú de columna (SB-33) --------------------------------------------
+
+	/** El menú abierto: su columna y el encabezado donde se ancla. */
+	let columnMenu = $state<{ column: ColumnDef; anchor: HTMLElement } | null>(null);
+
+	const svg = (paths: string) =>
+		`<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+	const ICON_MENU = svg('<path d="m6 9 6 6 6-6"/>');
+	const ICON_FILTER = svg(
+		'<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>'
+	);
+	const ICON_ASC = svg('<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>');
+	const ICON_DESC = svg('<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>');
+
+	/**
+	 * Un botón en el encabezado de cada columna que se puede ordenar y filtrar.
+	 * Muestra el estado: embudo si filtra, flecha si ordena; si no, una flecha
+	 * discreta que aparece al pasar el mouse. jspreadsheet no rehace el
+	 * encabezado al repintar filas, así que basta con decorarlo al crear la hoja
+	 * y cuando cambia la consulta.
+	 */
+	function decorateHeaders() {
+		if (!container) return;
+		const cells = container.querySelectorAll<HTMLElement>('.jss_worksheet > thead > tr:last-child > td');
+		config.columns.forEach((column, i) => {
+			const td = cells[i + 1];
+			if (!td) return;
+			let button = td.querySelector<HTMLButtonElement>(':scope > .oc-colmenu');
+			if (!controller.queryable || !column.filterable) {
+				button?.remove();
+				td.classList.remove('oc-th--menu');
+				return;
+			}
+			if (!button) {
+				button = document.createElement('button');
+				button.type = 'button';
+				button.className = 'oc-colmenu';
+				// Un clic aquí no selecciona la columna (jspreadsheet escucha mousedown).
+				button.addEventListener('mousedown', (e) => {
+					e.stopPropagation();
+					e.preventDefault();
+				});
+				button.addEventListener('click', (e) => {
+					e.stopPropagation();
+					columnMenu = columnMenu?.column.field === column.field ? null : { column, anchor: td };
+				});
+				td.appendChild(button);
+				td.classList.add('oc-th--menu');
+			}
+			const filtered = !!controller.filterOf(column.field);
+			const dir = controller.sort?.field === column.field ? controller.sort.dir : null;
+			button.innerHTML = (dir === 'asc' ? ICON_ASC : dir === 'desc' ? ICON_DESC : '') + (filtered ? ICON_FILTER : '') || ICON_MENU;
+			button.classList.toggle('is-active', filtered || !!dir);
+			const state = [filtered ? 'filtrada' : '', dir === 'asc' ? 'orden ascendente' : dir === 'desc' ? 'orden descendente' : ''].filter(Boolean);
+			button.setAttribute('aria-label', `Ordenar y filtrar «${column.label}»${state.length ? ` (${state.join(', ')})` : ''}`);
+			button.title = state.length ? `${column.label}: ${state.join(', ')}` : `Ordenar y filtrar «${column.label}»`;
+		});
+	}
+
+	// El estado de cada encabezado sigue a la consulta.
+	$effect(() => {
+		void controller.sort;
+		void controller.where;
+		decorateHeaders();
+	});
 
 	function buildContextMenu(_instance: any, _colIndex: unknown, rowIndex: unknown) {
 		const y = Number(rowIndex);
@@ -1386,7 +1454,7 @@ Uso:
 						{:else if controller.sidePanel === 'groups'}
 							<GroupsPanel onclose={() => controller.closeSidePanel()} />
 						{:else}
-							<FiltersPanel onclose={() => controller.closeSidePanel()} />
+							<FiltersPanel {controller} onclose={() => controller.closeSidePanel()} />
 						{/if}
 					</div>
 				{/key}
@@ -1428,6 +1496,11 @@ Uso:
 			</span>
 		{/if}
 	</footer>
+
+	<!-- Con `each` y no `if`: el menú conserva su columna mientras se desmonta (al cerrar, `columnMenu` ya es null). -->
+	{#each columnMenu ? [columnMenu] : [] as open (open.column.field)}
+		<ColumnMenu {controller} column={open.column} anchor={open.anchor} onclose={() => (columnMenu = null)} />
+	{/each}
 </section>
 
 <!--

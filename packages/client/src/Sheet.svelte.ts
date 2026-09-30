@@ -1,10 +1,10 @@
-import type { SheetSchema } from '@spreadbase/core';
+import { filterKind, type SheetSchema } from '@spreadbase/core';
 import { lookupKey } from './cellTypes';
 import { avatarKey } from './avatar';
 import { applyColumnOverrides, type ColumnOverride } from './columns';
 import { GridController } from './GridController.svelte';
 import { filterParams, remoteClient, type RemoteOptions } from './remote';
-import type { CellValue, ColumnAction, ColumnDef, GridConfig, PageRequest } from './types';
+import type { CellValue, ColumnAction, ColumnDef, GridConfig, PageRequest, SortSpec } from './types';
 
 type Remote = ReturnType<typeof remoteClient>;
 
@@ -28,6 +28,8 @@ export interface SheetOptions extends RemoteOptions {
 	pageSize?: number;
 	/** Máximo de filas retenidas en la ventana. Default 180. */
 	windowSize?: number;
+	/** Orden inicial, en lugar del de la hoja en el servidor (SB-33): `{ field: 'due_date', dir: 'desc' }`. */
+	sort?: SortSpec;
 }
 
 /**
@@ -37,7 +39,8 @@ export interface SheetOptions extends RemoteOptions {
 function toColumns(schema: SheetSchema, remote: Remote): ColumnDef[] {
 	return Object.entries(schema.columns).map(([field, spec]) => {
 		const { pattern, searchable: _searchable, lookup, upload, ...rest } = spec;
-		const column: ColumnDef = { field, ...rest };
+		// Ordenar y filtrar desde el encabezado (SB-33): lo que el servidor sabe filtrar.
+		const column: ColumnDef = { field, ...rest, filterable: filterKind(spec.type) !== null };
 		if (upload) column.upload = { ...upload, send: (file) => remote.upload(field, file) };
 		if (pattern) column.pattern = new RegExp(pattern);
 		if (lookup) {
@@ -141,6 +144,12 @@ export class Sheet {
 				loadPage,
 				locate: remote.locate,
 				saveBatch: remote.saveBatch,
+				queryable: true,
+				values: async (field, state, signal) => {
+					const result = await remote.values(field, state, signal);
+					for (const [id, label] of Object.entries(result.labels ?? {})) grid.labelCache.set(lookupKey(field, id), label);
+					return result;
+				},
 				strategy: 'window',
 				pageSize: options.pageSize,
 				windowSize: options.windowSize
@@ -149,6 +158,7 @@ export class Sheet {
 			debug: options.debug,
 			frozenColumns: options.frozenColumns,
 			height: options.height,
+			sort: options.sort,
 			// Con filtros fijos, las altas nacen dentro de esa parte (un contacto nuevo es de ese cliente).
 			fixedValues: fixedValues(options.filters)
 		});

@@ -10,6 +10,7 @@
  * pendiente se persiste en session/localStorage para sobrevivir un refresh.
  */
 
+import { filterKind, filterOpLabel, needsValue } from '@spreadbase/core';
 import { getCellType } from './cellTypes';
 import type {
 	BatchRequest,
@@ -23,6 +24,7 @@ import type {
 	RowConflictView,
 	ChangesFilter,
 	ColumnDef,
+	ColumnFilter,
 	GridConfig,
 	GridIssue,
 	GridRow,
@@ -30,7 +32,10 @@ import type {
 	RowChange,
 	RowSummary,
 	SaveResult,
-	ValidationContext
+	SortSpec,
+	QueryState,
+	ValidationContext,
+	ValuesResult
 } from './types';
 import { isRemoteSource } from './types';
 import {
@@ -292,6 +297,118 @@ export class GridController {
 
 	closeSidePanel(): void {
 		this.sidePanel = null;
+	}
+
+	// -- orden y filtros por columna (SB-33) ---------------------------------
+
+	/** Orden de la persona. `null`: el de la hoja en el servidor. */
+	sort = $state<SortSpec | null>(null);
+	/** Filtros por columna de la persona: uno por columna, se combinan con Y. */
+	where = $state<ColumnFilter[]>([]);
+
+	/** La fuente ordena y filtra en el servidor: el encabezado lo ofrece. */
+	get queryable(): boolean {
+		return !!this.remote?.queryable;
+	}
+
+	/** La consulta vigente (orden y filtros), para cada petición de filas. */
+	get query(): QueryState {
+		return { sort: this.sort, where: this.where };
+	}
+
+	get activeFilterCount(): number {
+		return this.where.length;
+	}
+
+	filterOf(field: string): ColumnFilter | null {
+		return this.where.find((f) => f.field === field) ?? null;
+	}
+
+	/** Ordena por una columna; `null` vuelve al orden de la hoja. Recarga desde el inicio. */
+	setSort(sort: SortSpec | null): Promise<void> {
+		this.sort = sort;
+		return this.applyQuery();
+	}
+
+	/** Pone (o con `null` quita) el filtro de una columna. Recarga desde el inicio. */
+	setFilter(field: string, filter: ColumnFilter | null): Promise<void> {
+		const rest = this.where.filter((f) => f.field !== field);
+		this.where = filter ? [...rest, { ...filter, field }] : rest;
+		return this.applyQuery();
+	}
+
+	clearFilters(): Promise<void> {
+		this.where = [];
+		return this.applyQuery();
+	}
+
+	/**
+	 * Valores distintos de una columna, con los **demás** filtros aplicados
+	 * (como Excel: la lista muestra lo que queda al quitar el de esa columna).
+	 */
+	loadValues(field: string, signal?: AbortSignal): Promise<ValuesResult> | null {
+		if (!this.remote?.values) return null;
+		return this.remote.values(field, { where: this.where.filter((f) => f.field !== field) }, signal);
+	}
+
+	/** Un valor de la lista del filtro como se ve en la hoja: etiquetas, no códigos; la fecha-hora por su día. */
+	describeValue(column: ColumnDef, value: unknown): string {
+		if (value === null || value === undefined || value === '') return '(Vacías)';
+		if (column.type === 'boolean') return value === true || value === 'true' ? 'Sí' : 'No';
+		if (column.type === 'datetime') return this.formatValue({ ...column, type: 'date' }, String(value).slice(0, 10));
+		return this.formatValue(column, value as CellValue) || String(value);
+	}
+
+	/** Un filtro en palabras, para el panel: «Importe mayor que $1,000.00», «Estatus: Vencido, Parcial». */
+	describeFilter(filter: ColumnFilter): string {
+		const column = this.columns.find((c) => c.field === filter.field);
+		if (!column) return filter.field;
+		if (filter.op === 'in') {
+			const values = filter.values ?? [];
+			const shown = values.slice(0, 3).map((v) => this.describeValue(column, v));
+			return `${column.label}: ${shown.join(', ')}${values.length > 3 ? ` y ${values.length - 3} más` : ''}${values.length === 0 ? '(ninguno)' : ''}`;
+		}
+		const kind = filterKind(column.type as never) ?? 'text';
+		const op = filterOpLabel(filter.op, kind).toLowerCase();
+		if (!needsValue(filter.op)) return `${column.label} ${op}`;
+		const show = (v: unknown) => (kind === 'text' ? `«${String(v)}»` : this.describeValue(column, v));
+		if (filter.op === 'between') return `${column.label} entre ${show(filter.value)} y ${show(filter.value2)}`;
+		return `${column.label} ${op} ${show(filter.value)}`;
+	}
+
+	/** Llave de la pestaña donde se recuerda la consulta de esta hoja. */
+	private get queryStorageKey(): string {
+		return `spreadbase:query:${this.config.id}`;
+	}
+
+	/** Recuerda la consulta en la pestaña (volver a la lista la conserva) y recarga. */
+	private async applyQuery(): Promise<void> {
+		try {
+			sessionStorage.setItem(this.queryStorageKey, JSON.stringify({ sort: this.sort, where: this.where }));
+		} catch {
+			// Sin almacenamiento (modo privado, SSR): solo no se recuerda.
+		}
+		// Por la hoja si está montada: además repinta y vuelve arriba.
+		if (this.sheetCommands) await this.sheetCommands.reload();
+		else await this.load();
+	}
+
+	/** La consulta recordada en la pestaña, o el orden inicial de la configuración. */
+	private restoreQuery(): void {
+		this.sort = this.config.sort ?? null;
+		if (!this.queryable) return;
+		let saved: { sort?: SortSpec | null; where?: ColumnFilter[] } | null = null;
+		try {
+			const raw = sessionStorage.getItem(this.queryStorageKey);
+			saved = raw ? JSON.parse(raw) : null;
+		} catch {
+			saved = null;
+		}
+		if (!saved) return;
+		// Solo lo que sigue siendo filtrable: una columna que ya no está se olvida.
+		const filterable = new Set(this.columns.filter((c) => c.filterable).map((c) => c.field));
+		if (saved.sort === null || (saved.sort && filterable.has(saved.sort.field))) this.sort = saved.sort;
+		if (Array.isArray(saved.where)) this.where = saved.where.filter((f) => f && filterable.has(f.field));
 	}
 
 	// -- historial ----------------------------------------------------------
@@ -566,6 +683,7 @@ export class GridController {
 		// Las columnas no cambian en vida del controlador: se indexan una vez.
 		this.columnIndex = new Map(this.columns.map((c, i) => [c.field, i]));
 		this.hasRowValidators = this.columns.some((c) => !!c.validate);
+		this.restoreQuery();
 	}
 
 	/**
@@ -1002,7 +1120,7 @@ export class GridController {
 		const abort = new AbortController();
 		this.inflight.add(abort);
 		try {
-			const page = await this.remote!.loadPage(request, abort.signal);
+			const page = await this.remote!.loadPage({ ...request, ...this.query }, abort.signal);
 			return epoch === this.windowEpoch ? page : null;
 		} catch (err) {
 			if (abort.signal.aborted) return null;
@@ -1242,7 +1360,7 @@ export class GridController {
 		try {
 			if (!created && this.remote.locate && id != null) {
 				const abort = new AbortController();
-				position = (await this.remote.locate(id, abort.signal)) ?? position;
+				position = (await this.remote.locate(id, abort.signal, this.query)) ?? position;
 			}
 			if (position === null) return null;
 

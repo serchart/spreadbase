@@ -1,4 +1,4 @@
-import type { BatchResult, CellValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
+import type { BatchResult, CellValue, DistinctValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -20,6 +20,12 @@ export interface SheetSource {
 	/** Posición 0-based de la fila en la misma consulta; `null` si la excluye. */
 	position(id: string, query: ListQuery): MaybePromise<{ position: number | null; total: number }>;
 	get(id: string): MaybePromise<Row | undefined>;
+	/**
+	 * Valores distintos de una columna con su cuenta, dentro de la consulta
+	 * (SB-33), ordenados, hasta `limit`. Para la lista con casillas del filtro.
+	 * Opcional: sin ella, el filtro solo ofrece condiciones.
+	 */
+	values?(field: string, query: ListQuery, limit: number): MaybePromise<DistinctValue[]>;
 
 	insert(values: Record<string, CellValue>): MaybePromise<Row>;
 	/** Escribe campos. Devuelve la fila resultante con su nuevo `rowVersion`. */

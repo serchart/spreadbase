@@ -6,7 +6,7 @@ import type { CasesService } from './cases.service.ts';
 /**
  * Rutas del módulo de casos. Base: `/api/cases`.
  *
- * Las cinco primeras son el protocolo de SpreadBase: es lo que pide
+ * Las primeras son el protocolo de SpreadBase: es lo que pide
  * `new Sheet('/api/cases')` en el cliente. `sheetRouter()` las montaría en una
  * línea; aquí se escriben a mano para mostrar cómo encajan en las capas.
  */
@@ -16,6 +16,8 @@ export function createCasesRoutes(service: CasesService, options: { devRoutes: b
 
 	router.get('/schema', controller.schema);
 	router.get('/', controller.list);
+	// Valores distintos de una columna para el filtro con casillas (SB-33).
+	router.get('/values/:field', controller.values);
 	router.get('/:id/position', controller.position);
 	router.get('/:id', controller.get);
 	router.post('/batch', controller.batch);

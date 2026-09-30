@@ -208,6 +208,12 @@ export interface ColumnSpec {
 	shape?: 'round' | 'square';
 	/** Solo `text` y `lookup`: miniatura antes del texto (SB-29). */
 	avatar?: AvatarSpec;
+	/**
+	 * Fuera de la vista por omisión: la fila la trae y se puede filtrar por ella
+	 * (`filters: { contract_id }`), pero no se pinta. El cliente la muestra con
+	 * `columns: { campo: { hidden: false } }` (SB-31).
+	 */
+	hidden?: boolean;
 }
 
 export type RemoteChangePolicy = 'merge' | 'strict';

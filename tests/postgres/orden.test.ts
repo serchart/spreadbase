@@ -57,4 +57,25 @@ describe('orden', () => {
 	it('un defaultSort sobre una columna que no existe falla al arrancar', () => {
 		expect(() => sheet({ defaultSort: { field: 'apellido', dir: 'asc' } })).toThrow(/apellido/);
 	});
+
+	it('una fecha-hora ordena por el instante, no por el texto a minuto que se muestra (dos del mismo minuto no empatan)', async () => {
+		await pool.query(`
+			DROP TABLE IF EXISTS sb_test_orden_dt;
+			CREATE TABLE sb_test_orden_dt (id text PRIMARY KEY, at timestamptz NOT NULL);
+			INSERT INTO sb_test_orden_dt VALUES ('b', '2026-09-30 11:44:05'), ('a', '2026-09-30 11:44:50'), ('c', '2026-09-30 11:44:20');
+		`);
+		const s = new SpreadBase({
+			id: 'orden-dt',
+			columns: { id: { type: types.TEXT, label: 'ID' }, at: { type: types.DATETIME, label: 'Cuándo' } },
+			defaultSort: { field: 'at', dir: 'desc' },
+			source: postgresSource({ pool, table: 'sb_test_orden_dt' })
+		});
+		// Se muestran igual («11:44»), pero el orden es el del instante: a (50 s), c (20 s), b (5 s).
+		const rows = (await s.list(query())).rows;
+		expect(rows.map((r) => r.id)).toEqual(['a', 'c', 'b']);
+		expect(new Set(rows.map((r) => r.at)).size).toBe(1);
+		// Y la posición, el mismo orden.
+		expect(await s.position('b', query())).toMatchObject({ position: 2, total: 3 });
+		await pool.query('DROP TABLE sb_test_orden_dt');
+	});
 });

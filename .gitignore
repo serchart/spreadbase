@@ -6,3 +6,4 @@ dist/
 !.env.example
 tests/test-results/
 .DS_Store
+examples/backend/uploads-test/

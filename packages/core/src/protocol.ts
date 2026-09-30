@@ -4,6 +4,7 @@
  */
 import type { CellValue } from './values.ts';
 import type { RemoteChangePolicy } from './schema.ts';
+import type { ColumnFilter } from './filters.ts';
 
 export type { RemoteChangePolicy };
 
@@ -17,14 +18,16 @@ export type Version = string | number;
 /** Una fila tal como la devuelve el servidor: sus campos más el testigo de versión. */
 export type Row = Record<string, unknown> & { rowVersion: Version };
 
-/** `?offset&limit&sort=campo:asc|desc&search=&<campo>=a,b` */
+/** `?offset&limit&sort=campo:asc|desc&search=&where=[…]&<campo>=a,b` */
 export interface ListQuery {
 	offset: number;
 	limit: number;
 	sort: { field: string; dir: 'asc' | 'desc' } | null;
-	/** Por campo: valores admitidos. */
+	/** Por campo: valores admitidos (filtros fijos, SB-28). */
 	filters: Record<string, string[]>;
 	search: string;
+	/** Filtros por columna de la persona (SB-33): valores o condición, uno por columna, con Y. */
+	where?: ColumnFilter[];
 }
 
 export interface Page<R = Row> {

@@ -63,4 +63,10 @@ describe('columnas del cliente (SB-23)', () => {
 		const columns = applyColumnOverrides(server, { status: { hidden: true }, [actionField(0)]: { hidden: true } }, [open]);
 		expect(columns.map((c) => c.field)).toEqual(['name']);
 	});
+
+	it('una columna oculta desde el servidor no se pinta; `hidden: false` en el cliente la muestra', () => {
+		const withHidden = [...server, { field: 'contract_id', label: 'Contrato (id)', type: 'text', hidden: true }];
+		expect(applyColumnOverrides(withHidden).map((c) => c.field)).not.toContain('contract_id');
+		expect(applyColumnOverrides(withHidden, { contract_id: { hidden: false } }).map((c) => c.field)).toContain('contract_id');
+	});
 });

@@ -2,8 +2,8 @@
  * Cliente HTTP del protocolo de SpreadBase: habla con las cinco rutas que
  * monta `@spreadbase/server` bajo una URL base.
  */
-import type { LookupResult, ResolveResult, SheetSchema } from '@spreadbase/core';
-import type { BatchRequest, BatchResponse, PageRequest, PageResult, UploadResult } from './types';
+import type { LookupResult, ResolveResult, SheetSchema, ValuesResult } from '@spreadbase/core';
+import type { BatchRequest, BatchResponse, PageRequest, PageResult, QueryState, UploadResult } from './types';
 
 /** Error de la API con el `code` estable del servidor (`{ error: { code, message, details } }`). */
 export class SpreadBaseApiError extends Error {
@@ -39,6 +39,14 @@ export function filterParams(filters: RemoteOptions['filters']): [string, string
 		.map(([field, v]) => [field, Array.isArray(v) ? v.join(',') : String(v)]);
 }
 
+/** Orden y filtros de la persona (SB-33) → `sort=campo:dir` y `where=[…]`. */
+export function queryParams(state: QueryState = {}): Record<string, string> {
+	const params: Record<string, string> = {};
+	if (state.sort) params.sort = `${state.sort.field}:${state.sort.dir}`;
+	if (state.where?.length) params.where = JSON.stringify(state.where);
+	return params;
+}
+
 export function remoteClient(base: string, options: RemoteOptions = {}) {
 	const fixed = filterParams(options.filters);
 	const query = (params: Record<string, string>) => new URLSearchParams([...Object.entries(params), ...fixed]).toString();
@@ -67,12 +75,20 @@ export function remoteClient(base: string, options: RemoteOptions = {}) {
 	return {
 		schema: () => request<SheetSchema>('/schema'),
 
-		loadPage: ({ offset, limit }: PageRequest, signal: AbortSignal) =>
-			request<PageResult>(`?${query({ offset: String(offset), limit: String(limit) })}`, { signal }),
+		loadPage: ({ offset, limit, sort, where }: PageRequest, signal: AbortSignal) =>
+			request<PageResult>(`?${query({ offset: String(offset), limit: String(limit), ...queryParams({ sort, where }) })}`, { signal }),
 
-		/** Posición global actual de una fila; `null` si la consulta la excluye. */
-		locate: async (id: unknown, signal: AbortSignal) =>
-			(await request<{ position: number | null }>(`/${encodeURIComponent(String(id))}/position${fixed.length ? `?${query({})}` : ''}`, { signal })).position,
+		/** Posición global actual de una fila en la consulta; `null` si la consulta la excluye. */
+		locate: async (id: unknown, signal: AbortSignal, state?: QueryState) => {
+			const qs = query(queryParams(state));
+			return (await request<{ position: number | null }>(`/${encodeURIComponent(String(id))}/position${qs ? `?${qs}` : ''}`, { signal })).position;
+		},
+
+		/** Valores distintos de una columna con su cuenta, en la consulta dada (SB-33). */
+		values: (field: string, state: QueryState, signal?: AbortSignal) => {
+			const qs = query(queryParams({ where: state.where }));
+			return request<ValuesResult>(`/values/${encodeURIComponent(field)}${qs ? `?${qs}` : ''}`, { signal });
+		},
 
 		/** Un tramo del recurso de una columna `lookup` (SB-21). */
 		lookup: (field: string, q: string, { offset, limit }: { offset: number; limit: number }, signal?: AbortSignal) =>

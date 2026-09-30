@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PASSWORD_MARK, fold, isBlank, isPasswordMark, sameValue, toSchema, uploadLimits, validateValue } from '@spreadbase/core';
+import { MAX_DISTINCT_VALUES, PASSWORD_MARK, checkFilter, filterKind, fold, isBlank, isPasswordMark, sameValue, toSchema, uploadLimits, validateValue } from '@spreadbase/core';
 import { EXTENSION, safeFileName, sniffType } from './storage.ts';
 import type {
 	BatchInput,
@@ -15,6 +15,7 @@ import type {
 	Position,
 	ResolveResult,
 	Row,
+	ValuesResult,
 	SheetDefinition,
 	SheetSchema
 } from '@spreadbase/core';
@@ -194,6 +195,34 @@ export class SpreadBase {
 		return Object.keys(images).length ? { ...page, labels, images } : { ...page, labels };
 	}
 
+	// -- filtros por columna (SB-33) ---------------------------------------------
+
+	/**
+	 * Los valores distintos de una columna, con cuántas filas tiene cada uno,
+	 * dentro de la consulta: la lista con casillas del filtro. El cliente manda
+	 * la consulta **sin** el filtro de esa misma columna (como Excel: la lista
+	 * muestra lo que queda con los demás filtros). En un `lookup`, con el nombre
+	 * de cada id.
+	 */
+	async values(field: string, query: ListQuery, context: Record<string, unknown> = {}): Promise<ValuesResult> {
+		const spec = this.definition.columns[field];
+		if (!spec || !filterKind(spec.type)) throw new NotFoundError(`No se filtra por "${field}"`);
+		if (!this.source.values) throw new SpreadBaseError(400, 'values_not_supported', 'La fuente no lista valores distintos');
+		const rows = await this.source.values(field, this.checkQuery(query), MAX_DISTINCT_VALUES + 1);
+		const values = rows.slice(0, MAX_DISTINCT_VALUES).map((v) => ({ value: v.value, count: Number(v.count) }));
+		const result: ValuesResult = { values, truncated: rows.length > MAX_DISTINCT_VALUES };
+		if (spec.type === 'lookup' && spec.lookup) {
+			const ids = values.filter((v) => !isBlank(v.value)).map((v) => String(v.value));
+			result.labels = {};
+			if (ids.length > 0) {
+				for (const row of await spec.lookup.byIds(ids, context)) {
+					result.labels[String(row[spec.lookup.value])] = String(row[spec.lookup.display] ?? '');
+				}
+			}
+		}
+		return result;
+	}
+
 	// -- archivos (SB-30) -------------------------------------------------------
 
 	/** Tamaño máximo de subida de una columna, o `null` si no admite subir. */
@@ -331,7 +360,9 @@ export class SpreadBase {
 
 	/**
 	 * Filtros sobre columnas desconocidas se ignoran; ordenar por una desconocida
-	 * es un error. Sin orden pedido, el de la hoja (`defaultSort`).
+	 * es un error. Sin orden pedido, el de la hoja (`defaultSort`). Un filtro de
+	 * columna (SB-33) con un operador que no aplica a su tipo, o sin valor, es un
+	 * error: la persona vería filas que no pidió.
 	 */
 	private checkQuery(input: ListQuery): ListQuery {
 		const query = input.sort ? input : { ...input, sort: this.definition.defaultSort ?? null };
@@ -343,7 +374,12 @@ export class SpreadBase {
 		const filters = Object.fromEntries(
 			Object.entries(query.filters).filter(([field]) => field in columns && !this.passwordFields.includes(field))
 		);
-		return { ...query, filters };
+		const where = (query.where ?? []).filter((f) => f.field in columns && !this.passwordFields.includes(f.field));
+		for (const filter of where) {
+			const problem = checkFilter(filter, columns[filter.field]!.type);
+			if (problem) throw new ValidationError(problem);
+		}
+		return { ...query, filters, where };
 	}
 
 	// -- escritura ------------------------------------------------------------

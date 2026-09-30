@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import type { Request } from 'express';
+import { parseWhere } from '@spreadbase/core';
 import type { BatchInput, ListQuery, LookupQuery } from '@spreadbase/core';
 import { SpreadBaseError, ValidationError } from './errors.ts';
 import { MAX_RESOLVE_TEXTS } from './SpreadBase.ts';
@@ -9,7 +10,7 @@ const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 const LOOKUP_MAX_LIMIT = 100;
 const LOOKUP_DEFAULT_LIMIT = 50;
-const RESERVED = new Set(['offset', 'limit', 'sort', 'search']);
+const RESERVED = new Set(['offset', 'limit', 'sort', 'search', 'where']);
 
 function intParam(value: unknown, name: string, fallback: number, min: number, max: number): number {
 	if (value === undefined || value === '') return fallback;
@@ -23,10 +24,11 @@ function intParam(value: unknown, name: string, fallback: number, min: number, m
 const csv = (value: string): string[] => value.split(',').map((s) => s.trim()).filter(Boolean);
 
 /**
- * `?offset=0&limit=100&sort=dpd:desc&stage_code=early,late&search=grúas`
+ * `?offset=0&limit=100&sort=dpd:desc&stage_code=early,late&search=grúas&where=[…]`
  *
- * Todo parámetro que no sea de paginación, orden o búsqueda es un filtro por
- * columna con valores separados por coma.
+ * Todo parámetro que no sea de paginación, orden, búsqueda o `where` es un
+ * filtro fijo por columna con valores separados por coma (SB-28). `where` son
+ * los filtros de la persona, en JSON (SB-33).
  */
 export function parseListQuery(query: Request['query']): ListQuery {
 	let sort: ListQuery['sort'] = null;
@@ -42,12 +44,21 @@ export function parseListQuery(query: Request['query']): ListQuery {
 		const values = csv(value);
 		if (values.length > 0) filters[key] = values;
 	}
+	let where: ListQuery['where'] = [];
+	if (typeof query.where === 'string' && query.where !== '') {
+		try {
+			where = parseWhere(query.where);
+		} catch (err) {
+			throw new ValidationError((err as Error).message);
+		}
+	}
 	return {
 		offset: intParam(query.offset, 'offset', 0, 0, Number.MAX_SAFE_INTEGER),
 		limit: intParam(query.limit, 'limit', DEFAULT_LIMIT, 1, MAX_LIMIT),
 		sort,
 		filters,
-		search: typeof query.search === 'string' ? query.search : ''
+		search: typeof query.search === 'string' ? query.search : '',
+		where
 	};
 }
 
@@ -128,7 +139,8 @@ export interface SheetRouterOptions {
  * pide `new Sheet(url)` en el cliente.
  *
  *   GET  /schema
- *   GET  /?offset&limit&sort&search&<campo>=a,b
+ *   GET  /?offset&limit&sort&search&where&<campo>=a,b
+ *   GET  /values/:field?search&where&<campo>=a,b   (valores distintos, SB-33)
  *   GET  /lookup/:field?q&offset&limit    (columnas lookup, SB-21)
  *   POST /upload/:field                   (columnas image y file con upload, SB-30)
  *   POST /lookup/:field/resolve           (columnas lookup, SB-21)
@@ -144,6 +156,9 @@ export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {})
 	});
 	router.get('/', async (req, res) => {
 		res.json(await sheet.list(parseListQuery(req.query), context(req)));
+	});
+	router.get('/values/:field', async (req, res) => {
+		res.json(await sheet.values(String(req.params.field), parseListQuery(req.query), context(req)));
 	});
 	router.get('/lookup/:field', async (req, res) => {
 		res.json(await sheet.lookup(String(req.params.field), parseLookupQuery(req.query), context(req)));

@@ -42,6 +42,15 @@ class ProductsController {
 		}
 	}
 
+	/** GET /api/products/sheet/values/:field?where — valores distintos para el filtro con casillas (SB-33). */
+	async values(req, res) {
+		try {
+			res.json(await this.service.sheet.values(req.params.field, parseListQuery(req.query), { user: req.user }));
+		} catch (error) {
+			this.#fail(res, error);
+		}
+	}
+
 	/** GET /api/products/sheet/lookup/:field?q&offset&limit — el popover de una columna lookup. */
 	async lookup(req, res) {
 		try {
