@@ -38,6 +38,10 @@ export const env = {
 		.filter(Boolean),
 	/** `test` habilita las rutas destructivas del ejemplo de casos (reset, mutate). Por defecto, test. */
 	appEnv: process.env.APP_ENV ?? 'test',
+	/** Carpeta de los archivos subidos (SB-30). */
+	uploadsDir: process.env.UPLOADS_DIR ?? fileURLToPath(new URL('../../uploads', import.meta.url)),
+	/** Cómo ve el navegador a este servidor: la base de las URL de lo subido. */
+	publicUrl: (process.env.PUBLIC_URL ?? `http://localhost:${intFromEnv('PORT', 4100)}`).replace(/\/+$/, ''),
 	/** Postgres del ejemplo `postgres`. Sin ella, ese ejemplo responde 503 y el resto funciona. */
 	databaseUrl: process.env.DATABASE_URL ?? '',
 	cases: {

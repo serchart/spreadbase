@@ -11,6 +11,9 @@
  *   al principio o al final (`at`) y siempre es de solo lectura, porque no hay
  *   dónde guardarla.
  * - `actions` es un atajo: cada acción es una columna `action` al principio.
+ * - `hidden: true` saca una columna de la vista: la que ya dice el contexto (el
+ *   cliente, en la Ficha de ese cliente). En las filas nuevas, su valor lo
+ *   ponen los filtros fijos de la hoja (`fixedValues`).
  */
 import type { ColumnAction, ColumnDef } from './types';
 
@@ -78,5 +81,6 @@ export function applyColumnOverrides(
 	}
 
 	// Las acciones del atajo primero; luego las del principio, el esquema y las del final.
-	return [...fromActions, ...start, ...fromServer, ...end];
+	// `hidden` saca la columna de la vista (su valor en altas lo ponen los filtros fijos).
+	return [...fromActions, ...start, ...fromServer, ...end].filter((c) => !c.hidden);
 }

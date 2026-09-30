@@ -1,4 +1,5 @@
 import { types } from '@spreadbase/server';
+import { uploadsFor } from '../../../../../common/uploads.ts';
 
 /**
  * Definición de la hoja: lo que valida el servidor y lo que pinta el cliente.
@@ -17,7 +18,8 @@ export const productsSheet = ({ users }) => ({
 	policy: 'merge',
 	columns: {
 		id: { type: types.TEXT, label: 'ID', width: 100 },
-		image_url: { type: types.IMAGE, label: 'Foto', width: 60 },
+		// Se pega una URL o se sube la foto (SB-30).
+		image_url: { type: types.IMAGE, label: 'Foto', width: 60, upload: { storage: uploadsFor('products'), maxSize: '1mb' } },
 		name: { type: types.TEXT, label: 'Nombre', required: true, maxLength: 160, searchable: true, width: 220 },
 		sku: {
 			type: types.TEXT,
@@ -28,7 +30,15 @@ export const productsSheet = ({ users }) => ({
 			searchable: true,
 			width: 110
 		},
-		owner_id: { type: types.LOOKUP, label: 'Responsable', required: true, width: 180, lookup: users.lookup },
+		owner_id: {
+			type: types.LOOKUP,
+			label: 'Responsable',
+			required: true,
+			width: 200,
+			lookup: users.lookup,
+			// Su foto antes del nombre; sin foto o rota, sus iniciales (SB-29).
+			avatar: { image: 'avatar', initials: true }
+		},
 		price: { type: types.NUMBER, label: 'Precio', required: true, min: 0, precision: 2, prefix: '$', thousands: true, width: 120 },
 		stock: { type: types.NUMBER, label: 'Existencias', min: 0, width: 100 },
 		status: {

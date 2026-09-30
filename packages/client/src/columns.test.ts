@@ -58,4 +58,9 @@ describe('columnas del cliente (SB-23)', () => {
 		const [first] = applyColumnOverrides(server, { [actionField(0)]: (col) => ({ ...col, width: 70 }) }, [open]);
 		expect(first).toMatchObject({ field: actionField(0), type: 'action', width: 70, action: open });
 	});
+
+	it('`hidden` saca la columna de la vista, sea del servidor o una acción', () => {
+		const columns = applyColumnOverrides(server, { status: { hidden: true }, [actionField(0)]: { hidden: true } }, [open]);
+		expect(columns.map((c) => c.field)).toEqual(['name']);
+	});
 });

@@ -21,7 +21,8 @@ Backend: examples/backend/src/examples/postgres/
 		price: null,
 		stock: 0,
 		launch_date: null,
-		restocked_at: null
+		restocked_at: null,
+		image_url: null
 	};
 	// «Responsable» es obligatorio en la hoja; aquí además se exige «Lanzamiento».
 	let form = $state(new FormState(new Sheet(url), initial, { columns: { launch_date: { required: true } } }));
@@ -76,6 +77,7 @@ Backend: examples/backend/src/examples/postgres/
 				<Field {form} name="stock" />
 				<Field {form} name="launch_date" />
 				<Field {form} name="restocked_at" />
+				<Field {form} name="image_url" class="sm:col-span-2" placeholder="Pega una URL o sube la foto" hint="PNG, JPEG, WebP o GIF; hasta 1 MB" />
 			</div>
 
 			{#if result?.ok}

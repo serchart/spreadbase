@@ -60,4 +60,17 @@
 	--dg-accent: var(--color-primary);
 	--dg-accent-fg: var(--color-primary-content);
 	--dg-radius: var(--radius-field);
+
+	/* Miniaturas (SB-29): tinte suave de cada color del tema, texto en base-content. */
+	--dg-avatar-fg: var(--color-base-content);
+	--dg-avatar-icon-bg: var(--color-base-200);
+	--dg-avatar-icon-fg: color-mix(in oklab, var(--color-base-content) 70%, var(--color-base-200));
+	--dg-avatar-1: color-mix(in oklab, var(--color-primary) 24%, var(--color-base-100));
+	--dg-avatar-2: color-mix(in oklab, var(--color-secondary) 24%, var(--color-base-100));
+	--dg-avatar-3: color-mix(in oklab, var(--color-accent) 24%, var(--color-base-100));
+	--dg-avatar-4: color-mix(in oklab, var(--color-info) 24%, var(--color-base-100));
+	--dg-avatar-5: color-mix(in oklab, var(--color-success) 24%, var(--color-base-100));
+	--dg-avatar-6: color-mix(in oklab, var(--color-warning) 24%, var(--color-base-100));
+	--dg-avatar-7: color-mix(in oklab, var(--color-error) 18%, var(--color-base-100));
+	--dg-avatar-8: color-mix(in oklab, var(--color-neutral) 18%, var(--color-base-100));
 }

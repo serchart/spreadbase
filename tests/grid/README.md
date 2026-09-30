@@ -115,11 +115,53 @@ responde, se omite. Deja los usuarios como estaban (contraseña de la semilla:
 | **T-4** | Casilla | Un clic la alterna; deshacer y rehacer; se guarda | ✅ |
 | **T-5** | Copiar una contraseña | El portapapeles queda vacío | ✅ |
 
+## 8. Miniaturas (`avatar.test.ts`, SB-29)
+
+Iniciales en «Cliente» de `/cases`; la foto del responsable en `/postgres` (se
+omite si el ejemplo de Postgres no responde).
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **AV-1** | Iniciales | «Constructora Peninsular SAPI de CV» → «CP», cuadrada, con tono; el texto de la celda es solo el valor | ✅ |
+| **AV-2** | Color estable | El mismo nombre en otra fila da el mismo tono | ✅ |
+| **AV-3** | Editar | Dentro de la celda, como texto nativo; la miniatura se actualiza; Esc descarta; se guarda | ✅ |
+| **AV-4** | Copiar | El portapapeles lleva el texto, sin iniciales | ✅ |
+| **AV-5** | Foto en lookup | «Responsable» con la foto de la persona, redonda | ✅ |
+| **AV-6** | Elegir otra | La celda toma la foto de la elegida | ✅ |
+| **AV-7** | Foto rota | Enlace roto → sus iniciales, sin imagen rota | ✅ |
+
+## 9. Archivos e imágenes subidos (`archivos.test.ts`, SB-30)
+
+«Contrato» (`file`) en `/cases`; «Foto» (`image`) en `/postgres`, que se omite
+si el ejemplo de Postgres no responde. La ruta, en `protocol/api.upload.test.ts`
+(UP-1…UP-7).
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **AR-1** | Subir | La celda muestra el nombre limpio, queda editada; al guardar, la API tiene la URL | ✅ |
+| **AR-2** | Abrir | ↗ abre el archivo en otra pestaña | ✅ |
+| **AR-3** | Tipo no permitido | Por el navegador: no se envía; por el contenido (HTML que dice ser PDF): el servidor lo rechaza y el panel avisa; la celda no cambia | ✅ |
+| **AR-4** | Pegar URL; copiar | El nombre sale de la URL; copiar da la URL | ✅ |
+| **AR-5** | Imagen con subida | La miniatura es la foto subida y se guarda | ✅ |
+
+## 10. Ficha de un registro (`ficha.test.ts`, SB-32)
+
+`/ficha?id=…`: un contacto de la hoja básica. Cada prueba usa su contacto y
+valores de esa corrida (la hoja vive en memoria entre corridas).
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **FR-1** | Carga | Los campos son las columnas editables, con lo guardado; «Guardar» espera un cambio | ✅ |
+| **FR-2** | Guardar | Texto y lista; solo lo cambiado; «Guardado» | ✅ |
+| **FR-3** | Reglas | Un correo inválido se marca y no se envía | ✅ |
+| **FR-4** | Conflicto | Otro cambió el mismo campo: aviso; «Guardar lo mío» lo pisa | ✅ |
+| **FR-5** | Combinar | Otro cambió otro campo: se guarda sin conflicto y el formulario muestra lo vigente | ✅ |
+
 ---
 
 ## Estado
 
-Los 32 escenarios están automatizados, más los 5 de la columna lookup y los 5 de contraseña y casilla:
+Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 de contraseña y casilla los 7 de miniaturas y los 5 de archivos:
 
 | Archivo | Escenarios |
 |---|---|
@@ -131,6 +173,9 @@ Los 32 escenarios están automatizados, más los 5 de la columna lookup y los 5 
 | `red.test.ts` | R-1 a R-3 |
 | `lookup.test.ts` | L-1 a L-5 (ejemplo Postgres) |
 | `tipos.test.ts` | T-1 a T-5 (ejemplo Postgres, usuarios) |
+| `avatar.test.ts` | AV-1 a AV-7 (casos y ejemplo Postgres) |
+| `archivos.test.ts` | AR-1 a AR-5 (casos y ejemplo Postgres) |
+| `ficha.test.ts` | FR-1 a FR-5 (ejemplo básico) |
 
 Dependen de la política del servidor: C-3 y C-11 solo corren con `merge`, C-4
 solo con `strict`, y C-5 comprueba lo que toca en cada una. Para cubrir todo,

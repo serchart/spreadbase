@@ -27,6 +27,8 @@ const api = async (path: string, init?: RequestInit): Promise<Json> => {
 	return res.json();
 };
 
+const PNG_2x2 = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP8z8DwnwEJMDGgAQIGAMp1AgK3vUJ2AAAAAElFTkSuQmCC';
+
 const created: string[] = [];
 afterEach(async () => {
 	for (const id of created.splice(0)) {
@@ -71,7 +73,8 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 			'Precio',
 			'Existencias',
 			'Lanzamiento',
-			'Último surtido'
+			'Último surtido',
+			'Foto'
 		]);
 		await page.getByRole('button', { name: 'Crear producto' }).click();
 		await expect.poll(() => message(page, 'Nombre').innerText()).toBe('"Nombre" es obligatorio');
@@ -81,7 +84,7 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 		await shot('reglas');
 	});
 
-	it('F-2 · «Responsable» abre la misma mini tabla que la celda y el campo muestra el nombre elegido', async () => {
+	it('F-2 · «Responsable» abre la misma mini tabla que la celda y el campo muestra el nombre y la foto del elegido', async () => {
 		const { page, shot } = await open();
 		await field(page, 'Responsable').click();
 		await popover(page).locator('.oc-lookup').waitFor();
@@ -93,6 +96,8 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 		const name = await chooseOwner(page, 'ana');
 		expect(await field(page, 'Responsable').innerText()).toBe(name);
 		expect(await message(page, 'Responsable').count()).toBe(0);
+		// Con la foto del elegido, como en la celda (SB-29).
+		expect(await field(page, 'Responsable').locator('.oc-avatar img').getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
 	});
 
 	it('F-3 · un texto sin coincidencias: «Sin resultados», y el campo sigue vacío y obligatorio', async () => {
@@ -118,7 +123,7 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 		expect(await page.locator('pre').textContent()).toContain('"launch_date": "2026-10-15"');
 	});
 
-	it('F-5 · alta completa: lista de «Estado», número y la regla del servidor; luego crea', async () => {
+	it('F-5 · alta completa: lista de «Estado», número, foto subida y la regla del servidor; luego crea', async () => {
 		const { page, shot } = await open();
 		await field(page, 'Nombre').fill('Caja seca de prueba');
 		await field(page, 'SKU').fill('prueba-1');
@@ -137,6 +142,15 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 		await popover(page).locator('.oc-cell-editor__option', { hasText: 'Activo' }).click();
 		expect(await field(page, 'Estado').innerText()).toBe('Activo');
 
+		// «Foto» abre el editor de la celda, con «Subir» (SB-30): el campo muestra la miniatura y el nombre.
+		await field(page, 'Foto').click();
+		await page
+			.locator('.oc-cell-editor__file')
+			.setInputFiles({ name: 'caja seca.png', mimeType: 'image/png', buffer: Buffer.from(PNG_2x2, 'base64') });
+		await expect.poll(() => field(page, 'Foto').innerText()).toBe('caja-seca.png');
+		const photo = await field(page, 'Foto').locator('img').getAttribute('src');
+		expect(photo).toMatch(/\/uploads\/products\/[^/]+\/caja-seca\.png$/);
+
 		// Sin existencias no se puede activar: la regla es del servidor y el formulario la muestra.
 		await page.getByRole('button', { name: 'Crear producto' }).click();
 		await page.getByRole('alert').filter({ hasText: /existencias/i }).waitFor({ timeout: 15_000 });
@@ -148,6 +162,13 @@ describe.skipIf(!available)('formulario (SB-25) · ejemplo Postgres', () => {
 		await shot('creado');
 		const id = (await ok.locator('code').innerText()).trim();
 		created.push(id);
-		expect(await api(`/${id}`)).toMatchObject({ name: 'Caja seca de prueba', status: 'active', price: 1250.5, stock: 3, launch_date: '2026-11-01' });
+		expect(await api(`/${id}`)).toMatchObject({
+			name: 'Caja seca de prueba',
+			status: 'active',
+			price: 1250.5,
+			stock: 3,
+			launch_date: '2026-11-01',
+			image_url: photo
+		});
 	});
 });

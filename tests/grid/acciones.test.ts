@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { browserHarness } from '../support/browser.ts';
-import { FRONT_URL } from '../support/env.ts';
+import { API_URL, FRONT_URL } from '../support/env.ts';
 import { GridPage } from '../support/grid.ts';
 
 const { user } = browserHarness();
@@ -111,5 +111,31 @@ describe('columnas del cliente (SB-23)', () => {
 		await bar.getByRole('button', { name: 'Deshacer' }).click();
 		await expect.poll(() => grid.text(row, 'Límite de crédito')).toBe(before);
 		expect((await grid.cell(row, 'Límite de crédito').getAttribute('class')) ?? '').not.toContain('oc-cell-dirty');
+	});
+
+	it('AC-7 · filtros fijos (SB-28): la hoja muestra solo esa parte del recurso, también al desplazarse', async () => {
+		const u = await user('A');
+		const grid = await new GridPage(u.page).open(`${FRONT_URL}/basic?status=inactive`);
+		const res = await fetch(`${API_URL}/api/basic/contacts?status=inactive&limit=1`);
+		const { total } = await res.json();
+		expect(total).toBeGreaterThan(0);
+		// El contador de la hoja es el total filtrado del servidor, no el de todo el recurso.
+		await expect.poll(() => u.page.locator('text=/Filas \\d+–\\d+ de/').first().innerText()).toContain(`de ${total.toLocaleString('es-MX')}`);
+		// Todas dirían «Inactivo»: con el filtro fijo la columna sobra y se oculta (`hidden`).
+		expect(grid.columns.has('Estado del contacto')).toBe(false);
+		await u.shot('filtrada');
+	});
+
+	it('AC-8 · una alta en la hoja filtrada nace dentro del filtro, aunque su columna esté oculta', async () => {
+		const u = await user('A');
+		const grid = await new GridPage(u.page).open(`${FRONT_URL}/basic?status=inactive`);
+		const email = `alta.${Date.now()}@ejemplo.mx`;
+		await grid.toolbar('Agregar fila');
+		await grid.editText('+', 'Nombre', 'Alta filtrada');
+		await grid.editText('+', 'Correo', email);
+		expect(await grid.save()).toMatch(/Filas creadas\s*1/);
+		const res = await fetch(`${API_URL}/api/basic/contacts?search=${encodeURIComponent(email)}&limit=5`);
+		const { rows } = await res.json();
+		expect(rows).toEqual([expect.objectContaining({ name: 'Alta filtrada', email, status: 'inactive' })]);
 	});
 });

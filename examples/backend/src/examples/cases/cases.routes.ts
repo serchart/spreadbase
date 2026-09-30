@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sheetUpload } from '@spreadbase/server';
 import { CasesController } from './cases.controller.ts';
 import type { CasesService } from './cases.service.ts';
 
@@ -18,6 +19,8 @@ export function createCasesRoutes(service: CasesService, options: { devRoutes: b
 	router.get('/:id/position', controller.position);
 	router.get('/:id', controller.get);
 	router.post('/batch', controller.batch);
+	// Subir a la columna «Contrato» (SB-30): la pieza de SpreadBase, junto a las rutas a mano.
+	router.use(sheetUpload(service.portfolio));
 
 	// Solo en modo test: simular a otro usuario y volver a la semilla.
 	if (options.devRoutes) {

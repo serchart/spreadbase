@@ -1681,9 +1681,11 @@ export class GridController {
 
 	private newRow(): GridRow {
 		const row: GridRow = { __key: nextKey() };
+		const fixed = this.config.fixedValues ?? {};
 		for (const column of this.columns) {
 			const dv = column.defaultValue;
-			row[column.field] = typeof dv === 'function' ? dv() : (dv ?? null);
+			// Sin default propio, el del filtro fijo: una alta en `?status=inactive` nace inactiva.
+			row[column.field] = typeof dv === 'function' ? dv() : (dv ?? fixed[column.field] ?? null);
 		}
 		row[this.idField] = null;
 		return row;
@@ -1973,6 +1975,16 @@ export class GridController {
 	}
 
 	/** Columnas que el servidor acepta del cliente: ni de solo lectura ni de acción. */
+	/** Lo que viaja de una fila nueva: sus columnas editables, más los valores fijos de la hoja. */
+	private createValues(row: GridRow): Record<string, CellValue> {
+		const values: Record<string, CellValue> = { ...this.config.fixedValues };
+		for (const c of this.writableColumns) {
+			const v = (row[c.field] ?? null) as CellValue;
+			if (v !== null || !(c.field in values)) values[c.field] = v;
+		}
+		return values;
+	}
+
 	private get writableColumns(): ColumnDef[] {
 		return this.columns.filter((c) => !c.readOnly && c.type !== 'action' && c.field !== this.idField);
 	}
@@ -1985,14 +1997,13 @@ export class GridController {
 			.flatMap((key) => {
 				const row = this.getRow(key);
 				if (!row) return [];
-				const values = Object.fromEntries(this.writableColumns.map((c) => [c.field, row[c.field] ?? null]));
-				return [{ key, values }];
+				return [{ key, values: this.createValues(row) }];
 			});
 		// Fuente remota sin lista de nuevas (no debería pasar): cualquier creada pendiente.
 		for (const key of this.createdKeys) {
 			if (!pending(key) || creates.some((c) => c.key === key)) continue;
 			const row = this.getRow(key);
-			if (row) creates.push({ key, values: Object.fromEntries(this.writableColumns.map((c) => [c.field, row[c.field] ?? null])) });
+			if (row) creates.push({ key, values: this.createValues(row) });
 		}
 
 		const updates: BatchRequest['updates'] = [];

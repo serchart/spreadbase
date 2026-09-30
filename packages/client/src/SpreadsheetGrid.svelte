@@ -186,7 +186,8 @@ Uso:
 
 	const cellTypeContext: CellTypeContext = {
 		labelCache: controller.labelCache,
-		requestRepaint: () => paintStates()
+		requestRepaint: () => paintStates(),
+		rowAt: (y) => controller.rows[y]
 	};
 
 	// -- construcción de la grilla -----------------------------------------

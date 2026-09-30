@@ -67,6 +67,20 @@
 	--dg-accent: #1a73e8;
 	--dg-accent-fg: #ffffff;
 	--dg-radius: 6px;
+
+	/* Miniaturas (SB-29): fondo de las iniciales por tono, texto e ícono. */
+	--dg-avatar-size: 20px;
+	--dg-avatar-fg: #1f1f1f;
+	--dg-avatar-icon-bg: #e8eaed;
+	--dg-avatar-icon-fg: #5f6368;
+	--dg-avatar-1: #d3e3fd;
+	--dg-avatar-2: #c4eed0;
+	--dg-avatar-3: #ffdfa6;
+	--dg-avatar-4: #f6d6f7;
+	--dg-avatar-5: #c2e7ff;
+	--dg-avatar-6: #fcd5ce;
+	--dg-avatar-7: #e2e1ff;
+	--dg-avatar-8: #d7ecc1;
 }
 
 /* ------------------------------------------------------------------------
@@ -449,6 +463,18 @@
 	flex: none;
 }
 
+/* La acción principal de la fila (`variant: 'primary'`): como el botón principal de la página. */
+.oc-action.is-primary {
+	background-color: var(--dg-accent);
+	border-color: var(--dg-accent);
+	color: var(--dg-accent-fg);
+}
+
+.oc-action.is-primary:hover {
+	background-color: color-mix(in oklab, var(--dg-accent) 88%, var(--dg-fg));
+	border-color: color-mix(in oklab, var(--dg-accent) 88%, var(--dg-fg));
+}
+
 .oc-action span {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -672,6 +698,89 @@
 	border-radius: 999px;
 }
 
+/* ------------------------------------------------------------------------
+   Miniaturas antes del texto (SB-29): foto, iniciales o ícono.
+   ------------------------------------------------------------------------ */
+
+.oc-avatar {
+	flex: 0 0 auto;
+	display: inline-grid;
+	place-items: center;
+	width: var(--dg-avatar-size);
+	height: var(--dg-avatar-size);
+	margin-right: 6px;
+	overflow: hidden;
+	border-radius: 999px;
+	font-size: 9px;
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: 0.02em;
+	color: var(--dg-avatar-fg);
+	background-color: var(--dg-avatar-icon-bg);
+	user-select: none;
+}
+
+.oc-avatar.is-square {
+	border-radius: 5px;
+}
+
+.oc-avatar img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.oc-avatar.has-initials::before {
+	content: attr(data-initials);
+}
+
+/* Fuera de la celda (`<Avatar size>`): las letras crecen con el lado. */
+.sb-avatar .oc-avatar {
+	font-size: inherit;
+}
+
+.sb-avatar .oc-avatar svg {
+	width: 60%;
+	height: 60%;
+}
+
+.oc-avatar.has-icon {
+	color: var(--dg-avatar-icon-fg);
+}
+
+.oc-avatar svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oc-avatar.tone-1 { background-color: var(--dg-avatar-1); }
+.oc-avatar.tone-2 { background-color: var(--dg-avatar-2); }
+.oc-avatar.tone-3 { background-color: var(--dg-avatar-3); }
+.oc-avatar.tone-4 { background-color: var(--dg-avatar-4); }
+.oc-avatar.tone-5 { background-color: var(--dg-avatar-5); }
+.oc-avatar.tone-6 { background-color: var(--dg-avatar-6); }
+.oc-avatar.tone-7 { background-color: var(--dg-avatar-7); }
+.oc-avatar.tone-8 { background-color: var(--dg-avatar-8); }
+
+/* Celda de texto con miniatura: el `td` conserva su `display` (ver `.oc-picker`). */
+.oc-avatar-cell {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.oc-avatar-cell__text {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.oc-lookup__with-avatar {
+	display: flex;
+	align-items: center;
+}
+
 .oc-lookup__foot {
 	padding: 6px 2px 0;
 	font-size: 0.85em;
@@ -747,6 +856,97 @@
 .oc-cell-editor__actions button.is-primary:hover,
 .oc-cal__foot button.is-primary:hover {
 	background-color: color-mix(in oklab, var(--dg-accent) 88%, var(--dg-popover-fg));
+}
+
+/* -- archivo: celda y panel (SB-30) --------------------------------------- */
+
+.oc-file {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	color: inherit;
+	text-decoration: none;
+}
+
+.oc-file__icon {
+	flex: 0 0 auto;
+	display: inline-grid;
+	color: var(--dg-fg-muted);
+}
+
+.oc-file__icon svg,
+.oc-file__open svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oc-file__name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.oc-file__open {
+	flex: 0 0 auto;
+	display: inline-grid;
+	place-items: center;
+	padding: 2px;
+	border-radius: 4px;
+	color: var(--dg-fg-muted);
+}
+
+.oc-file__open:hover {
+	color: var(--dg-accent);
+	background-color: var(--dg-hover-bg);
+}
+
+.oc-file--preview {
+	width: 100%;
+	padding: 8px 10px;
+}
+
+.oc-file--preview:hover .oc-file__name {
+	text-decoration: underline;
+}
+
+.oc-cell-editor__preview[hidden] {
+	display: none;
+}
+
+.oc-cell-editor__status {
+	margin-top: 6px;
+	font-size: 0.85em;
+	color: var(--dg-fg-muted);
+}
+
+.oc-cell-editor__status:empty {
+	display: none;
+}
+
+.oc-cell-editor__status.is-error {
+	color: var(--dg-invalid-accent);
+}
+
+.oc-cell-editor__spacer {
+	flex: 1;
+}
+
+.oc-media-editor.is-busy {
+	cursor: progress;
+}
+
+.oc-media-editor.is-busy button {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+/* Arrastrar un archivo al panel: el borde lo invita a soltarlo. */
+.oc-media-editor.is-dropping {
+	outline: 2px dashed var(--dg-accent);
+	outline-offset: -4px;
 }
 
 .oc-cell-editor__toggle {
@@ -967,4 +1167,8 @@
 
 .oc-bool {
 	cursor: pointer;
+}
+
+.oc-avatar-cell__editor {
+	display: contents;
 }

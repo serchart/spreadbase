@@ -6,7 +6,8 @@ Backend: examples/backend/src/examples/basic/
 Lo único del cliente: un botón «Abrir» por fila (`actions`) y dos ajustes
 sobre columnas del servidor, uno como parche y otro como función (SB-23); y
 botones propios en la barra, junto a Guardar (SB-24). «Límite en cero» escribe
-en la hoja desde fuera con `grid.commands.setValues` (SB-27).
+en la hoja desde fuera con `grid.commands.setValues` (SB-27). Con `?status=`
+en la URL, la hoja muestra solo ese estado (filtro fijo, SB-28).
 -->
 <script lang="ts">
 	import { Sheet, SpreadBase } from '@spreadbase/client';
@@ -14,17 +15,22 @@ en la hoja desde fuera con `grid.commands.setValues` (SB-27).
 	import SquareArrowOutUpRight from '@lucide/svelte/icons/square-arrow-out-up-right';
 	import X from '@lucide/svelte/icons/x';
 	import Eraser from '@lucide/svelte/icons/eraser';
+	import { page } from '$app/state';
 	import { API_URL } from '$lib/config';
 
 	let opened = $state<GridRow | null>(null);
 
+	// `?status=active`: filtro fijo de la hoja (SB-28). Se lee al cargar la página.
+	const status = page.url.searchParams.get('status');
 	const sheet = new Sheet(`${API_URL}/api/basic/contacts`, {
+		filters: status ? { status } : undefined,
 		actions: [{ label: 'Abrir', icon: SquareArrowOutUpRight, onclick: (row) => (opened = row) }],
 		columns: {
 			// Parche: se mezcla sobre la columna del servidor.
 			name: { width: 260 },
-			// Función: recibe la columna del servidor y devuelve la final.
-			status: (col) => ({ ...col, label: `${col?.label} del contacto` })
+			// Función: recibe la columna del servidor y devuelve la final. Con el filtro
+			// fijo sobra (todas dirían lo mismo): se oculta, y las altas nacen con ese estado.
+			status: status ? { hidden: true } : (col) => ({ ...col, label: `${col?.label} del contacto` })
 		},
 		// La acción queda fija junto al número de fila al desplazar.
 		frozenColumns: 1

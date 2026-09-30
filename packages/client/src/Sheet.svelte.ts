@@ -1,9 +1,10 @@
 import type { SheetSchema } from '@spreadbase/core';
 import { lookupKey } from './cellTypes';
+import { avatarKey } from './avatar';
 import { applyColumnOverrides, type ColumnOverride } from './columns';
 import { GridController } from './GridController.svelte';
-import { remoteClient, type RemoteOptions } from './remote';
-import type { ColumnAction, ColumnDef, GridConfig, PageRequest } from './types';
+import { filterParams, remoteClient, type RemoteOptions } from './remote';
+import type { CellValue, ColumnAction, ColumnDef, GridConfig, PageRequest } from './types';
 
 type Remote = ReturnType<typeof remoteClient>;
 
@@ -35,8 +36,9 @@ export interface SheetOptions extends RemoteOptions {
  */
 function toColumns(schema: SheetSchema, remote: Remote): ColumnDef[] {
 	return Object.entries(schema.columns).map(([field, spec]) => {
-		const { pattern, searchable: _searchable, lookup, ...rest } = spec;
+		const { pattern, searchable: _searchable, lookup, upload, ...rest } = spec;
 		const column: ColumnDef = { field, ...rest };
+		if (upload) column.upload = { ...upload, send: (file) => remote.upload(field, file) };
 		if (pattern) column.pattern = new RegExp(pattern);
 		if (lookup) {
 			column.lookup = {
@@ -88,6 +90,15 @@ export class Sheet {
 		}
 	}
 
+	/**
+	 * El cliente HTTP de la hoja, con sus mismas cabeceras y `fetch`, y filtros
+	 * propios si se dan. Para piezas fuera del grid que hablan el mismo
+	 * protocolo (`RecordForm`, SB-32). Sin servidor, `null`.
+	 */
+	client(filters?: RemoteOptions['filters']) {
+		return this.url ? remoteClient(this.url, { ...this.#options, filters }) : null;
+	}
+
 	connect(): Promise<GridController> {
 		if (this.grid) return Promise.resolve(this.grid);
 		this.error = null;
@@ -111,10 +122,17 @@ export class Sheet {
 			for (const [field, labels] of Object.entries(page.labels ?? {})) {
 				for (const [id, label] of Object.entries(labels)) grid.labelCache.set(lookupKey(field, id), label);
 			}
+			// Y la foto de cada registro, si la columna lleva `avatar.image` (SB-29).
+			for (const [field, images] of Object.entries(page.images ?? {})) {
+				for (const [id, url] of Object.entries(images)) grid.labelCache.set(avatarKey(field, id), url);
+			}
 			return page;
 		};
+		// Con filtros fijos (SB-28), el borrador local es de esa parte: el estado de
+		// cuenta de un cliente no se mezcla con el de otro.
+		const scope = filterParams(options.filters).map(([k, v]) => `${k}=${v}`).join('&');
 		const grid: GridController = new GridController({
-			id: schema.id,
+			id: scope ? `${schema.id}?${scope}` : schema.id,
 			idField: schema.idField,
 			allowInsert: schema.allowInsert,
 			allowDelete: schema.allowDelete,
@@ -130,9 +148,19 @@ export class Sheet {
 			persist: options.persist ?? 'local',
 			debug: options.debug,
 			frozenColumns: options.frozenColumns,
-			height: options.height
+			height: options.height,
+			// Con filtros fijos, las altas nacen dentro de esa parte (un contacto nuevo es de ese cliente).
+			fixedValues: fixedValues(options.filters)
 		});
 		this.grid = grid;
 		return grid;
 	}
+}
+
+/** Los filtros fijos de un solo valor, como valores de las filas nuevas (SB-28). */
+function fixedValues(filters: SheetOptions['filters']): Record<string, CellValue> | undefined {
+	const entries = Object.entries(filters ?? {}).filter(
+		(e): e is [string, string | number | boolean] => e[1] !== null && e[1] !== undefined && !Array.isArray(e[1])
+	);
+	return entries.length ? Object.fromEntries(entries) : undefined;
 }

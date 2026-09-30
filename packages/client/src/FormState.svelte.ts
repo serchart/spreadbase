@@ -21,7 +21,8 @@
  *
  * Las reglas del cliente guían; el servidor sigue siendo la autoridad al guardar.
  */
-import { getCellType } from './cellTypes';
+import { avatarKey } from './avatar';
+import { getCellType, lookupKey } from './cellTypes';
 import type { Sheet } from './Sheet.svelte';
 import type { CellTypeContext, CellValue, ColumnDef, GridRow } from './types';
 
@@ -41,6 +42,8 @@ export class FormState {
 	labelCache: Map<string, string>;
 
 	#touched = $state<Record<string, boolean>>({});
+	/** Lo que rechazó el servidor al guardar, por campo; se borra al cambiar el campo. */
+	#serverErrors = $state<Record<string, string>>({});
 	#fields: string[];
 	#options: FormStateOptions;
 	/** Sube con cada elección en un editor: las etiquetas nuevas no son reactivas por sí solas. */
@@ -91,9 +94,27 @@ export class FormState {
 		return { labelCache: this.labelCache, requestRepaint: () => this.#labels++ };
 	}
 
-	set(name: string, value: CellValue) {
+	/**
+	 * Cambia un valor. En una columna `lookup` que llega ya elegida (un cliente
+	 * que viene en la URL), `label` es su nombre: sin él, el campo mostraría el
+	 * id hasta que el usuario lo vuelva a buscar. `image`, la foto de su
+	 * miniatura si la columna lleva `avatar.image` (SB-29).
+	 */
+	set(name: string, value: CellValue, label?: string, image?: string | null) {
 		this.values[name] = value;
+		delete this.#serverErrors[name];
+		if (value !== null && value !== undefined) {
+			if (label !== undefined) this.labelCache.set(lookupKey(name, value), label);
+			if (image) this.labelCache.set(avatarKey(name, value), image);
+		}
 		this.#labels++;
+	}
+
+	/** La foto de la miniatura del valor de un `lookup` con `avatar.image`, si se conoce. */
+	imageOf(name: string): string | null {
+		void this.#labels;
+		const value = this.values[name];
+		return value === null || value === undefined ? null : (this.labelCache.get(avatarKey(name, value)) ?? null);
 	}
 
 	/** Texto visible del valor, con el formato de su tipo (la etiqueta en `select` y `lookup`). */
@@ -104,9 +125,21 @@ export class FormState {
 		return getCellType(column.type).format(this.values[name] ?? null, column, this.context);
 	}
 
+	/**
+	 * El servidor rechazó el valor de un campo (un RFC repetido): se muestra en
+	 * él hasta que se cambie. `null` lo quita.
+	 */
+	setServerError(name: string, message: string | null) {
+		if (message) {
+			this.#serverErrors[name] = message;
+			this.#touched[name] = true;
+		} else delete this.#serverErrors[name];
+	}
+
 	/** El error del campo, se haya tocado o no. */
 	errorOf(name: string): string | null {
 		void this.#labels;
+		if (this.#serverErrors[name]) return this.#serverErrors[name]!;
 		const column = this.column(name);
 		if (!column || column.readOnly) return null;
 		return getCellType(column.type).validate(this.values[name] ?? null, column, this.values as GridRow, {

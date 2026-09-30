@@ -28,6 +28,13 @@ hoja de casos de los ejemplos: 50 000 filas sintéticas en `/api/cases`.
   - lotes inválidos: forma vieja de `changes` o campo de solo lectura → 400.
 - **Idempotencia (G-12):** reintento con la misma llave → misma respuesta sin
   duplicar; misma llave con otro cuerpo → 422; sin llave, cada envío cuenta.
+- **Subir archivos (SB-30, `api.upload.test.ts`):** nombre limpio en carpeta
+  aleatoria y servido con `nosniff`; mismo nombre no choca; tipo por contenido
+  (HTML con nombre `.png` y SVG → 415; PNG llamado `.pdf` se guarda `.png`);
+  más del máximo → 413, vacío → 400; columna sin `upload` → 400, inexistente →
+  404; el esquema lleva `maxSize` y `accept` sin el destino; la URL se guarda
+  con el lote y una `javascript:` no; sin la ruta montada (`sheetUpload`), el
+  esquema no anuncia `upload`.
 
 Los casos ligados a `strict` se omiten cuando el servidor está en `merge` (lo
 leen de `/api/cases/schema`). Para cubrirlos, corre la suite contra un

@@ -20,6 +20,8 @@ campo o con `form.touchAll()`.
 ```
 -->
 <script lang="ts">
+	import { fileNameOf } from '@spreadbase/core';
+	import Avatar from './Avatar.svelte';
 	import { getCellType } from './cellTypes';
 	import type { FormState } from './FormState.svelte';
 	import type { CellValue } from './types';
@@ -51,12 +53,25 @@ campo o con `form.touchAll()`.
 
 	/** El editor de la celda para este tipo, o `null` si el control es nativo. */
 	const editor = $derived.by((): CellEditor | null => {
-		if (!column || !type || column.type === 'boolean') return null;
+		// Texto: siempre un `input`, aunque en la hoja lleve miniatura (SB-29).
+		if (!column || !type || column.type === 'boolean' || column.type === 'text') return null;
 		const native = type.toColumn(column, form.context).type as unknown;
 		return native && typeof native === 'object' && 'openEditor' in native ? (native as CellEditor) : null;
 	});
 
 	const error = $derived(form.shownError(name));
+	/** Sin valor ni `placeholder`: qué se puede hacer con el campo. */
+	const emptyText = $derived(
+		column?.type === 'image'
+			? column.upload
+				? 'Sin imagen · pega una URL o súbela'
+				: 'Sin imagen · pega una URL'
+			: column?.type === 'file'
+				? column.upload
+					? 'Sin archivo · pega una URL o súbelo'
+					: 'Sin archivo · pega una URL'
+				: ''
+	);
 	const disabled = $derived(!!column?.readOnly);
 
 	// -- controles con editor de celda --------------------------------------------------
@@ -125,12 +140,14 @@ campo o con `form.touchAll()`.
 			<label class="flex items-center gap-2">
 				<input
 					type="checkbox"
+					aria-label={label ?? column.label}
 					class="checkbox checkbox-sm"
 					checked={form.values[name] === true}
 					{disabled}
 					onchange={(e) => (form.set(name, (e.target as HTMLInputElement).checked), form.touch(name))}
 				/>
-				<span class="text-sm">{column.label}</span>
+				<!-- El título ya lo dice la leyenda: aquí, el valor. -->
+				<span class="text-sm">{form.values[name] === true ? 'Sí' : 'No'}</span>
 			</label>
 		{:else if editor}
 			<!-- El campo muestra el valor; el control es el editor de la celda. -->
@@ -150,8 +167,16 @@ campo o con `form.touchAll()`.
 				onclick={() => openEditor()}
 				onkeydown={onKeydown}
 			>
+				<!-- Imagen: su miniatura; imagen y archivo: su nombre, no la URL (SB-30). -->
+				<!-- `lookup` con `avatar`: la foto, iniciales o ícono del elegido, como en la celda (SB-29). -->
+				{#if column.avatar && column.type === 'lookup' && form.values[name] != null && form.display(name)}
+					<Avatar text={form.display(name)} image={form.imageOf(name)} initials={column.avatar.initials} icon={column.avatar.icon} shape={column.avatar.shape} />
+				{/if}
+				{#if column.type === 'image' && typeof form.values[name] === 'string' && form.values[name]}
+					<img src={String(form.values[name])} alt="" class="rounded-field size-6 shrink-0 object-cover" />
+				{/if}
 				<span class="min-w-0 flex-1 truncate" class:opacity-50={!form.values[name]}>
-					{form.display(name) || placeholder || ''}
+					{(column.type === 'image' && form.values[name] ? fileNameOf(String(form.values[name])) : form.display(name)) || placeholder || emptyText}
 				</span>
 				<svg class="size-4 shrink-0 opacity-60" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 10l5 5 5-5z" /></svg>
 			</div>

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { PASSWORD_MARK, fold, isBlank, isPasswordMark, sameValue, toSchema, validateValue } from '@spreadbase/core';
+import { PASSWORD_MARK, fold, isBlank, isPasswordMark, sameValue, toSchema, uploadLimits, validateValue } from '@spreadbase/core';
+import { EXTENSION, safeFileName, sniffType } from './storage.ts';
 import type {
 	BatchInput,
 	BatchResult,
@@ -123,6 +124,13 @@ export class SpreadBase {
 				throw new Error(`La columna "${field}" (password) necesita hash(plain, ctx): nunca se guarda en claro`);
 			}
 		}
+		// Subir archivos (SB-30): solo a `image` o `file`, con un destino que sepa guardar.
+		for (const [field, spec] of Object.entries(definition.columns)) {
+			if (!spec.upload) continue;
+			if (spec.type !== 'image' && spec.type !== 'file') throw new Error(`La columna "${field}" (${spec.type}) no admite upload: solo image y file`);
+			if (typeof spec.upload.storage?.save !== 'function') throw new Error(`La columna "${field}" necesita upload.storage con save(file, ctx)`);
+			uploadLimits(spec.type, spec.upload);
+		}
 		const sortBy = definition.defaultSort?.field;
 		if (sortBy && (!(sortBy in definition.columns) || definition.columns[sortBy]!.type === 'password')) {
 			throw new Error(`defaultSort: no se puede ordenar por "${sortBy}"`);
@@ -141,8 +149,23 @@ export class SpreadBase {
 		return this.definition.policy ?? 'merge';
 	}
 
+	/**
+	 * El esquema solo anuncia `upload` si la ruta de subida está montada
+	 * (`sheetRouter` o `sheetUpload`): sin ella, el cliente no muestra «Subir»
+	 * en vez de ofrecer un botón que termina en 404.
+	 */
 	schema(): SheetSchema {
-		return toSchema(this.definition);
+		const schema = toSchema(this.definition);
+		if (!this.uploadsMounted) for (const column of Object.values(schema.columns)) delete column.upload;
+		return schema;
+	}
+
+	/** Hay una ruta de subida montada para esta hoja (lo marca `sheetUpload`). */
+	private uploadsMounted = false;
+
+	/** Lo llama `sheetUpload` al montar `POST /upload/:field`. */
+	markUploadsMounted(): void {
+		this.uploadsMounted = true;
 	}
 
 	// -- lectura --------------------------------------------------------------
@@ -154,15 +177,58 @@ export class SpreadBase {
 		const lookups = this.lookupFields();
 		if (lookups.length === 0) return page;
 		const labels: Record<string, Record<string, string>> = {};
+		// Con `avatar.image`, también la imagen de cada registro (SB-29).
+		const images: Record<string, Record<string, string>> = {};
 		for (const [field, lookup] of lookups) {
 			const ids = unique(page.rows.map((row) => row[field]));
 			labels[field] = {};
+			const image = this.definition.columns[field]?.avatar?.image;
+			if (image) images[field] = {};
 			if (ids.length === 0) continue;
 			for (const row of await lookup.byIds(ids, context)) {
-				labels[field][String(row[lookup.value])] = String(row[lookup.display] ?? '');
+				const id = String(row[lookup.value]);
+				labels[field][id] = String(row[lookup.display] ?? '');
+				if (image && typeof row[image] === 'string' && row[image]) images[field]![id] = row[image] as string;
 			}
 		}
-		return { ...page, labels };
+		return Object.keys(images).length ? { ...page, labels, images } : { ...page, labels };
+	}
+
+	// -- archivos (SB-30) -------------------------------------------------------
+
+	/** Tamaño máximo de subida de una columna, o `null` si no admite subir. */
+	uploadMaxSize(field: string): number | null {
+		const spec = this.definition.columns[field];
+		return spec?.upload ? uploadLimits(spec.type, spec.upload).maxSize : null;
+	}
+
+	/**
+	 * Guarda un archivo subido a una columna y devuelve su URL. No toca la fila:
+	 * la URL la guarda el lote, como cualquier cambio de la celda.
+	 *
+	 * El tipo se revisa por el contenido: un HTML renombrado a `.png` no pasa,
+	 * y SVG ni HTML se aceptan nunca.
+	 */
+	async upload(
+		field: string,
+		file: { bytes: Uint8Array; name: string },
+		context: Record<string, unknown> = {}
+	): Promise<{ url: string; name: string; type: string; size: number }> {
+		const spec = this.definition.columns[field];
+		if (!spec) throw new NotFoundError(`No existe la columna "${field}"`);
+		if (!spec.upload) throw new SpreadBaseError(400, 'upload_not_allowed', `La columna "${field}" no admite subir archivos`);
+		if (spec.readOnly || field === this.idField) throw new SpreadBaseError(403, 'read_only', `La columna "${field}" es de solo lectura`);
+		if (spec.upload.allow && !(await spec.upload.allow(context))) throw new SpreadBaseError(403, 'forbidden', 'No tienes permiso para subir archivos aquí');
+		const { maxSize, accept } = uploadLimits(spec.type, spec.upload);
+		if (file.bytes.length === 0) throw new ValidationError('El archivo está vacío');
+		if (file.bytes.length > maxSize) throw new SpreadBaseError(413, 'file_too_large', `El archivo pasa del máximo (${formatSize(maxSize)})`);
+		const type = sniffType(file.bytes, file.name);
+		if (!type || !accept.includes(type)) {
+			throw new SpreadBaseError(415, 'file_type_not_allowed', `Tipo de archivo no permitido. Se aceptan: ${accept.map(describeType).join(', ')}`);
+		}
+		const name = safeFileName(file.name, type);
+		const url = await spec.upload.storage.save({ bytes: file.bytes, type, name }, context);
+		return { url, name, type, size: file.bytes.length };
 	}
 
 	// -- lookup (SB-21) -------------------------------------------------------
@@ -533,4 +599,16 @@ async function sequential<T, R>(items: T[], fn: (item: T) => MaybePromise<R>): P
 	const out: R[] = [];
 	for (const item of items) out.push(await fn(item));
 	return out;
+}
+
+/** `2097152` → `2 MB`. */
+function formatSize(bytes: number): string {
+	if (bytes >= 1024 ** 2) return `${Math.round((bytes / 1024 ** 2) * 10) / 10} MB`;
+	if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${bytes} B`;
+}
+
+/** `application/pdf` → `PDF`, `image/jpeg` → `JPEG`. */
+function describeType(type: string): string {
+	return (EXTENSION[type] === 'jpg' ? 'jpeg' : (EXTENSION[type] ?? type)).toUpperCase();
 }

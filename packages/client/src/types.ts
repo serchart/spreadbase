@@ -7,6 +7,9 @@
  */
 
 import type { Component } from 'svelte';
+import type { AvatarSpec } from '@spreadbase/core';
+
+export type { AvatarSpec };
 
 export type CellValue = string | number | boolean | null;
 
@@ -56,8 +59,15 @@ export interface ColumnDef {
 	/** `round` la pinta como avatar. */
 	shape?: 'round' | 'square';
 
+	// --- image y file: subir archivos (SB-30) ---
+	upload?: UploadDef;
+
 	// --- lookup (registro de otro recurso, en mini tabla; SB-21) ---
 	lookup?: LookupDef;
+
+	// --- text y lookup ---
+	/** Miniatura antes del texto: foto, iniciales o ícono (SB-29). */
+	avatar?: AvatarSpec;
 
 	// --- remote-select (fuente externa) ---
 	search?: (query: string) => Promise<Option[]>;
@@ -69,9 +79,38 @@ export interface ColumnDef {
 	/** Validador adicional propio de la columna. Devuelve mensaje o null. */
 	validate?: (value: CellValue, row: GridRow, column: ColumnDef) => string | null;
 
+	/**
+	 * Fuera de la vista: la columna no se pinta, pero su valor sigue en la fila.
+	 * Para lo que ya dice el contexto (el cliente, en la Ficha de ese cliente).
+	 */
+	hidden?: boolean;
+
 	// --- action ---
 	/** Botón por fila de las columnas `type: 'action'`. */
 	action?: ColumnAction;
+}
+
+/** Lo que devuelve el servidor al subir un archivo (SB-30). */
+export interface UploadResult {
+	url: string;
+	/** Nombre limpio con el que se guardó. */
+	name: string;
+	/** Tipo real, revisado por el contenido. */
+	type: string;
+	size: number;
+}
+
+/**
+ * Subir archivos a una columna `image` o `file` (SB-30). Con servidor, `Sheet`
+ * la arma sola desde el esquema; sin servidor, `send` es de la app.
+ */
+export interface UploadDef {
+	/** Tamaño máximo en bytes: se revisa antes de enviar. */
+	maxSize?: number;
+	/** Tipos aceptados (`image/png`, `application/pdf`…): filtran el selector de archivos. */
+	accept?: string[];
+	/** Envía el archivo y devuelve dónde quedó. */
+	send: (file: File) => Promise<UploadResult>;
 }
 
 /** Una columna de la mini tabla de un `lookup`: solo se muestra, con el formato de su tipo. */
@@ -120,6 +159,8 @@ export interface ColumnAction {
 	showLabel?: boolean;
 	/** Qué hacer al pulsarlo. Recibe la fila actual y su posición, 0-based. */
 	onclick: (row: GridRow, rowIndex: number) => void;
+	/** `primary`: con el color de acento, como la acción principal de la página. Default: discreto. */
+	variant?: 'default' | 'primary';
 }
 
 /** Un error de validación, con su ubicación exacta en la grilla. */
@@ -336,6 +377,8 @@ export interface PageResult {
 	total: number;
 	/** Por columna `lookup`: id → nombre, de las filas del tramo. */
 	labels?: Record<string, Record<string, string>>;
+	/** Por columna `lookup` con `avatar.image`: id → URL de su imagen (SB-29). */
+	images?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -411,6 +454,12 @@ export interface GridConfig {
 	 * Default: 0.
 	 */
 	frozenColumns?: number;
+	/**
+	 * Valores que llevan todas las filas nuevas, aunque su columna no esté en
+	 * la vista: con filtros fijos (SB-28), las altas nacen dentro de esa parte
+	 * (un contacto nuevo en la Ficha de un cliente es de ese cliente).
+	 */
+	fixedValues?: Record<string, CellValue>;
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +552,11 @@ export interface CellTypeContext {
 	labelCache: Map<string, string>;
 	/** Pide un repintado de estados (dirty / inválido). */
 	requestRepaint: () => void;
+	/**
+	 * La fila en la posición `y` de la hoja, para pintar con otros campos de la
+	 * misma fila (la foto de un `avatar`, SB-29). Fuera de la hoja no hay.
+	 */
+	rowAt?: (y: number) => GridRow | undefined;
 }
 
 export interface CellTypeDef {

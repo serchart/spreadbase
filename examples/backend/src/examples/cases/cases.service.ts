@@ -1,5 +1,5 @@
 import { SpreadBase, memorySource, types } from '@spreadbase/server';
-import type { CellValue, RemoteChangePolicy, Row } from '@spreadbase/server';
+import type { CellValue, FileStorage, RemoteChangePolicy, Row } from '@spreadbase/server';
 import { NotFoundError } from '../../common/errors.ts';
 import { HANDLERS, STAGES, generateCases, idFor } from './cases.seed.ts';
 
@@ -22,7 +22,8 @@ export class CasesService {
 
 	constructor(
 		private readonly size: number,
-		policy: RemoteChangePolicy
+		policy: RemoteChangePolicy,
+		files: FileStorage
 	) {
 		this.portfolio = new SpreadBase({
 			id: 'cases.portfolio',
@@ -32,7 +33,16 @@ export class CasesService {
 			policy,
 			columns: {
 				id: { type: types.TEXT, label: 'ID', readOnly: true, width: 110 },
-				customer_name: { type: types.TEXT, label: 'Cliente', required: true, maxLength: 200, searchable: true, width: 260 },
+				customer_name: {
+					type: types.TEXT,
+					label: 'Cliente',
+					required: true,
+					maxLength: 200,
+					searchable: true,
+					width: 260,
+					// Las iniciales de la empresa, con su color (SB-29).
+					avatar: { initials: true, shape: 'square' }
+				},
 				customer_rfc: { type: types.TEXT, label: 'RFC', required: true, maxLength: 200, searchable: true, width: 120 },
 				stage_code: {
 					type: types.SELECT,
@@ -55,7 +65,14 @@ export class CasesService {
 				contracts: { type: types.NUMBER, label: 'Contratos', readOnly: true, width: 88 },
 				promise_amount: { type: types.NUMBER, label: 'Promesa', min: 0, width: 118, ...money },
 				promise_date: { type: types.DATE, label: 'Fecha promesa', width: 126 },
-				last_contact_at: { type: types.DATE, label: 'Últ. contacto', width: 122 }
+				last_contact_at: { type: types.DATE, label: 'Últ. contacto', width: 122 },
+				// Un archivo por caso: se pega su URL o se sube (SB-30).
+				contract_file: {
+					type: types.FILE,
+					label: 'Contrato',
+					width: 200,
+					upload: { storage: files, maxSize: '2mb', accept: ['application/pdf', 'image/png', 'image/jpeg'] }
+				}
 			},
 			source: this.store,
 			handlers: {

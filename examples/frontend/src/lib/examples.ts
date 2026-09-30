@@ -22,6 +22,13 @@ export const EXAMPLES = [
 		code: 'examples/frontend/src/routes/form/'
 	},
 	{
+		href: '/ficha',
+		title: 'Ficha',
+		tag: 'RecordForm · SB-32',
+		text: 'Un contacto de la hoja básica como formulario guardable: las columnas editables con sus editores y reglas; guardar manda solo lo cambiado, con la misma concurrencia que la hoja.',
+		code: 'examples/frontend/src/routes/ficha/'
+	},
+	{
 		href: '/cases',
 		title: 'Casos · 50 000 filas',
 		tag: 'capas · ventana · concurrencia',

@@ -11,7 +11,8 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
-import { isPasswordMark } from '@spreadbase/core';
+import { fileNameOf, isPasswordMark } from '@spreadbase/core';
+import { avatarKey, avatarNode, iconSvg } from './avatar';
 import { positionFloating } from './internal/floating';
 import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, LookupColumnDef, Option } from './types';
 
@@ -173,7 +174,12 @@ function mountOverlay(cell: HTMLTableCellElement, width = 280): HTMLDivElement {
 	// clic derecho sobre un campo de texto, donde se espera el menú del navegador.
 	overlay.addEventListener('contextmenu', (e) => e.stopPropagation());
 
-	document.body.appendChild(overlay);
+	/*
+		Dentro de un `<dialog>` modal (un formulario en una ventana), el panel va
+		dentro del diálogo: el diálogo está en la capa superior del navegador y
+		taparía a cualquier cosa en <body>, sin importar su z-index.
+	*/
+	(cell.closest('dialog[open]') ?? document.body).appendChild(overlay);
 	return overlay;
 }
 
@@ -244,12 +250,13 @@ const CHEVRON_SVG =
  * El envoltorio es un `<div>` y el `<td>` conserva su `display` a propósito: un
  * `td` con `display: flex` sale del modelo de tabla y descuadra la fila.
  */
-function renderPickerCell(cell: HTMLTableCellElement, text: string): void {
+function renderPickerCell(cell: HTMLTableCellElement, text: string, avatar: HTMLElement | null = null): void {
 	cell.classList.add('oc-picker-cell');
 	cell.innerHTML = '';
 
 	const wrap = document.createElement('div');
 	wrap.className = 'oc-picker';
+	if (avatar) wrap.appendChild(avatar);
 
 	const label = document.createElement('span');
 	label.className = 'oc-picker__text';
@@ -533,8 +540,21 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 	const minLength = lookup.minLength ?? 0;
 	const fields = Object.keys(lookup.columns);
 	const widths = fields.map((f) => lookup.columns[f]!.width ?? 160);
-	const paint = (cell: HTMLTableCellElement, value: CellValue) =>
-		renderPickerCell(cell, lookupLabel(value, column, ctx));
+	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
+		const label = lookupLabel(value, column, ctx);
+		const avatar =
+			column.avatar && !isBlank(value)
+				? avatarNode(column.avatar, label, ctx.labelCache.get(avatarKey(column.field, value)))
+				: null;
+		renderPickerCell(cell, label, avatar);
+	};
+	/**
+	 * La columna de la mini tabla que lleva la miniatura: la del nombre, o la
+	 * primera. Si la mini tabla ya trae su columna de imagen, no se repite.
+	 */
+	const avatarAt = Object.values(lookup.columns).some((c) => c.type === 'image')
+		? -1
+		: Math.max(0, fields.indexOf(lookup.display));
 
 	return {
 		createCell(cell: HTMLTableCellElement, value: CellValue) {
@@ -603,6 +623,20 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 								.join('')}</tr>`
 					)
 					.join('');
+				// La misma miniatura que tendrá la celda, para reconocer a quién se elige.
+				if (column.avatar && avatarAt >= 0) {
+					body.querySelectorAll<HTMLTableRowElement>('tr').forEach((tr, i) => {
+						const row = rows[i]!;
+						const text = String(row[lookup.display] ?? '');
+						const image = column.avatar!.image ? row[column.avatar!.image] : null;
+						const node = avatarNode(column.avatar!, text, typeof image === 'string' ? image : null);
+						const td = tr.cells[avatarAt];
+						if (node && td) {
+							td.classList.add('oc-lookup__with-avatar');
+							td.prepend(node);
+						}
+					});
+				}
 				renderFoot();
 				placeOverlay(overlay, cell);
 			};
@@ -657,6 +691,8 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 			const commit = (row: Record<string, unknown>) => {
 				const id = String(row[lookup.value]);
 				ctx.labelCache.set(lookupKey(column.field, id), String(row[lookup.display] ?? id));
+				const image = column.avatar?.image ? row[column.avatar.image] : null;
+				if (typeof image === 'string' && image) ctx.labelCache.set(avatarKey(column.field, id), image);
 				if (activeEditor) activeEditor.value = id;
 				closeThroughInstance(instance, cell, true);
 			};
@@ -1121,36 +1157,95 @@ export function clampedTextCell(lines = 2) {
 }
 
 // ---------------------------------------------------------------------------
-// Editor: imagen (URL con vista previa)
+// Editor: imagen y archivo (URL, o subir; SB-30)
 // ---------------------------------------------------------------------------
 
 /** Un valor solo se pinta como imagen si de verdad parece una URL. */
 const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
+/** Un archivo es una URL `http(s)` o una ruta; nunca `javascript:` ni `data:`. */
+const FILE_URL = /^(https?:\/\/|\/)/;
 
-function buildImageEditor(column: ColumnDef) {
+/** Ícono de un archivo por su extensión. */
+function fileIcon(url: string): string {
+	const ext = fileNameOf(url).toLowerCase().split('.').pop() ?? '';
+	if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'file-image';
+	if (['xml', 'json'].includes(ext)) return 'file-code';
+	if (['csv', 'xlsx', 'xls'].includes(ext)) return 'file-spreadsheet';
+	if (['zip'].includes(ext)) return 'file-archive';
+	if (['pdf', 'txt', 'doc', 'docx'].includes(ext)) return 'file-text';
+	return 'file';
+}
+
+/** `2097152` → `2 MB`. */
+function formatBytes(bytes: number): string {
+	if (bytes >= 1024 ** 2) return `${Math.round((bytes / 1024 ** 2) * 10) / 10} MB`;
+	if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${bytes} B`;
+}
+
+/** `application/pdf` → `PDF`, `image/jpeg` → `JPEG`. */
+const typeLabel = (t: string) => (t.split('/')[1] ?? t).replace(/^vnd\..*\./, '').toUpperCase();
+
+/**
+ * La celda de una imagen o un archivo, y su editor.
+ *
+ * - **Imagen:** la miniatura; un enlace roto muestra ⚠︎.
+ * - **Archivo:** ícono y nombre (el último tramo de la URL); ↗ lo abre en otra
+ *   pestaña.
+ *
+ * El editor acepta pegar una URL y, si la columna tiene `upload`, **Subir**,
+ * arrastrar un archivo al panel o pegarlo. Al subir, la URL que regresa queda
+ * en la celda (editada, se guarda con el lote) y el panel se cierra.
+ */
+function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
+	const pattern = kind === 'image' ? IMAGE_URL : FILE_URL;
+
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
 		cell.innerHTML = '';
-		cell.classList.add('oc-image-cell');
-		cell.classList.toggle('is-round', column.shape === 'round');
+		cell.classList.add(kind === 'image' ? 'oc-image-cell' : 'oc-file-cell');
+		if (kind === 'image') cell.classList.toggle('is-round', column.shape === 'round');
 
 		// Sin esta guarda, cualquier texto suelto en la celda acabaría en `src`
-		// y el navegador dispararía una petición contra la ruta actual.
-		if (isBlank(value) || !IMAGE_URL.test(String(value))) {
+		// o en `href`, y el navegador lo pediría o lo abriría.
+		if (isBlank(value) || !pattern.test(String(value))) {
 			const placeholder = document.createElement('span');
 			placeholder.className = 'oc-image-empty';
 			placeholder.textContent = isBlank(value) ? '—' : '⚠︎';
 			cell.appendChild(placeholder);
 			return;
 		}
+		const url = String(value);
 
-		const img = document.createElement('img');
-		img.src = String(value);
-		img.alt = 'Imagen';
-		img.className = 'oc-image-thumb';
-		img.onerror = () => {
-			cell.innerHTML = '<span class="oc-image-empty">⚠︎</span>';
-		};
-		cell.appendChild(img);
+		if (kind === 'image') {
+			const img = document.createElement('img');
+			img.src = url;
+			img.alt = 'Imagen';
+			img.className = 'oc-image-thumb';
+			img.onerror = () => {
+				cell.innerHTML = '<span class="oc-image-empty">⚠︎</span>';
+			};
+			cell.appendChild(img);
+			return;
+		}
+
+		const wrap = document.createElement('div');
+		wrap.className = 'oc-file';
+		const icon = document.createElement('span');
+		icon.className = 'oc-file__icon';
+		icon.innerHTML = iconSvg(fileIcon(url));
+		const name = document.createElement('span');
+		name.className = 'oc-file__name';
+		name.textContent = fileNameOf(url);
+		const open = document.createElement('a');
+		open.className = 'oc-file__open';
+		open.href = url;
+		open.target = '_blank';
+		open.rel = 'noopener noreferrer';
+		open.title = 'Abrir';
+		open.setAttribute('aria-label', `Abrir ${fileNameOf(url)}`);
+		open.innerHTML = iconSvg('external-link');
+		wrap.append(icon, name, open);
+		cell.appendChild(wrap);
 	};
 
 	return {
@@ -1170,48 +1265,142 @@ function buildImageEditor(column: ColumnDef) {
 			instance: any
 		) {
 			disposeActiveEditor();
-			const overlay = mountOverlay(cell, 320);
+			const upload = column.upload;
+			const overlay = mountOverlay(cell, 340);
+			overlay.classList.add('oc-media-editor');
 			overlay.innerHTML = `
-				<input class="oc-cell-editor__input" type="text" placeholder="https://…" />
+				<input class="oc-cell-editor__input" type="text" placeholder="${upload ? 'Pega una URL o sube un archivo' : 'https://…'}" />
 				<div class="oc-cell-editor__preview"></div>
+				<div class="oc-cell-editor__status" role="status"></div>
 				<div class="oc-cell-editor__actions">
+					${upload ? '<button type="button" data-action="upload" class="oc-cell-editor__upload">Subir</button>' : ''}
+					<span class="oc-cell-editor__spacer"></span>
 					<button type="button" data-action="clear">Quitar</button>
 					<button type="button" data-action="save" class="is-primary">Aceptar</button>
 				</div>
+				${upload ? `<input type="file" class="oc-cell-editor__file" hidden ${upload.accept?.length ? `accept="${escapeHtml(upload.accept.join(','))}"` : ''} />` : ''}
 			`;
-			const input = overlay.querySelector('input') as HTMLInputElement;
+			const input = overlay.querySelector('input.oc-cell-editor__input') as HTMLInputElement;
 			const preview = overlay.querySelector('.oc-cell-editor__preview') as HTMLDivElement;
+			const status = overlay.querySelector('.oc-cell-editor__status') as HTMLDivElement;
+			const picker = overlay.querySelector<HTMLInputElement>('input.oc-cell-editor__file');
 			input.value = value == null ? '' : String(value);
+			let busy = false;
 
 			const refreshPreview = () => {
 				const url = input.value.trim();
-				preview.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="preview" />` : '';
-				// La miniatura aparece y desaparece, así que el panel cambia de alto.
+				preview.innerHTML = '';
+				preview.hidden = !url;
+				if (url && pattern.test(url)) {
+					if (kind === 'image') {
+						const img = document.createElement('img');
+						img.src = url;
+						img.alt = 'Vista previa';
+						preview.appendChild(img);
+					} else {
+						const link = document.createElement('a');
+						link.href = url;
+						link.target = '_blank';
+						link.rel = 'noopener noreferrer';
+						link.className = 'oc-file oc-file--preview';
+						link.innerHTML = `<span class="oc-file__icon">${iconSvg(fileIcon(url))}</span>`;
+						const name = document.createElement('span');
+						name.className = 'oc-file__name';
+						name.textContent = fileNameOf(url);
+						link.appendChild(name);
+						preview.appendChild(link);
+					}
+				}
+				// La vista previa aparece y desaparece, así que el panel cambia de alto.
 				placeOverlay(overlay, cell);
 			};
 			refreshPreview();
 
-			input.addEventListener('input', refreshPreview);
+			const setStatus = (text: string, error = false) => {
+				status.textContent = text;
+				status.classList.toggle('is-error', error);
+				placeOverlay(overlay, cell);
+			};
+
+			const commit = (url: CellValue) => {
+				if (activeEditor) activeEditor.value = url;
+				closeThroughInstance(instance, cell, true);
+			};
+
+			/** Sube el archivo; con éxito, la URL queda en la celda y el panel se cierra. */
+			const send = async (file: File) => {
+				if (!upload || busy) return;
+				if (upload.maxSize && file.size > upload.maxSize) {
+					setStatus(`El archivo pasa del máximo (${formatBytes(upload.maxSize)})`, true);
+					return;
+				}
+				if (upload.accept?.length && file.type && !upload.accept.includes(file.type)) {
+					setStatus(`Tipo no permitido. Se aceptan: ${upload.accept.map(typeLabel).join(', ')}`, true);
+					return;
+				}
+				busy = true;
+				overlay.classList.add('is-busy');
+				setStatus(`Subiendo ${file.name}…`);
+				try {
+					const result = await upload.send(file);
+					if (activeEditor?.overlay !== overlay) return;
+					commit(result.url);
+				} catch (err) {
+					if (activeEditor?.overlay !== overlay) return;
+					setStatus(err instanceof Error ? err.message : 'No se pudo subir el archivo', true);
+				} finally {
+					busy = false;
+					overlay.classList.remove('is-busy');
+				}
+			};
+
+			picker?.addEventListener('change', () => {
+				const file = picker.files?.[0];
+				if (file) void send(file);
+				picker.value = '';
+			});
+			if (upload) {
+				overlay.addEventListener('dragover', (e) => {
+					e.preventDefault();
+					overlay.classList.add('is-dropping');
+				});
+				overlay.addEventListener('dragleave', () => overlay.classList.remove('is-dropping'));
+				overlay.addEventListener('drop', (e) => {
+					e.preventDefault();
+					overlay.classList.remove('is-dropping');
+					const file = e.dataTransfer?.files?.[0];
+					if (file) void send(file);
+				});
+				// Pegar una imagen copiada (una captura, por ejemplo) la sube.
+				input.addEventListener('paste', (e) => {
+					const file = e.clipboardData?.files?.[0];
+					if (!file) return;
+					e.preventDefault();
+					void send(file);
+				});
+			}
+
+			input.addEventListener('input', () => {
+				setStatus('');
+				refreshPreview();
+			});
 			input.addEventListener('keydown', (e: KeyboardEvent) => {
 				e.stopPropagation();
-				if (e.key === 'Enter') {
-					if (activeEditor) activeEditor.value = input.value.trim() || null;
-					closeThroughInstance(instance, cell, true);
-				} else if (e.key === 'Escape') {
-					closeThroughInstance(instance, cell, false);
-				}
+				if (e.key === 'Enter') commit(input.value.trim() || null);
+				else if (e.key === 'Escape') closeThroughInstance(instance, cell, false);
 			});
 
 			overlay.addEventListener('mousedown', (e: MouseEvent) => {
-				const action = (e.target as HTMLElement).getAttribute('data-action');
+				const action = (e.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
 				if (!action) return;
 				e.preventDefault();
-				if (activeEditor) activeEditor.value = action === 'clear' ? null : input.value.trim() || null;
-				closeThroughInstance(instance, cell, true);
+				if (busy) return;
+				if (action === 'upload') picker?.click();
+				else commit(action === 'clear' ? null : input.value.trim() || null);
 			});
 
 			const onDocMouseDown = (e: MouseEvent) => {
-				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
+				if (!busy && !overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
 			};
 			// Solo si el editor sigue abierto: un cierre rápido (Enter antes de este
 			// turno) dejaría el listener vivo, y el siguiente clic en cualquier parte
@@ -1407,6 +1596,92 @@ function buildTextEditor(paint: (cell: HTMLTableCellElement, value: CellValue) =
 	};
 }
 
+/**
+ * Texto con miniatura (SB-29): la foto sale de `avatar.image` en la misma fila
+ * (`ctx.rowAt`); sin foto, las iniciales o el ícono.
+ *
+ * Se edita **dentro de la celda**, como el texto nativo: el editor de
+ * jspreadsheet no deja pintar la celda, así que este lo imita (un `input` en
+ * `td.editor` del tamaño de la celda; Enter confirma, Esc descarta, salir
+ * confirma).
+ */
+function buildAvatarTextEditor(column: ColumnDef, ctx: CellTypeContext) {
+	const spec = column.avatar!;
+	const paint = (cell: HTMLTableCellElement, value: CellValue, y: number) => {
+		cell.innerHTML = '';
+		const text = isBlank(value) ? '' : String(value);
+		const image = spec.image && Number.isFinite(y) ? ctx.rowAt?.(y)?.[spec.image] : null;
+		const avatar = avatarNode(spec, text, typeof image === 'string' ? image : null);
+		if (!avatar) return;
+		const wrap = document.createElement('div');
+		wrap.className = 'oc-avatar-cell';
+		const label = document.createElement('span');
+		label.className = 'oc-avatar-cell__text';
+		label.textContent = text;
+		wrap.append(avatar, label);
+		cell.appendChild(wrap);
+	};
+
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue, _x?: number, y?: number) {
+			paint(cell, value, y ?? Number(cell.dataset.y));
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue, _x?: number, y?: number) {
+			paint(cell, value, y ?? Number(cell.dataset.y));
+			return value;
+		},
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+			const rect = cell.getBoundingClientRect();
+			const holder = document.createElement('div');
+			holder.className = 'oc-avatar-cell__editor';
+			const input = document.createElement('input');
+			input.type = 'text';
+			input.style.width = `${rect.width}px`;
+			input.style.height = `${rect.height - 2}px`;
+			input.style.minHeight = `${rect.height - 2}px`;
+			input.value = value == null ? '' : String(value);
+			holder.appendChild(input);
+			cell.classList.add('editor');
+			cell.innerHTML = '';
+			cell.appendChild(holder);
+
+			let closed = false;
+			const close = (save: boolean) => {
+				// Quitar el `input` al cerrar dispara su `blur`: no debe confirmar un Esc.
+				if (closed || activeEditor?.overlay !== holder) return;
+				closed = true;
+				if (save) activeEditor.value = input.value === '' ? null : input.value;
+				closeThroughInstance(instance, cell, save);
+			};
+			input.addEventListener('keydown', (e: KeyboardEvent) => {
+				if (e.key === 'Enter') {
+					e.stopPropagation();
+					e.preventDefault();
+					close(true);
+				} else if (e.key === 'Escape') {
+					e.stopPropagation();
+					close(false);
+				}
+			});
+			input.addEventListener('blur', () => close(true));
+
+			activeEditor = { cell, overlay: holder, value, original: value, dispose: () => (closed = true) };
+			input.focus();
+			// Lo tecleado sobre la celda la reemplaza, como en el editor nativo.
+			input.select();
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			cell.classList.remove('editor');
+			paint(cell, result, Number(cell.dataset.y));
+			return result;
+		}
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Editor con tipo por fila
 // ---------------------------------------------------------------------------
@@ -1501,7 +1776,10 @@ const textType: CellTypeDef = {
 		}
 		return null;
 	},
-	toColumn: (column) => ({ type: 'text', align: column.align ?? 'left' })
+	toColumn: (column, ctx) =>
+		column.avatar
+			? { type: buildAvatarTextEditor(column, ctx), align: column.align ?? 'left' }
+			: { type: 'text', align: column.align ?? 'left' }
 };
 
 const numberType: CellTypeDef = {
@@ -1737,9 +2015,30 @@ const imageType: CellTypeDef = {
 		return /^(https?:\/\/|data:image\/|\/)/.test(String(value)) ? null : 'URL de imagen inválida';
 	},
 	toColumn: (column) => ({
-		type: buildImageEditor(column),
+		type: buildMediaEditor(column, 'image'),
 		align: 'center'
 	})
+};
+
+/**
+ * Archivo (SB-30): el valor es su URL; la celda muestra ícono y nombre. Se
+ * copia la URL (pegarla en otra fila da el mismo archivo), no el nombre.
+ */
+const fileType: CellTypeDef = {
+	name: 'file',
+	align: 'left',
+	parse: (raw) => (isBlank(raw) ? null : String(raw).trim()),
+	format: (value) => (isBlank(value) ? '' : fileNameOf(String(value))),
+	toClipboard: (value) => (isBlank(value) ? '' : String(value)),
+	fromClipboard: (raw) => (raw.trim() === '' ? null : raw.trim()),
+	equals: looseEquals,
+	validate: (value, column) => {
+		const req = requiredError(value, column);
+		if (req) return req;
+		if (isBlank(value)) return null;
+		return FILE_URL.test(String(value)) ? null : 'URL de archivo inválida';
+	},
+	toColumn: (column) => ({ type: buildMediaEditor(column, 'file'), align: 'left' })
 };
 
 /**
@@ -1792,7 +2091,7 @@ const actionType: CellTypeDef = {
 			if (!action) return;
 			const button = document.createElement('button');
 			button.type = 'button';
-			button.className = 'oc-action';
+			button.className = action.variant === 'primary' ? 'oc-action is-primary' : 'oc-action';
 			button.title = label || 'Acción';
 			button.setAttribute('aria-label', label || 'Acción');
 			// Un clic de acción no debe dejar el foco en el botón: el teclado
@@ -1953,6 +2252,7 @@ export function listCellTypes(): string[] {
 	lookupType,
 	booleanType,
 	imageType,
+	fileType,
 	passwordType,
 	actionType
 ].forEach(registerCellType);

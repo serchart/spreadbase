@@ -30,6 +30,33 @@ npm test -- grid/recorrido      # un archivo
 
 Variables para apuntar a otros servidores: `TEST_API_URL` y `TEST_FRONT_URL`.
 
+## Varias sesiones a la vez (otro agente, otra persona)
+
+Las pruebas **reinician** la hoja de casos y cambian filas del ejemplo de
+Postgres. Si otra sesión usa los mismos servidores (4100 y 5180), o los
+reinicia al editar código (`tsx watch`), las pruebas fallan de forma
+intermitente: un reinicio a medias, una fila que otro cambió. En ese caso,
+**servidores propios en otros puertos**, y sin recarga automática:
+
+```bash
+# backend de los ejemplos en 4101, sin watch
+cd examples/backend && PORT=4101 CORS_ORIGIN=http://localhost:5181 PUBLIC_URL=http://localhost:4101 \
+  UPLOADS_DIR=uploads-test npx tsx src/index.ts
+
+# frontend en 5181, apuntando a ese backend
+cd examples/frontend && PUBLIC_API_URL=http://localhost:4101 npx vite dev --port 5181 --strictPort
+
+# las pruebas, contra esos dos
+TEST_API_URL=http://localhost:4101 TEST_FRONT_URL=http://localhost:5181 npm test
+```
+
+- La hoja de casos vive en memoria de cada servidor: con el suyo, nadie más la
+  reinicia.
+- El ejemplo de Postgres comparte la base de `DATABASE_URL`. Para aislarlo
+  también, otra base (`createdb spreadbase_test`, `DATABASE_URL=…/spreadbase_test
+  npm run postgres:setup`) y esa `DATABASE_URL` en el backend y en las pruebas.
+- Al terminar, apagar el árbol completo de esos procesos.
+
 ## Dos políticas de concurrencia
 
 La suite salta automáticamente lo que no aplica a la política activa. Para

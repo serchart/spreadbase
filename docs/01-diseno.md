@@ -76,6 +76,11 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-22** | **Contraseña como tipo de columna; el hash lo pone el motor** (2026-09-28). La columna `PASSWORD` declara `hash(plain, ctx)` (obligatoria: sin ella no arranca). Lo guardado nunca sale: el motor lo cambia por una marca opaca (`pwd:…`, por fila) en toda fila que devuelve, sea cual sea la fuente; la concurrencia por campo funciona sobre la marca. Handlers y fuente solo ven el hash. No se filtra ni se ordena por ella. En el cliente, vacío es «no cambiarla» y nunca se guarda en el borrador local. Junto con ella entra `BOOLEAN` (casilla). Detalle: `04-tipos-de-columna.md` | ✅ |
 | **SB-23** | **Columnas del cliente sobre el esquema del servidor** (2026-09-28). El servidor define la hoja (SB-12), pero lo que es de la pantalla —qué hacer al pulsar, un ancho, un título— se decide en el cliente: `new Sheet(url, { columns, actions })`. `columns[field]` es un **parche** que se mezcla sobre la columna del servidor, o una **función** que la recibe y devuelve la final; el campo nunca se renombra. Un campo que no está en el esquema es una columna **solo del cliente** (`at: 'start' \| 'end'`), siempre de solo lectura: no hay dónde guardarla. `actions` es un **atajo**: cada acción es una columna `action` al principio (`__action_0`…), a la que después se le aplican los ajustes de `columns` como a cualquier otra. Por debajo es una sola función pura, `applyColumnOverrides` | ✅ |
 | **SB-24** | **La barra en tres secciones y extensible** (2026-09-28). De izquierda a derecha: **edición** (deshacer, portapapeles, filas, recargar, descartar; solo icono, lo que no cabe pasa a ⋮), **acciones** (Guardar y los botones propios de la página, con texto; nunca se ocultan) y **paneles** (Filtros, Grupos, Cambios; al extremo derecho). Los botones propios se pasan en `toolbar={{ actions: [{ label, icon, onclick, variant, disabled }] }}`; `variant` es `outline` por defecto, porque la acción primaria de la vista suele ser Guardar. Además, las filas invisibles con que la barra y `PanelButton` miden sus botones van dentro de una caja recortada: sueltas, desbordaban y daban scroll horizontal a la página que contiene la hoja | ✅ |
+| **SB-32** | **Un registro como formulario guardable: la ficha** (2026-09-30). `new RecordForm(sheet, id, { fields?, exclude?, columns? })` lee el registro por la lista filtrada por id (trae los nombres y fotos de sus `lookup`) y arma un `FormState` con las columnas **editables** de la hoja: los mismos editores y reglas (`Field`). `save()` es un lote de la hoja con solo lo cambiado, la versión leída y `base`: la misma concurrencia que la hoja (mismo campo → `conflict`, con `reload()` u `overwrite()`; otro campo → se combina). Los errores del servidor de un campo aparecen en ese campo (`FormState.setServerError`); los demás, en `saveError`. `dirty`, `reset()`, `savedCount`. `Sheet.client()` da el cliente HTTP de la hoja a piezas fuera del grid. §4.3; ejemplo `/ficha`; pruebas FR-1…FR-5 | ✅ |
+| **SB-31** | **Ajustes de la hoja para vistas filtradas y ventanas** (2026-09-30). `columns: { campo: { hidden: true } }` saca una columna de la vista (la que ya dice el contexto: el cliente, en la Ficha de ese cliente). Los **filtros fijos** (SB-28) ahora también son valores de las filas nuevas (`GridConfig.fixedValues`): una alta en la hoja filtrada nace dentro del filtro aunque su columna esté oculta. `actions: [{ …, variant: 'primary' }]`: el botón por fila con el color de acento, como la acción principal de la página. Los editores de celda se montan dentro de un `<dialog>` abierto: `Field` funciona en una ventana modal. Pruebas AC-7, AC-8 y `columns.test.ts` | ✅ |
+| **SB-30** | **Subir archivos; columna de archivo** (2026-09-30). `upload: { storage, maxSize?, accept?, allow? }` en columnas `image` y el tipo nuevo `FILE`. El destino es configurable: `diskStorage({ dir, publicUrl })` (carpeta del servidor) o uno propio con `save(file, ctx) → url` (un bucket). `POST /upload/:field` (en `sheetRouter`, o `sheetUpload(sheet)` junto a rutas a mano) recibe los bytes tal cual y devuelve la URL; la celda la guarda con el lote, como cualquier cambio. El **valor sigue siendo texto** (la URL): el archivo se guarda en `<carpeta aleatoria>/<nombre limpio>` y la celda muestra el nombre, que es el final de la URL. Seguridad del motor: tipo real por contenido, tamaño máximo, nombre aleatorio, SVG y HTML nunca; `serve()` con `nosniff`, CSP y descarga para lo que no es imagen, PDF o texto. §4.5; pruebas UP-1…UP-7 y AR-1…AR-5 | ✅ |
+| **SB-29** | **Miniatura antes del texto: foto, iniciales o ícono** (2026-09-29). Opción `avatar: { image?, initials?, icon?, shape? }` en columnas `text` y `lookup`. Orden de respaldo: la foto; si no hay o el enlace no carga, las iniciales (si `initials`); si no, el ícono; si no, uno genérico (persona si es redonda, edificio si es cuadrada). En un `lookup` la foto es del registro elegido: el servidor la manda por id en `Page.images` junto a `labels`; en texto, de otro campo de la misma fila. Iniciales sin formas de sociedad ni artículos («Transportes del Norte SA de CV» → «TN») y con un color estable por texto (8 tonos del tema). Íconos de lucide por nombre, extensibles con `registerIcons`. Es presentación: el valor, lo que se copia, busca y guarda sigue siendo el texto o el id; nada de HTML de los datos. §4.4; pruebas AV-1…AV-7 | ✅ |
+| **SB-28** | **Filtros fijos de una hoja** (2026-09-29): `new Sheet(url, { filters: { customer_id: id } })` manda esos filtros en cada lectura de filas y de posición, como los filtros por columna del protocolo. Muestra una parte del recurso —el estado de cuenta de un cliente— con la misma hoja del servidor. El borrador local es de esa parte (su id lleva los filtros). Es una vista, no un permiso. Ejemplo `/basic?status=inactive`; prueba AC-7. Con él, `FormState.set(campo, valor, etiqueta)` para un `lookup` que llega ya elegido | ✅ |
 | **SB-27** | **Escribir en la hoja desde fuera** (2026-09-29): `grid.commands.setValues([{ rowKey, field, value }])`, para los botones propios de la barra (SB-24) y las páginas que reparten, limpian o rellenan. Pasa por el mismo camino que teclear: el tipo interpreta el valor, se valida, queda como cambio pendiente y **un solo ⌘Z** lo deshace; con la hoja montada, la repinta (antes, `setCellValueByKey` cambiaba el dato pero la celda seguía mostrando el valor viejo). Ejemplo: «Límite en cero» en `/basic`; prueba AC-6 | ✅ |
 | **SB-26** | **Kit de contrato** (2026-09-29): paquete `@spreadbase/testing` con `sheetContract()`, que una app corre contra cada hoja suya: cinco casos por HTTP (mismo campo, otro campo, eliminar lo editado, reintento idempotente, escritura externa) que prueban que su conexión al motor conserva la concurrencia. La suite completa sigue siendo de SpreadBase; la app no la repite. §7.1 | ✅ |
 | **SB-25** | **Formularios con las columnas y los editores de la hoja** (2026-09-29). `Field` y `FormState` se exportan como `Toolbar`: un formulario lee las columnas del esquema de una hoja (o de una lista propia), y cada campo usa el tipo de celda completo —`parse`, `format`, `validate` y el **mismo editor**, anclado al campo, que hace de anfitrión como jspreadsheet—. Así una fecha o un registro se eligen y se validan igual en la hoja y en un alta. Ajustes por columna solo en el formulario con `columns` (p. ej. `readOnly: false` para capturar en el alta lo que la hoja ya no deja cambiar). §4.3 | ✅ |
@@ -285,8 +290,112 @@ las mismas cosas. `Field` y `FormState` se usan fuera de la hoja igual que
   `form.touchAll()`; `form.valid` las junta. El servidor sigue siendo la
   autoridad al guardar.
 - Estilo con daisyUI (`fieldset`, `input`, `label`), como los demás componentes.
+- Un `lookup` con `avatar` muestra en el campo la foto, iniciales o ícono del
+  elegido, como la celda (SB-29). `form.set(campo, id, nombre, foto)` para uno
+  que llega ya elegido.
 
 Ejemplo: `/form` (alta de producto sobre la hoja de Postgres).
+
+**La ficha de un registro (SB-32).** Para editar uno que ya existe, con la
+concurrencia de la hoja:
+
+```svelte
+<script lang="ts">
+	const record = new RecordForm(new Sheet('/api/customers/sheet'), id, { exclude: ['assigned_user_id'] });
+</script>
+
+{#if record.form}
+	{#each record.fields as name (name)}<Field form={record.form} {name} />{/each}
+	{#if record.conflict}Otra persona cambió {record.conflict.join(', ')}… <button onclick={() => record.overwrite()}>Guardar lo mío</button>{/if}
+	<button disabled={!record.dirty} onclick={() => record.reset()}>Descartar</button>
+	<button disabled={!record.dirty || record.saving} onclick={() => record.save()}>Guardar</button>
+{/if}
+```
+
+Ejemplo: `/ficha?id=c_00001` (un contacto de la hoja básica).
+
+### 4.4 Miniaturas en celdas (SB-29)
+
+Una persona se reconoce por su foto, una empresa por sus iniciales. La columna
+lo declara en el servidor, en la misma hoja:
+
+```ts
+// La foto del asesor elegido (lookup); sin foto o rota, sus iniciales.
+assigned_user_id: { type: types.LOOKUP, label: 'Asesor', lookup: users, avatar: { image: 'avatar_url', initials: true } },
+// Las iniciales de la empresa, cuadradas y con su color: «TN».
+name: { type: types.TEXT, label: 'Cliente', avatar: { initials: true, shape: 'square' } },
+// Solo ícono.
+issuer: { type: types.TEXT, label: 'Emisora', avatar: { icon: 'landmark', shape: 'square' } },
+```
+
+| Opción | Qué hace |
+|---|---|
+| `image` | Campo con la URL. En `lookup`, del registro elegido (lo manda el servidor en `Page.images`; el popover lo toma de la fila elegida). En `text`, de la misma fila. Solo `http(s)://`, `/…` o `data:image/`. |
+| `initials` | Hasta dos iniciales, sin `SA`, `CV`, `SAPI`, `de`, `del`… Color estable por texto (`--dg-avatar-1…8`). |
+| `icon` | Nombre de un ícono: `user`, `user-round`, `users`, `building`, `store`, `truck`, `bot`, `landmark`, `mail`, `phone`, `file-text`. Más con `registerIcons({ tractor: Tractor })` en el cliente. |
+| `shape` | `round` (default, personas) o `square` (empresas). |
+
+- **Respaldo:** foto → iniciales → ícono → genérico (persona o edificio).
+- **Dónde va:** en las hojas que **eligen** el registro (un `lookup`: el asesor
+  de un cliente, el cliente de un contrato), junto al nombre. En la hoja
+  **dueña** de la imagen (Usuarios, Clientes), la imagen va en su propia
+  columna `image`, a la izquierda del nombre y ahí se cambia; el nombre no la
+  repite.
+- **Solo presentación.** Las iniciales van en un atributo pintado con CSS: el
+  texto de la celda, lo copiado, la búsqueda y lo guardado no cambian.
+- **Edición:** el texto con miniatura se edita dentro de la celda, como el
+  nativo (Enter confirma, Esc descarta). En `Field` sigue siendo un `input`.
+- **Tema:** `--dg-avatar-size`, `--dg-avatar-fg`, `--dg-avatar-icon-bg/fg` y
+  `--dg-avatar-1…8`; `theme-daisyui.css` los mezcla con los colores del tema.
+
+Ejemplos: «Cliente» en `/cases` (iniciales) y «Responsable» en `/postgres` (foto).
+
+### 4.5 Archivos e imágenes subidos (SB-30)
+
+El destino se declara una vez; la columna lo usa con `upload`:
+
+```ts
+import { diskStorage, types } from '@spreadbase/server';
+
+// Una carpeta del servidor. Mañana, un bucket con el mismo `save(file, ctx) → url`.
+const docs = diskStorage({ dir: './uploads/docs', publicUrl: 'https://api.midominio.mx/uploads/docs' });
+
+columns: {
+	logo_url: { type: types.IMAGE, label: 'Logo', upload: { storage: logos, maxSize: '2mb' } },
+	contract_file: {
+		type: types.FILE,
+		label: 'Contrato firmado',
+		upload: { storage: docs, maxSize: '10mb', accept: ['application/pdf'], allow: (ctx) => ctx.user?.role !== 'lectura' }
+	}
+}
+
+// Servir lo guardado; los documentos privados, detrás de la sesión de la app.
+app.use('/uploads/docs', requireAuth, docs.serve());
+```
+
+- **Ruta:** `sheetRouter` ya trae `POST /upload/:field`. Con rutas escritas a
+  mano, `router.use(sheetUpload(sheet))`. **Sin la ruta montada, el esquema no
+  anuncia `upload`** y el cliente no muestra «Subir»: nunca un botón que acaba
+  en 404.
+- **Celda de archivo:** ícono por tipo, el nombre y ↗ para abrirlo. Copiar da
+  la URL (pegarla en otra fila es el mismo archivo).
+- **Editor** (imagen y archivo, también en `Field`): pegar una URL, **Subir**,
+  arrastrar o pegar el archivo. Al subir, la URL queda en la celda, editada, y
+  se guarda con **Guardar**; deshacer, borrador y conflictos no cambian.
+- **El valor es la URL.** El archivo se guarda como
+  `<carpeta aleatoria>/<nombre limpio>`: nadie adivina la ruta de otro, dos
+  nombres iguales no chocan y la celda muestra el nombre sin guardarlo aparte.
+- **Seguridad (del motor, no de cada app):** el tipo real se revisa por el
+  contenido (un HTML renombrado a `.png` no pasa y un PNG llamado `.pdf` se
+  guarda como `.png`); tamaño máximo cortado al leer; SVG y HTML nunca;
+  `allow(ctx)` para permisos. `serve()` pone `nosniff`, una CSP sin scripts y
+  descarga lo que no es imagen, PDF o texto.
+- **Tipos por omisión:** `image`, PNG, JPEG, WebP y GIF; `file`, además PDF y
+  XML. Se reconocen también CSV, texto, zip y los de Office.
+- **Pendiente:** varios archivos por celda y borrar los que nadie usa (se sube
+  y luego se descarta el cambio).
+
+Ejemplos: «Contrato» en `/cases`, «Foto» en `/postgres` y en `/form`.
 
 ---
 
@@ -303,9 +412,11 @@ Ejemplo: `/form` (alta de producto sobre la hoja de Postgres).
 | `POST` | `/batch` | Lote de guardado (§5.2). Acepta `Idempotency-Key` |
 | `GET` | `/lookup/:field?q&offset&limit` | Filas del recurso de una columna `lookup`, paginadas: `{ rows, total, offset, limit }` (SB-21) |
 | `POST` | `/lookup/:field/resolve` | `{ texts }` → `{ matches }`: texto pegado → filas que coinciden (SB-21) |
+| `POST` | `/upload/:field` | Bytes del archivo (nombre en `X-File-Name`) → `201 { url, name, type, size }`. Solo columnas con `upload` (SB-30) |
 
 Con columnas `lookup`, cada página trae además `labels`: el nombre de cada id
-del tramo (`03-lookup.md` §4).
+del tramo (`03-lookup.md` §4); si la columna lleva `avatar.image`, también
+`images`: la URL de la foto de cada id (SB-29).
 
 Paginación por **offset**, no por cursor: permite saltar a una posición (ir a
 una fila desde el panel de cambios). Se revisa si el volumen crece un orden de

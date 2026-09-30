@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sheetUpload } from '@spreadbase/server';
 import ProductsController from './products.controller.js';
 import { productsService } from '../../orchestrator/index.js';
 
@@ -17,6 +18,7 @@ export default function createProductsRoutes() {
 	router.get('/sheet/:id/position', (req, res) => controller.position(req, res));
 	router.get('/sheet/:id', (req, res) => controller.get(req, res));
 	router.post('/sheet/batch', (req, res) => controller.batch(req, res));
+	router.use('/sheet', sheetUpload(productsService.sheet));
 
 	// …las demás rutas del módulo (REST normal, con { success, data }).
 	router.get('/:id/price-history', (req, res) => controller.priceHistory(req, res));

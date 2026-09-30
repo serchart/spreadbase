@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import type { Request } from 'express';
 import type { BatchInput, ListQuery, LookupQuery } from '@spreadbase/core';
-import { ValidationError } from './errors.ts';
+import { SpreadBaseError, ValidationError } from './errors.ts';
 import { MAX_RESOLVE_TEXTS } from './SpreadBase.ts';
 import type { BatchContext, SpreadBase } from './SpreadBase.ts';
 
@@ -130,6 +130,7 @@ export interface SheetRouterOptions {
  *   GET  /schema
  *   GET  /?offset&limit&sort&search&<campo>=a,b
  *   GET  /lookup/:field?q&offset&limit    (columnas lookup, SB-21)
+ *   POST /upload/:field                   (columnas image y file con upload, SB-30)
  *   POST /lookup/:field/resolve           (columnas lookup, SB-21)
  *   GET  /:id/position
  *   GET  /:id
@@ -150,6 +151,7 @@ export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {})
 	router.post('/lookup/:field/resolve', async (req, res) => {
 		res.json(await sheet.resolve(String(req.params.field), parseResolve(req.body), context(req)));
 	});
+	router.use(sheetUpload(sheet, options));
 	router.get('/:id/position', async (req, res) => {
 		res.json(await sheet.position(String(req.params.id), parseListQuery(req.query)));
 	});
@@ -164,5 +166,45 @@ export function sheetRouter(sheet: SpreadBase, options: SheetRouterOptions = {})
 		if (replayed) res.set('Idempotent-Replayed', 'true');
 		res.json(result);
 	});
+	return router;
+}
+
+/**
+ * `POST /upload/:field` de una hoja (SB-30), para montarlo junto a rutas
+ * escritas a mano (`router.use(sheetUpload(sheet))`); `sheetRouter` ya lo trae.
+ *
+ * El cuerpo son los bytes tal cual (sin multipart) y el nombre va en
+ * `X-File-Name`. El límite de tamaño es el de la columna: lo que lo pasa se
+ * corta sin leerlo entero. Devuelve `201 { url, name, type, size }`.
+ */
+export function sheetUpload(sheet: SpreadBase, options: SheetRouterOptions = {}): Router {
+	// Desde aquí el esquema anuncia las columnas con `upload` (sin la ruta, el cliente no ofrece «Subir»).
+	sheet.markUploadsMounted();
+	const router = Router();
+	router.post(
+		'/upload/:field',
+		(req, res, next) => {
+			const max = sheet.uploadMaxSize(String(req.params.field));
+			// Sin `upload`, el motor responde el error; no se lee el cuerpo.
+			if (max === null) return next();
+			express.raw({ type: () => true, limit: max })(req, res, (err?: unknown) => {
+				if ((err as { type?: string } | undefined)?.type === 'entity.too.large') {
+					return next(new SpreadBaseError(413, 'file_too_large', 'El archivo pasa del máximo permitido'));
+				}
+				next(err);
+			});
+		},
+		async (req, res) => {
+			const bytes = Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : new Uint8Array();
+			const header = req.get('X-File-Name') ?? '';
+			let name = header;
+			try {
+				name = decodeURIComponent(header);
+			} catch {
+				// Un nombre mal codificado no impide subir: se limpia igual.
+			}
+			res.status(201).json(await sheet.upload(String(req.params.field), { bytes, name }, options.context?.(req) ?? {}));
+		}
+	);
 	return router;
 }

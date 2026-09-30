@@ -13,8 +13,13 @@ export const types = {
 	SELECT: 'select',
 	DATE: 'date',
 	DATETIME: 'datetime',
-	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). */
+	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). Con `upload`, también se sube (SB-30). */
 	IMAGE: 'image',
+	/**
+	 * Un archivo (SB-30): su URL (`https://…` o `/ruta`). La celda muestra el
+	 * nombre, que es el último tramo de la URL. Con `upload`, se sube.
+	 */
+	FILE: 'file',
 	/** Llave de un registro de otro recurso, elegido en una mini tabla (SB-21). */
 	LOOKUP: 'lookup',
 	/** Casilla: `true` o `false`. */
@@ -94,6 +99,71 @@ export interface LookupSchema {
 	resolvable: boolean;
 }
 
+/**
+ * Miniatura antes del texto de la celda (SB-29): la foto de una persona, las
+ * iniciales de una empresa o un ícono. Es presentación: el valor de la celda
+ * (y lo que se valida, copia, busca o guarda) sigue siendo el texto o el id.
+ *
+ * Orden de respaldo: la imagen; si no hay o no carga, las iniciales (si
+ * `initials`); si no, el ícono; si no, uno genérico (persona si es redonda,
+ * edificio si es cuadrada).
+ */
+export interface AvatarSpec {
+	/**
+	 * Campo con la URL de la imagen. En una columna `lookup`, del registro
+	 * elegido (el servidor lo manda con su nombre); en las demás, de la misma
+	 * fila.
+	 */
+	image?: string;
+	/** Las iniciales del texto (hasta dos), con un color estable por texto. */
+	initials?: boolean;
+	/** Nombre de un ícono del registro del cliente (`registerIcons`), p. ej. `building`. */
+	icon?: string;
+	/** Default: `round`. */
+	shape?: 'round' | 'square';
+}
+
+/** Lo que recibe un destino al guardar un archivo subido (SB-30). */
+export interface UploadedFile {
+	bytes: Uint8Array;
+	/** Tipo real, revisado por el contenido (no el que dice el navegador). */
+	type: string;
+	/** Nombre limpio (sin acentos ni signos) y con la extensión de su tipo. */
+	name: string;
+}
+
+/**
+ * Dónde se guardan los archivos subidos (SB-30): `diskStorage` (una carpeta
+ * del servidor) o uno propio (un bucket) con la misma forma.
+ */
+export interface FileStorage {
+	/** Guarda el archivo y devuelve la URL con la que se verá desde el navegador. */
+	save(file: UploadedFile, ctx: Record<string, unknown>): Promise<string>;
+}
+
+/**
+ * Subir archivos a una columna `image` o `file` (SB-30). La URL que devuelve
+ * el destino queda en la celda y se guarda con el lote, como cualquier cambio.
+ */
+export interface UploadSpec {
+	storage: FileStorage;
+	/** Tamaño máximo: bytes o texto (`'2mb'`, `'500kb'`). Default: 5 MB. */
+	maxSize?: number | string;
+	/**
+	 * Tipos aceptados (`image/png`, `application/pdf`…). Default: en `image`,
+	 * PNG, JPEG, WebP y GIF; en `file`, además PDF y XML. SVG y HTML nunca.
+	 */
+	accept?: string[];
+	/** ¿Puede subir quien pide? Con el contexto de la petición. Default: sí. */
+	allow?: (ctx: Record<string, unknown>) => boolean | Promise<boolean>;
+}
+
+/** Lo que viaja en el esquema de una columna con `upload`. */
+export interface UploadSchema {
+	maxSize: number;
+	accept: string[];
+}
+
 export interface ColumnSpec {
 	type: ColumnType;
 	label: string;
@@ -114,6 +184,8 @@ export interface ColumnSpec {
 	options?: Option[];
 	/** Solo `lookup`: de dónde salen sus registros. */
 	lookup?: LookupSpec;
+	/** Solo `image` y `file`: se pueden subir archivos (SB-30). El destino no viaja. */
+	upload?: UploadSpec;
 	/**
 	 * Solo `password`, y obligatoria: convierte la contraseña en claro en lo que
 	 * se guarda (bcrypt, argon2, scrypt…). No viaja.
@@ -134,6 +206,8 @@ export interface ColumnSpec {
 	thousands?: boolean;
 	/** Solo `image`: `round` la pinta como avatar. */
 	shape?: 'round' | 'square';
+	/** Solo `text` y `lookup`: miniatura antes del texto (SB-29). */
+	avatar?: AvatarSpec;
 }
 
 export type RemoteChangePolicy = 'merge' | 'strict';
@@ -166,13 +240,14 @@ export interface SheetSchema {
 	columns: Record<string, SchemaColumn>;
 }
 
-export type SchemaColumn = Omit<ColumnSpec, 'validate' | 'lookup' | 'hash'> & { lookup?: LookupSchema };
+export type SchemaColumn = Omit<ColumnSpec, 'validate' | 'lookup' | 'hash' | 'upload'> & { lookup?: LookupSchema; upload?: UploadSchema };
 
 export function toSchema(def: SheetDefinition): SheetSchema {
 	const idField = def.idField ?? 'id';
 	const columns: SheetSchema['columns'] = {};
-	for (const [field, { validate: _validate, hash: _hash, lookup, ...spec }] of Object.entries(def.columns)) {
+	for (const [field, { validate: _validate, hash: _hash, lookup, upload, ...spec }] of Object.entries(def.columns)) {
 		const column: SchemaColumn = field === idField ? { ...spec, readOnly: true } : { ...spec };
+		if (upload) column.upload = uploadLimits(spec.type, upload);
 		if (lookup) {
 			column.lookup = {
 				value: lookup.value,
@@ -195,6 +270,46 @@ export function toSchema(def: SheetDefinition): SheetSchema {
 }
 
 const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
+const FILE_URL = /^(https?:\/\/|\/)/;
+
+/** Tipos que se aceptan sin `accept`, por tipo de columna (SB-30). */
+export const DEFAULT_ACCEPT: Record<'image' | 'file', string[]> = {
+	image: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+	file: ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/xml']
+};
+/** Nunca se aceptan: un SVG o un HTML pueden llevar código que corre en el sitio. */
+export const FORBIDDEN_TYPES = new Set(['image/svg+xml', 'text/html', 'application/xhtml+xml', 'text/javascript', 'application/javascript']);
+const DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
+
+/** `'2mb'`, `'500kb'`, `1024` → bytes. */
+export function parseSize(size: number | string | undefined): number {
+	if (size === undefined) return DEFAULT_MAX_SIZE;
+	if (typeof size === 'number') return size;
+	const m = /^\s*(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?\s*$/i.exec(size);
+	if (!m) throw new Error(`Tamaño inválido: "${size}" (usa 500kb, 2mb…)`);
+	const unit = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3 }[(m[2] ?? 'b').toLowerCase() as 'b'];
+	return Math.round(Number(m[1]) * unit);
+}
+
+/** Tamaño máximo y tipos aceptados de una columna con `upload`, ya resueltos. */
+export function uploadLimits(type: ColumnType, upload: UploadSpec): UploadSchema {
+	const base = type === 'image' ? DEFAULT_ACCEPT.image : DEFAULT_ACCEPT.file;
+	return { maxSize: parseSize(upload.maxSize), accept: (upload.accept ?? base).filter((t) => !FORBIDDEN_TYPES.has(t)) };
+}
+
+/**
+ * El nombre visible de un archivo: el último tramo de su URL, sin la consulta
+ * (`/uploads/docs/8f3k2a/contrato.pdf` → `contrato.pdf`).
+ */
+export function fileNameOf(url: string): string {
+	const path = url.split(/[?#]/)[0] ?? '';
+	const last = path.slice(path.lastIndexOf('/') + 1);
+	try {
+		return decodeURIComponent(last) || url;
+	} catch {
+		return last || url;
+	}
+}
 
 /**
  * Mensaje de error si `value` no es válido para la columna; `null` si lo es.
@@ -242,6 +357,8 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 		}
 		case 'image':
 			return typeof value === 'string' && IMAGE_URL.test(value) ? null : 'URL de imagen inválida';
+		case 'file':
+			return typeof value === 'string' && FILE_URL.test(value) ? null : 'URL de archivo inválida';
 		// Que el registro exista lo comprueba el motor con `lookup.byIds`, de una vez por lote.
 		case 'lookup':
 			return (typeof value === 'string' && value.trim() !== '') || typeof value === 'number' ? null : 'Valor inválido';
