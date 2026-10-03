@@ -87,6 +87,8 @@ export interface SheetCommands {
 	undo(): void | Promise<void>;
 	redo(): void | Promise<void>;
 	setValues(changes: CellWrite[]): void | Promise<void>;
+	/** Repinta el estado de las celdas (clases y avisos) sin tocar los datos. */
+	repaint?(): void;
 }
 
 /** Un valor escrito desde fuera de la hoja (un botón de la barra, un reparto). */
@@ -219,6 +221,12 @@ export class GridController {
 	private createdKeys = new Set<string>();
 	private deletedRows: DeletedRow[] = [];
 	private errors = new Map<string, string>();
+	/**
+	 * Avisos de fuera por celda (SB-34): lo que el servidor encontró al revisar
+	 * una importación. Se pintan como un valor inválido; editar la celda lo quita
+	 * (se corrigió) y una recarga los borra todos. Las reglas propias ganan.
+	 */
+	private external = new Map<string, string>();
 
 	/** Contador para disparar reactividad tras mutaciones imperativas. */
 	version = $state(0);
@@ -739,7 +747,27 @@ export class GridController {
 
 	get errorCount(): number {
 		this.version;
-		return this.errors.size;
+		let n = this.errors.size;
+		for (const id of this.external.keys()) if (!this.errors.has(id)) n++;
+		return n;
+	}
+
+	/**
+	 * Pone los avisos de fuera (SB-34) y quita los anteriores. `field` es la
+	 * columna; sin él, la primera columna visible de la fila.
+	 */
+	setExternalErrors(list: { rowKey: string; field?: string | null; message: string }[]): void {
+		this.external.clear();
+		const first = this.columns.find((c) => !c.hidden && c.type !== 'action')?.field;
+		for (const { rowKey, field, message } of list) {
+			const target = field && this.columnIndex.has(field) ? field : first;
+			if (!target) continue;
+			const id = cellId(rowKey, target);
+			const previous = this.external.get(id);
+			this.external.set(id, previous ? `${previous} · ${message}` : message);
+		}
+		this.version++;
+		this.sheetCommands?.repaint?.();
 	}
 
 	get rowCount(): number {
@@ -760,7 +788,9 @@ export class GridController {
 	get errorList(): GridIssue[] {
 		this.version;
 		const out: GridIssue[] = [];
-		for (const [id, message] of this.errors) {
+		const all = new Map(this.external);
+		for (const [id, message] of this.errors) all.set(id, message);
+		for (const [id, message] of all) {
 			const [key, field] = splitCellId(id);
 			const position = this.positionOf(key);
 			const x = this.columnIndex.get(field) ?? -1;
@@ -786,7 +816,8 @@ export class GridController {
 	}
 
 	isInvalidCell(rowKey: string, field: string): boolean {
-		return this.errors.has(cellId(rowKey, field));
+		const id = cellId(rowKey, field);
+		return this.errors.has(id) || this.external.has(id);
 	}
 
 	isCreatedRow(rowKey: string): boolean {
@@ -794,7 +825,8 @@ export class GridController {
 	}
 
 	cellError(rowKey: string, field: string): string | undefined {
-		return this.errors.get(cellId(rowKey, field));
+		const id = cellId(rowKey, field);
+		return this.errors.get(id) ?? this.external.get(id);
 	}
 
 	// -- registro de cambios por fila ---------------------------------------
@@ -1605,6 +1637,7 @@ export class GridController {
 		this.createdKeys.clear();
 		this.deletedRows = [];
 		this.errors.clear();
+		this.external.clear();
 		// Los datos de partida son otros: deshacer hacia el estado anterior
 		// produciría filas que ya no existen en el servidor.
 		this.clearHistory();
@@ -1733,6 +1766,8 @@ export class GridController {
 			after: value
 		});
 		row[field] = value;
+		// Corregida a mano: el aviso de fuera ya no aplica.
+		this.external.delete(cellId(row.__key, field));
 		this.refreshDirty(row, column);
 		/*
 			Un validador a nivel de fila (`column.validate` recibe la fila entera) ve

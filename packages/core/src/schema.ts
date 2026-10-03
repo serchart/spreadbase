@@ -87,6 +87,12 @@ export interface LookupSpec {
 	byIds: (ids: string[], ctx: Ctx) => MaybePromise<Record<string, unknown>[]>;
 	/** Para pegar: filas cuyo `display` o `value` coincide con alguno de los textos. */
 	resolve?: (texts: string[], ctx: Ctx) => MaybePromise<Record<string, unknown>[]>;
+	/**
+	 * Otros campos de las filas de `resolve` con que un texto pegado identifica
+	 * el registro, además de `value` y `display` (una clave corta: «YADI» →
+	 * Yadira López). Sin acentos ni mayúsculas. SB-34.
+	 */
+	resolveBy?: string[];
 }
 
 /** Lo que viaja de un `lookup` en el esquema: sin funciones. */

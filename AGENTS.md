@@ -23,7 +23,7 @@
   **Las pruebas reinician la hoja de casos.** Para la política `strict`:
   `CASES_POLICY=strict npm run back` y `npm test -- protocol`.
 - Fuente de Postgres y columnas lookup: `npm test -- --project postgres`, con
-  `DATABASE_URL` en `.env` (Docker local: contenedor `spreadbase-pg`, puerto
+  `DATABASE_URL` en `.env` (Docker local: contenedor `dev-pg`, puerto
   5433). No necesita los ejemplos encendidos.
 - `tests/grid/lookup.test.ts` y `tests/grid/tipos.test.ts` corren sobre la página `/postgres`: necesitan
   `npm run postgres:setup` y el backend con `DATABASE_URL`; si no responde, se

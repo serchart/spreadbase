@@ -29,6 +29,13 @@ export const EXAMPLES = [
 		code: 'examples/frontend/src/routes/ficha/'
 	},
 	{
+		href: '/imports',
+		title: 'Importar',
+		tag: 'SheetImport · importFormat · SB-34',
+		text: 'Contactos desde un Excel o CSV a la hoja del ejemplo básico: la vista previa editable, emparejar encabezados por nombre o alias, revisar en el servidor (lo que encuentra se marca en la celda) y aplicar.',
+		code: 'examples/backend/src/examples/imports/'
+	},
+	{
 		href: '/cases',
 		title: 'Casos · 50 000 filas',
 		tag: 'capas · ventana · concurrencia',

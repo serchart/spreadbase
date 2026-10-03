@@ -286,7 +286,8 @@ export class SpreadBase {
 			const needle = fold(text);
 			const byValue = candidates.filter((row) => String(row[lookup.value]) === text);
 			// Un id exacto gana: pegar una exportación con ids no debe dar «ambiguo».
-			matches[text] = byValue.length > 0 ? byValue : candidates.filter((row) => fold(String(row[lookup.display] ?? '')) === needle);
+			const fields = [lookup.display, ...(lookup.resolveBy ?? [])];
+			matches[text] = byValue.length > 0 ? byValue : candidates.filter((row) => fields.some((f) => fold(String(row[f] ?? '')) === needle));
 		}
 		return { matches };
 	}

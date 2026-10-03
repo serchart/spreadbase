@@ -82,7 +82,7 @@ La página es [`examples/frontend/src/routes/postgres/+page.svelte`](../../../..
 Necesita un Postgres en `DATABASE_URL` (en `SpreadBase/.env`). En local:
 
 ```bash
-docker run -d --name spreadbase-pg -e POSTGRES_PASSWORD=spreadbase -e POSTGRES_DB=spreadbase -p 5433:5432 postgres:16-alpine
+docker run -d --name dev-pg -e POSTGRES_PASSWORD=spreadbase -e POSTGRES_DB=spreadbase -p 5433:5432 postgres:16-alpine
 # DATABASE_URL=postgres://postgres:spreadbase@localhost:5433/spreadbase
 ```
 

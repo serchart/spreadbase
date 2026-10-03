@@ -112,7 +112,7 @@ function looseEquals(a: CellValue, b: CellValue): boolean {
  * Buscar «organico» debe encontrar «Orgánico». En un catálogo en español,
  * exigir la tilde exacta convierte el filtro en un estorbo.
  */
-function normalizeForSearch(s: string): string {
+export function normalizeForSearch(s: string): string {
 	return s
 		.toLowerCase()
 		.normalize('NFD')
@@ -503,6 +503,9 @@ export function resolveLookupText(text: string, column: ColumnDef, labelCache: M
 	if (labelCache.has(lookupKey(column.field, s))) return s;
 	const prefix = lookupKey(column.field, '');
 	const needle = normalizeForSearch(s);
+	// Resuelto por el servidor por otro campo (una clave corta, `resolveBy`).
+	const byKey = column.lookup?.resolved?.get(needle);
+	if (byKey !== undefined) return byKey;
 	const found = new Set<string>();
 	for (const [key, label] of labelCache) {
 		if (key.startsWith(prefix) && normalizeForSearch(label) === needle) found.add(key.slice(prefix.length));

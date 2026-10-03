@@ -28,7 +28,7 @@ Uso:
 	import { grow, swap } from './internal/motion';
 	import Toolbar from './Toolbar.svelte';
 	import { GridController } from './GridController.svelte';
-	import { getCellType, lookupKey, resolveLookupText } from './cellTypes';
+	import { getCellType, lookupKey, normalizeForSearch, resolveLookupText } from './cellTypes';
 	import { fromTsv, toTsv } from './clipboard';
 	import { destroySheet } from './jss';
 	import type {
@@ -856,6 +856,8 @@ Uso:
 						const needle = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 						if (rows.length > 1) lookup.ambiguous?.set(needle, rows.length);
 						else lookup.ambiguous?.delete(needle);
+						// Un solo registro, quizá por otro campo que no es el nombre (`resolveBy`): se recuerda.
+						if (rows.length === 1) lookup.resolved?.set(normalizeForSearch(text), String(rows[0]![lookup.value]));
 					}
 				}
 			}
@@ -1370,7 +1372,9 @@ Uso:
 			setValues: async (changes) => {
 				controller.writeValues(changes);
 				await syncToSheet();
-			}
+			},
+			// Cambió el estado de las celdas desde fuera (avisos del servidor, SB-34): solo repintar.
+			repaint: () => paintStates()
 		});
 	});
 

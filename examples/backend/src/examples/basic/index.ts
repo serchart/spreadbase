@@ -10,6 +10,10 @@ import { SpreadBase, memorySource, sheetRouter, types } from '@spreadbase/server
 import { generateContacts } from './contacts.seed.ts';
 
 // 1. La hoja: columnas, reglas y de dónde se leen y escriben los datos.
+//    En memoria para el ejemplo. En una app real: la fuente de tu base de datos.
+//    Se exporta para el ejemplo de importación (SB-34), que escribe en ella.
+export const contactsSource = memorySource({ rows: generateContacts(1_000), createId: (n) => `c_${String(n).padStart(5, '0')}` });
+
 const contacts = new SpreadBase({
 	id: 'contacts',
 	allowInsert: true,
@@ -39,8 +43,7 @@ const contacts = new SpreadBase({
 		credit_limit: { type: types.NUMBER, label: 'Límite de crédito', min: 0, precision: 2, prefix: '$', thousands: true, width: 150 },
 		since: { type: types.DATE, label: 'Cliente desde', width: 130 }
 	},
-	// En memoria para el ejemplo. En una app real: la fuente de tu base de datos.
-	source: memorySource({ rows: generateContacts(1_000), createId: (n) => `c_${String(n).padStart(5, '0')}` })
+	source: contactsSource
 });
 
 // 2. Montarla: `sheetRouter` pone las cinco rutas del protocolo.

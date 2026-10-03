@@ -1,4 +1,4 @@
-import { filterKind, type SheetSchema } from '@spreadbase/core';
+import { filterKind, type SchemaColumn, type SheetSchema } from '@spreadbase/core';
 import { lookupKey } from './cellTypes';
 import { avatarKey } from './avatar';
 import { applyColumnOverrides, type ColumnOverride } from './columns';
@@ -6,7 +6,7 @@ import { GridController } from './GridController.svelte';
 import { filterParams, remoteClient, type RemoteOptions } from './remote';
 import type { CellValue, ColumnAction, ColumnDef, GridConfig, PageRequest, SortSpec } from './types';
 
-type Remote = ReturnType<typeof remoteClient>;
+type Remote = Pick<ReturnType<typeof remoteClient>, 'upload' | 'lookup' | 'resolve'>;
 
 export interface SheetOptions extends RemoteOptions {
 	/**
@@ -33,11 +33,12 @@ export interface SheetOptions extends RemoteOptions {
 }
 
 /**
- * Esquema del servidor → columnas del grid, con lo propio del cliente encima.
- * Una columna `lookup` busca y resuelve contra `/lookup/:field` (SB-21).
+ * Columnas del esquema del servidor → columnas del grid. Una columna `lookup`
+ * busca y resuelve contra `/lookup/:field` de `remote` (SB-21). La usan la hoja
+ * y el importador (SB-34), con el esquema de un formato.
  */
-function toColumns(schema: SheetSchema, remote: Remote): ColumnDef[] {
-	return Object.entries(schema.columns).map(([field, spec]) => {
+export function schemaColumns(columns: Record<string, SchemaColumn>, remote: Remote): ColumnDef[] {
+	return Object.entries(columns).map(([field, spec]) => {
 		const { pattern, searchable: _searchable, lookup, upload, ...rest } = spec;
 		// Ordenar y filtrar desde el encabezado (SB-33): lo que el servidor sabe filtrar.
 		const column: ColumnDef = { field, ...rest, filterable: filterKind(spec.type) !== null };
@@ -51,7 +52,8 @@ function toColumns(schema: SheetSchema, remote: Remote): ColumnDef[] {
 				minLength: lookup.minLength,
 				search: (q, page, signal) => remote.lookup(field, q, page, signal),
 				resolve: lookup.resolvable ? (texts) => remote.resolve(field, texts) : undefined,
-				ambiguous: new Map()
+				ambiguous: new Map(),
+				resolved: new Map()
 			};
 		}
 		return column;
@@ -139,7 +141,7 @@ export class Sheet {
 			idField: schema.idField,
 			allowInsert: schema.allowInsert,
 			allowDelete: schema.allowDelete,
-			columns: applyColumnOverrides(toColumns(schema, remote), options.columns, options.actions),
+			columns: applyColumnOverrides(schemaColumns(schema.columns, remote), options.columns, options.actions),
 			dataSource: {
 				loadPage,
 				locate: remote.locate,

@@ -155,6 +155,11 @@ export interface LookupDef {
 	resolve?: (texts: string[]) => Promise<Record<string, Record<string, unknown>[]>>;
 	/** Estado del cliente: texto pegado (normalizado) → cuántos registros coinciden, si más de uno. */
 	ambiguous?: Map<string, number>;
+	/**
+	 * Texto pegado (normalizado) → id, cuando el servidor lo resolvió a un solo
+	 * registro por otro campo que no es el nombre (`resolveBy`, SB-34).
+	 */
+	resolved?: Map<string, string>;
 }
 
 /**

@@ -173,6 +173,19 @@ mismo `where`.
 
 ---
 
+## 12. Importar (`importar.test.ts`, SB-34)
+
+Sobre `/imports`: el formato «Contactos» escribe en la hoja del ejemplo básico.
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **IMP-1** | Elegir un Excel | Encabezado en la fila 3, alias («Email», «Estatus»), columna de más ignorada; fecha, número y catálogo interpretados; «Estado» no se pide (viene en el archivo) | ✅ |
+| **IMP-2** | Revisar, corregir, aplicar | Sin «Estado» se elige a la izquierda; el correo repetido lo marca el servidor en su celda; corregirla quita la marca; revisar otra vez y aplicar; la API tiene los contactos | ✅ |
+| **IMP-3** | Pegar y soltar | Pegar filas en la vista previa vacía; soltar un CSV encima lo lee | ✅ |
+| **IMP-4** | Otro formato | Un archivo sin los encabezados: «No se encontró la tabla» | ✅ |
+
+---
+
 ## Estado
 
 Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 de contraseña y casilla los 7 de miniaturas y los 5 de archivos:
@@ -188,6 +201,7 @@ Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 d
 | `lookup.test.ts` | L-1 a L-5 (ejemplo Postgres) |
 | `tipos.test.ts` | T-1 a T-5 (ejemplo Postgres, usuarios) |
 | `filtros.test.ts` | FC-1 a FC-6 (SB-33) |
+| `importar.test.ts` | IMP-1 a IMP-4 (SB-34; y `protocol/importar.test.ts`, IMP-A1 a IMP-A8) |
 | `avatar.test.ts` | AV-1 a AV-7 (casos y ejemplo Postgres) |
 | `archivos.test.ts` | AR-1 a AR-5 (casos y ejemplo Postgres) |
 | `ficha.test.ts` | FR-1 a FR-5 (ejemplo básico) |
