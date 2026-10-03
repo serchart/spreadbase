@@ -133,6 +133,8 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 	 */
 	function selectExpr(field: string): string {
 		const col = ident(field);
+		// El id viaja como texto (protocolo): una llave `integer` o `uuid` también.
+		if (field === idField) return `${col}::text AS ${col}`;
 		switch (def().columns[field]?.type) {
 			case 'number':
 				return `${col}::float8 AS ${col}`;
@@ -302,8 +304,14 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		}
 
 		async function get(id: string): Promise<Row | undefined> {
-			const { rows } = await db.query(`SELECT ${selectList()} FROM ${view} WHERE ${ident(idField)} = $1`, [id]);
-			return rows[0] as Row | undefined;
+			try {
+				const { rows } = await db.query(`SELECT ${selectList()} FROM ${view} WHERE ${ident(idField)} = $1`, [id]);
+				return rows[0] as Row | undefined;
+			} catch (err) {
+				// Un id que no es del tipo de la llave («abc» en una `integer`) no existe: 404, no 500.
+				if ((err as { code?: string }).code === '22P02') return undefined;
+				throw err;
+			}
 		}
 
 		const source: SheetSource = {

@@ -6,7 +6,7 @@
  * de versión (SB-4).
  */
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { SpreadBase, postgresSource, types } from '@spreadbase/server';
+import { SpreadBase, parseBatch, postgresSource, types } from '@spreadbase/server';
 import type { BatchInput, Row, SheetHandlers } from '@spreadbase/server';
 import { createPool } from '../support/postgres.ts';
 
@@ -190,6 +190,19 @@ describe('tablas grandes (SB-35)', () => {
 		const deferred = await big({ count: 'exact', deferredJoinFrom: 0 }).list(q);
 		expect(deferred.rows.map((r) => r.id)).toEqual(plain.rows.map((r) => r.id));
 		expect(deferred.rows).toHaveLength(50);
+	});
+
+	it('una llave integer viaja como texto: se ordena como número y el lote del cliente la edita', async () => {
+		const s = new SpreadBase({ id: 'big', columns: { ...bigColumns, id: { ...bigColumns.id, readOnly: true } }, source: postgresSource({ pool, table: BIG }) });
+		const { rows } = await s.list(query({ sort: { field: 'id', dir: 'asc' }, offset: 8, limit: 3 }));
+		expect(rows.map((r) => r.id)).toEqual(['9', '10', '11']);
+		// Lo que manda el cliente: el id y la huella tal como los leyó.
+		const row = rows[1]!;
+		const input = parseBatch({ updates: [{ id: row.id, rowVersion: row.rowVersion, changes: { monto: { from: row.monto, to: 1 } } }] });
+		const { result } = await s.batch(input);
+		expect(result.updated[0]).toMatchObject({ id: '10', monto: 1 });
+		// Un id que no es número no existe (sin error de la base).
+		await expect(s.get('abc')).rejects.toMatchObject({ status: 404, code: 'not_found' });
 	});
 });
 
