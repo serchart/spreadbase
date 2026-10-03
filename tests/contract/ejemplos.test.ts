@@ -43,6 +43,9 @@ if (postgres) {
 		},
 		row: (rows) => rows.find((r) => r.id === ID) ?? rows[0],
 		edits: [edit.text('name'), edit.custom('stock', (row) => Number(row.stock) + 7)],
-		external: (id, field) => pool.query(`UPDATE products SET ${field} = ${field} || ' (worker)' WHERE id = $1`, [id])
+		// Cambia el valor sin acumular: con `|| ' (worker)'` el nombre crecía en cada
+		// corrida hasta pasar el máximo (160) y las pruebas de lookup no podían guardar.
+		external: (id, field) =>
+			pool.query(`UPDATE products SET ${field} = CASE WHEN ${field} LIKE '% (worker)' THEN left(${field}, -9) ELSE ${field} || ' (worker)' END WHERE id = $1`, [id])
 	});
 }

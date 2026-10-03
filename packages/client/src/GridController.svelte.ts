@@ -243,7 +243,10 @@ export class GridController {
 	 * porque el contenedor puede construir el controlador y renderizar su
 	 * toolbar antes de que jspreadsheet exista.
 	 */
-	private sheetCommands = $state<SheetCommands | null>(null);
+	// `raw`: los comandos se comparan por identidad al desmontar (`attachSheet`). Un
+	// `$state` normal los guardaría como proxy y `===` contra el original nunca
+	// daría verdadero: la hoja que se va no se daba de baja (y Svelte lo avisa).
+	private sheetCommands = $state.raw<SheetCommands | null>(null);
 
 	/** Filas seleccionadas en la hoja, o `null`. La escribe el componente. */
 	selection = $state<{ from: number; to: number } | null>(null);

@@ -143,6 +143,56 @@ describe('lectura', () => {
 	});
 });
 
+describe('tablas grandes (SB-35)', () => {
+	// 150 000 filas: por encima del umbral de conteo exacto (100 000).
+	const BIG = 'sb_test_big';
+	const bigColumns = {
+		id: { type: types.NUMBER, label: 'ID' },
+		grupo: { type: types.TEXT, label: 'Grupo' },
+		monto: { type: types.NUMBER, label: 'Monto' }
+	};
+	const big = (opts: { count?: 'exact' | 'auto' | 'estimate'; deferredJoinFrom?: number } = {}) =>
+		new SpreadBase({ id: 'big', columns: bigColumns, source: postgresSource({ pool, table: BIG, ...opts }) });
+
+	beforeEach(async () => {
+		await pool.query(`
+			DROP TABLE IF EXISTS ${BIG};
+			CREATE TABLE ${BIG} (id int PRIMARY KEY, grupo text NOT NULL, monto numeric(12, 2) NOT NULL);
+			INSERT INTO ${BIG} SELECT g, 'g' || (g % 7), (g * 37) % 1000 FROM generate_series(1, 150000) g;
+			ANALYZE ${BIG};
+		`);
+	});
+	afterAll(async () => {
+		await pool.query(`DROP TABLE IF EXISTS ${BIG}`);
+	});
+
+	it('con muchas filas, el total es la estimación del planificador; con pocas, exacto', async () => {
+		const estimated = (await big().list(query({ limit: 10 }))).total;
+		expect(Math.abs(estimated - 150000) / 150000).toBeLessThan(0.1);
+		expect((await big({ count: 'exact' }).list(query({ limit: 10 }))).total).toBe(150000);
+		// Una tabla chica sigue contándose exacto (la de productos: 5).
+		expect((await sheet().list(query())).total).toBe(5);
+	});
+
+	it('al llegar al final, el total deja de ser estimado: es lo que hay', async () => {
+		const last = await big({ count: 'estimate' }).list(query({ offset: 149990, limit: 100 }));
+		expect(last.rows).toHaveLength(10);
+		expect(last.total).toBe(150000);
+		// Pedir más allá del final no inventa filas: el total no pasa de lo contado.
+		const beyond = await big({ count: 'exact' }).list(query({ offset: 400000, limit: 100 }));
+		expect(beyond.rows).toHaveLength(0);
+		expect(beyond.total).toBe(150000);
+	});
+
+	it('un salto hondo con unión diferida da las mismas filas que el OFFSET de siempre', async () => {
+		const q = query({ sort: { field: 'monto', dir: 'desc' }, filters: { grupo: ['g3'] }, offset: 12000, limit: 50 });
+		const plain = await big({ count: 'exact', deferredJoinFrom: Infinity }).list(q);
+		const deferred = await big({ count: 'exact', deferredJoinFrom: 0 }).list(q);
+		expect(deferred.rows.map((r) => r.id)).toEqual(plain.rows.map((r) => r.id));
+		expect(deferred.rows).toHaveLength(50);
+	});
+});
+
 describe('lote sin handlers: escribe la fuente', () => {
 	it('edita, crea y elimina', async () => {
 		const s = sheet();

@@ -34,6 +34,22 @@ export interface PostgresSourceOptions {
 	 * ordena por bytes y «Óscar» queda después de «Zoe».
 	 */
 	collation?: string;
+	/**
+	 * Cuántas filas hay, para la barra de desplazamiento (SB-35). `exact` cuenta
+	 * siempre (`count(*)`). `auto` (default) pregunta primero al planificador: si
+	 * estima hasta `exactCountUpTo` filas, cuenta; si son más, devuelve la
+	 * estimación. Contar 10 millones de filas en cada página tarda medio segundo;
+	 * estimar, milisegundos. `estimate` estima siempre.
+	 */
+	count?: 'exact' | 'auto' | 'estimate';
+	/** Con `count: 'auto'`, hasta cuántas filas estimadas se cuenta exacto. Default: 100 000. */
+	exactCountUpTo?: number;
+	/**
+	 * Desde qué `offset` se pagina con una unión diferida (SB-35): primero los ids
+	 * de la página (el salto recorre solo el índice) y luego sus filas. Saltar
+	 * 5 millones de filas baja de segundos a décimas. Default: 2 000.
+	 */
+	deferredJoinFrom?: number;
 }
 
 /** `schema.tabla` → `"schema"."tabla"`, con comillas escapadas. */
@@ -92,6 +108,9 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 	const table = ident(options.table);
 	const view = ident(options.view ?? options.table);
 	const idempotencyTable = ident(options.idempotencyTable ?? 'spreadbase_idempotency');
+	const countMode = options.count ?? 'auto';
+	const exactCountUpTo = options.exactCountUpTo ?? 100_000;
+	const deferredJoinFrom = options.deferredJoinFrom ?? 2_000;
 	const ttlHours = options.idempotencyTtlHours ?? 24;
 
 	let definition: SheetDefinition | null = null;
@@ -270,6 +289,18 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 
 	/** Las operaciones, sobre el pool o sobre la conexión de una transacción. */
 	function bind(db: Queryable) {
+		/** Cuántas filas da la consulta: exacto, o la estimación del planificador si son muchas (SB-35). */
+		async function countRows(w: { sql: string; params: unknown[] }): Promise<number> {
+			if (countMode !== 'exact') {
+				const { rows } = await db.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ${view} ${w.sql}`, w.params);
+				const plan = (rows[0]?.['QUERY PLAN'] as { Plan: { 'Plan Rows': number } }[] | undefined)?.[0]?.Plan;
+				const estimate = Math.round(plan?.['Plan Rows'] ?? 0);
+				if (countMode === 'estimate' || estimate > exactCountUpTo) return estimate;
+			}
+			const { rows } = await db.query(`SELECT count(*)::int AS total FROM ${view} ${w.sql}`, w.params);
+			return Number(rows[0]?.total ?? 0);
+		}
+
 		async function get(id: string): Promise<Row | undefined> {
 			const { rows } = await db.query(`SELECT ${selectList()} FROM ${view} WHERE ${ident(idField)} = $1`, [id]);
 			return rows[0] as Row | undefined;
@@ -284,17 +315,22 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 			async list(query): Promise<Page> {
 				const w = where(query);
 				const n = w.params.length;
-				const [data, count] = await Promise.all([
-					db.query(`SELECT ${selectList()} FROM ${view} ${w.sql} ${orderBy(query)} LIMIT $${n + 1} OFFSET $${n + 2}`, [
-						...w.params,
-						query.limit,
-						query.offset
-					]),
-					db.query(`SELECT count(*)::int AS total FROM ${view} ${w.sql}`, w.params)
-				]);
+				const order = orderBy(query);
+				// Un salto hondo: los ids de la página primero (solo índice), luego sus filas (SB-35).
+				const sql =
+					query.offset >= deferredJoinFrom
+						? `SELECT ${selectList()} FROM ${view} WHERE ${view}.${ident(idField)} IN (
+								SELECT ${view}.${ident(idField)} FROM ${view} ${w.sql} ${order} LIMIT $${n + 1} OFFSET $${n + 2}
+							) ${order}`
+						: `SELECT ${selectList()} FROM ${view} ${w.sql} ${order} LIMIT $${n + 1} OFFSET $${n + 2}`;
+				const [data, counted] = await Promise.all([db.query(sql, [...w.params, query.limit, query.offset]), countRows(w)]);
+				// Una estimación se corrige con lo que se ve: una página incompleta es el final
+				// (una vacía no dice dónde: se queda lo contado, sin pasar de donde se pidió).
+				const seen = query.offset + data.rows.length;
+				const total = data.rows.length === 0 ? Math.min(counted, query.offset) : data.rows.length < query.limit ? seen : Math.max(counted, seen);
 				return {
 					rows: data.rows as Row[],
-					total: Number(count.rows[0]?.total ?? 0),
+					total,
 					offset: query.offset,
 					limit: query.limit,
 					version: 0
