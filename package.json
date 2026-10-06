@@ -19,7 +19,9 @@
 		"postgres:setup": "npm run postgres:setup -w @spreadbase/examples-backend",
 		"postgres:reset": "npm run postgres:reset -w @spreadbase/examples-backend",
 		"test": "npm test -w @spreadbase/tests",
-		"test:unit": "npm test -w @spreadbase/client"
+		"test:unit": "npm test -w @spreadbase/client",
+		"packages:build": "node scripts/release.mjs build",
+		"packages:publish": "node scripts/release.mjs publish"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",

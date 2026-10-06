@@ -7,3 +7,4 @@ dist/
 tests/test-results/
 .DS_Store
 examples/backend/uploads-test/
+.svelte-kit/

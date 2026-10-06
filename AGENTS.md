@@ -39,8 +39,11 @@
 
 ## Convenciones
 
-- Los paquetes se distribuyen como TypeScript en crudo (sin build); los
-  `exports` apuntan a `src/`.
+- En el monorepo los paquetes se usan como TypeScript en crudo: sus `exports`
+  apuntan a `src/`. A npm se publica otra cosa: `npm run packages:build`
+  construye `packages/<p>/dist` (JS + tipos, con su propio `package.json`) y
+  `npm run packages:publish` publica los cuatro con la misma versión
+  (`scripts/release.mjs`). El `package.json` del repo no cambia al publicar.
 - Los componentes de `client` solo usan clases de Tailwind/daisyUI y sus
   propios CSS: nada que dependa del `app.css` de una app.
 - Un cambio de comportamiento lleva su caso en `tests/<módulo>/`.
