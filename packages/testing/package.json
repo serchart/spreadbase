@@ -1,6 +1,6 @@
 {
 	"name": "@spreadbase/testing",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Kit de contrato de SpreadBase: los casos mínimos que una app corre contra cada hoja suya para probar que la concurrencia del motor llega intacta",
 	"type": "module",
 	"private": true,

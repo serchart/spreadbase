@@ -1,6 +1,6 @@
 {
 	"name": "@spreadbase/client",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "SpreadBase para el frontend (Svelte 5): Sheet + <SpreadBase>",
 	"type": "module",
 	"private": true,
@@ -20,7 +20,7 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "^1.47.0",
-		"@spreadbase/core": "0.1.1",
+		"@spreadbase/core": "0.1.2",
 		"exceljs": "^4.4.0",
 		"jspreadsheet-ce": "^5.0.4",
 		"jsuites": "^6.4.3"
