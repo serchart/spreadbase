@@ -1,6 +1,13 @@
 /** Los ejemplos: el índice y la navegación leen de aquí. */
 export const EXAMPLES = [
 	{
+		href: '/showcase',
+		title: 'Vitrina',
+		tag: 'memoria · todos los tipos · 10 000 filas',
+		text: 'Una hoja de clientes con un campo de cada tipo —avatar, selects, moneda, lookup del responsable, casilla, fecha y fecha-hora— sobre 10 000 filas en memoria. Es la de las capturas del README: no necesita base de datos.',
+		code: 'examples/backend/src/examples/showcase/'
+	},
+	{
 		href: '/basic',
 		title: 'Básico',
 		tag: 'memoria · sheetRouter',

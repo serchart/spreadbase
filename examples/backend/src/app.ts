@@ -5,6 +5,7 @@ import { simulatedLatency } from './common/latency.ts';
 import { serveUploads, uploadsFor } from './common/uploads.ts';
 import { env } from './config/env.ts';
 import { createBasicExample } from './examples/basic/index.ts';
+import { createShowcaseExample } from './examples/showcase/index.ts';
 import { createImportsExample } from './examples/imports/index.ts';
 import { createCasesRoutes } from './examples/cases/cases.routes.ts';
 import { CasesService } from './examples/cases/cases.service.ts';
@@ -30,6 +31,7 @@ export async function createApp() {
 
 	// Básico: contactos en memoria, con sheetRouter.
 	app.use('/api/basic', createBasicExample());
+	app.use('/api/showcase', createShowcaseExample());
 	app.use('/api/imports', createImportsExample());
 
 	// Casos: 50 000 filas en capas, con latencia simulada. Contra este corren las pruebas E2E.
