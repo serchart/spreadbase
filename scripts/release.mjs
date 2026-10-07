@@ -11,13 +11,14 @@
  * repo no cambia, así que el desarrollo sigue igual.
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const BIN = join(ROOT, 'node_modules/.bin');
 const PACKAGES = ['core', 'server', 'client', 'testing'];
 const REPOSITORY = { type: 'git', url: 'git+https://github.com/serchart/spreadbase.git' };
+const AUTHOR = 'Sergio Iván López Retana (https://github.com/serchart)';
 
 const DESCRIPTIONS = {
 	core: 'SpreadBase: el contrato común (tipos de columnas, filas, consultas y errores) entre servidor y cliente.',
@@ -25,6 +26,18 @@ const DESCRIPTIONS = {
 	client: 'SpreadBase para Svelte 5: la hoja de cálculo, el formulario y sus paneles (Tailwind 4 + daisyUI 5).',
 	testing: 'SpreadBase: el kit de contrato para probar las hojas de una app con Vitest.'
 };
+
+/**
+ * El README de npm es el mismo de GitHub. npm no resuelve rutas relativas: las
+ * imágenes pasan a raw.githubusercontent y los demás enlaces al repo.
+ */
+const GITHUB = 'https://github.com/serchart/spreadbase';
+const RAW = 'https://raw.githubusercontent.com/serchart/spreadbase/main';
+function npmReadme() {
+	return readFileSync(join(ROOT, 'README.md'), 'utf8')
+		.replace(/!\[([^\]]*)\]\((?!https?:|#)([^)]+)\)/g, (_, alt, path) => `![${alt}](${RAW}/${path})`)
+		.replace(/(?<!!)\[([^\]]*)\]\((?!https?:|#|mailto:)([^)]+)\)/g, (_, text, path) => `[${text}](${GITHUB}/blob/main/${path})`);
+}
 
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, stdio: 'inherit' });
 const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
@@ -64,6 +77,7 @@ function build(name, version) {
 		name: source.name,
 		version,
 		description: DESCRIPTIONS[name],
+		author: AUTHOR,
 		license: source.license ?? 'MIT',
 		type: 'module',
 		repository: { ...REPOSITORY, directory: `packages/${name}` },
@@ -77,13 +91,7 @@ function build(name, version) {
 	};
 	writeFileSync(join(dist, 'package.json'), `${JSON.stringify(manifest, null, '\t')}\n`);
 	copyFileSync(join(ROOT, 'LICENSE'), join(dist, 'LICENSE'));
-	const readme = join(dir, 'README.md');
-	writeFileSync(
-		join(dist, 'README.md'),
-		existsSync(readme)
-			? readFileSync(readme, 'utf8')
-			: `# ${source.name}\n\n${DESCRIPTIONS[name]}\n\nDocumentación y ejemplos: https://github.com/serchart/spreadbase\n`
-	);
+	writeFileSync(join(dist, 'README.md'), npmReadme());
 	console.log(`✓ ${source.name}@${version} → packages/${name}/dist`);
 }
 

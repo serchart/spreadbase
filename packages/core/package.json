@@ -1,6 +1,6 @@
 {
 	"name": "@spreadbase/core",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Tipos del protocolo y validación compartidos por @spreadbase/server y @spreadbase/client",
 	"type": "module",
 	"private": true,
@@ -10,5 +10,6 @@
 	},
 	"scripts": {
 		"check": "tsc --noEmit"
-	}
+	},
+	"author": "Sergio Iván López Retana (https://github.com/serchart)"
 }
