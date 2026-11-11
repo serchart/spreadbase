@@ -56,6 +56,8 @@
 	--dg-new-accent: #1e8e3e;
 	--dg-invalid-bg: #fce8e6;
 	--dg-invalid-accent: #d93025;
+	--dg-warning-bg: #fef3c7;
+	--dg-warning-accent: #d97706;
 
 	/* Flotantes: editores, lista de opciones, calendario, menú contextual */
 	--dg-popover-bg: #ffffff;
@@ -267,6 +269,12 @@
 	box-shadow: inset 0 0 0 1px var(--dg-invalid-accent);
 }
 
+/* Aviso de fuera que no es error (SB-36): ámbar. Si la celda además es inválida, manda el error. */
+.oc-grid td.oc-cell-warning:not(.oc-cell-invalid) {
+	background-color: var(--dg-warning-bg) !important;
+	box-shadow: inset 0 0 0 1px var(--dg-warning-accent);
+}
+
 /*
 	Celda que acaba de llegar del remoto al combinar (G-15): resaltado en `info`
 	que se desvanece solo en 6 s —lo que dura `MERGE_HIGHLIGHT_MS`—, sin tener
@@ -314,6 +322,16 @@
 	text-decoration: line-through;
 	text-decoration-color: var(--dg-invalid-accent);
 	opacity: 0.55;
+}
+
+/*
+	Fila resaltada desde fuera (`highlightRows`): las filas que salieron de un
+	archivo en el staging del asistente (SB-36). Una capa de color encima del
+	fondo —con `background-image`, para no tapar el verde de nueva ni el
+	amarillo de editada— y sin `box-shadow`, que es de los bordes de error.
+*/
+.oc-grid td.oc-row-highlight {
+	background-image: linear-gradient(color-mix(in oklab, var(--color-info) 22%, transparent), color-mix(in oklab, var(--color-info) 22%, transparent));
 }
 
 /*
@@ -901,6 +919,113 @@
 .oc-file__open:hover {
 	color: var(--dg-accent);
 	background-color: var(--dg-hover-bg);
+}
+
+/* Tamaño del archivo y carpetas (SB-38). */
+.oc-file__size {
+	flex: 0 0 auto;
+	font-size: 0.85em;
+	color: var(--dg-fg-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.oc-folder__count {
+	flex: 0 0 auto;
+	font-weight: 600;
+}
+
+.oc-folder__names {
+	color: var(--dg-fg-muted);
+}
+
+.oc-folder-editor__title {
+	font-weight: 600;
+	margin-bottom: 6px;
+}
+
+.oc-folder-editor__list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	max-height: 260px;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.oc-folder-editor__item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 6px;
+	border-radius: var(--dg-radius);
+}
+
+.oc-folder-editor__item:hover {
+	background-color: var(--dg-hover-bg);
+}
+
+.oc-folder-editor__item .oc-file {
+	flex: 1 1 auto;
+}
+
+.oc-folder-editor__remove {
+	flex: 0 0 auto;
+	display: inline-grid;
+	place-items: center;
+	padding: 2px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--dg-fg-muted);
+	cursor: pointer;
+}
+
+.oc-folder-editor__remove:hover {
+	color: var(--dg-invalid-accent);
+	background-color: var(--dg-hover-bg);
+}
+
+.oc-folder-editor__remove svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* Texto largo: primera línea con su tipo en la celda; visor amplio (SB-38). */
+.oc-longtext-cell {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oc-longtext__kind {
+	display: inline-block;
+	margin-right: 6px;
+	padding: 0 4px;
+	border-radius: 4px;
+	font-size: 0.75em;
+	font-weight: 600;
+	color: var(--dg-fg-muted);
+	border: 1px solid var(--dg-input-border);
+	vertical-align: 1px;
+}
+
+.oc-longtext-editor__text {
+	display: block;
+	width: 100%;
+	height: min(360px, 50vh);
+	resize: vertical;
+	padding: 8px 10px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	border: 1px solid var(--dg-input-border);
+	border-radius: var(--dg-radius);
+	background-color: var(--dg-popover-bg);
+	color: var(--dg-popover-fg);
+	white-space: pre;
+	tab-size: 2;
 }
 
 .oc-file--preview {

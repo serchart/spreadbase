@@ -42,6 +42,8 @@ export function schemaColumns(columns: Record<string, SchemaColumn>, remote: Rem
 		const { pattern, searchable: _searchable, lookup, upload, ...rest } = spec;
 		// Ordenar y filtrar desde el encabezado (SB-33): lo que el servidor sabe filtrar.
 		const column: ColumnDef = { field, ...rest, filterable: filterKind(spec.type) !== null };
+		// Texto largo (SB-38): el visor amplio de `longtext`.
+		if (spec.type === 'text' && spec.multiline) column.type = 'longtext';
 		if (upload) column.upload = { ...upload, send: (file) => remote.upload(field, file) };
 		if (pattern) column.pattern = new RegExp(pattern);
 		if (lookup) {

@@ -11,8 +11,8 @@
   Aggy), `cases` (50 000 filas en capas; contra él corren las E2E), `local`
   (sin servidor) y `form` (formulario con `Field`/`FormState` sobre la hoja de
   `postgres`; solo página).
-- `tests/`: E2E por módulo (`protocol/`, `grid/`, `contract/`) y fuentes contra
-  una base real (`postgres/`).
+- `tests/`: E2E por módulo (`protocol/`, `grid/`, `contract/`), fuentes contra
+  una base real (`postgres/`), la extracción (`extraction/`) y el asistente de importación (`assistant/`).
 
 ## Verificación
 
@@ -28,6 +28,7 @@
 - `tests/grid/lookup.test.ts` y `tests/grid/tipos.test.ts` corren sobre la página `/postgres`: necesitan
   `npm run postgres:setup` y el backend con `DATABASE_URL`; si no responde, se
   omite (no falla).
+- Asistente de importación: `npm test -- assistant` (sin red, con el agente básico).
 - Un ejemplo nuevo: carpeta en `examples/backend/src/examples/<nombre>/`
   montada en `app.ts` bajo `/api/<nombre>`, página en
   `examples/frontend/src/routes/<nombre>/` y entrada en `src/lib/examples.ts`.

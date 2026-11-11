@@ -11,7 +11,8 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
-import { fileNameOf, isPasswordMark } from '@spreadbase/core';
+import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isPasswordMark, toFileRef } from '@spreadbase/core';
+import type { FileRef } from '@spreadbase/core';
 import { avatarKey, avatarNode, iconSvg } from './avatar';
 import { positionFloating } from './internal/floating';
 import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, LookupColumnDef, Option } from './types';
@@ -1168,9 +1169,10 @@ const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
 /** Un archivo es una URL `http(s)` o una ruta; nunca `javascript:` ni `data:`. */
 const FILE_URL = /^(https?:\/\/|\/)/;
 
-/** Ícono de un archivo por su extensión. */
+/** Ícono de un archivo por su extensión (de su nombre o de su URL). */
 function fileIcon(url: string): string {
 	const ext = fileNameOf(url).toLowerCase().split('.').pop() ?? '';
+	if (['md', 'markdown'].includes(ext)) return 'file-text';
 	if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'file-image';
 	if (['xml', 'json'].includes(ext)) return 'file-code';
 	if (['csv', 'xlsx', 'xls'].includes(ext)) return 'file-spreadsheet';
@@ -1186,7 +1188,40 @@ function formatBytes(bytes: number): string {
 	return `${bytes} B`;
 }
 
+/**
+ * Un archivo en la celda: ícono por tipo, nombre, tamaño (si se conoce) y ↗
+ * para abrirlo (o descargarlo: el servidor decide por el tipo, SB-30).
+ */
+function fileNode(ref: FileRef): HTMLElement {
+	const wrap = document.createElement('div');
+	wrap.className = 'oc-file';
+	const icon = document.createElement('span');
+	icon.className = 'oc-file__icon';
+	icon.innerHTML = iconSvg(fileIcon(ref.nombre || ref.url));
+	const name = document.createElement('span');
+	name.className = 'oc-file__name';
+	name.textContent = ref.nombre || fileNameOf(ref.url);
+	wrap.append(icon, name);
+	if (ref.tamano > 0) {
+		const size = document.createElement('span');
+		size.className = 'oc-file__size';
+		size.textContent = formatBytes(ref.tamano);
+		wrap.append(size);
+	}
+	const open = document.createElement('a');
+	open.className = 'oc-file__open';
+	open.href = ref.url;
+	open.target = '_blank';
+	open.rel = 'noopener noreferrer';
+	open.title = 'Abrir';
+	open.setAttribute('aria-label', `Abrir ${name.textContent}`);
+	open.innerHTML = iconSvg('external-link');
+	wrap.append(open);
+	return wrap;
+}
+
 /** `application/pdf` → `PDF`, `image/jpeg` → `JPEG`. */
+
 const typeLabel = (t: string) => (t.split('/')[1] ?? t).replace(/^vnd\..*\./, '').toUpperCase();
 
 /**
@@ -1208,16 +1243,19 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 		cell.classList.add(kind === 'image' ? 'oc-image-cell' : 'oc-file-cell');
 		if (kind === 'image') cell.classList.toggle('is-round', column.shape === 'round');
 
+		// Un archivo puede venir como `{ url, nombre, tipo, tamano }` (SB-38) o como su URL (SB-30).
+		const ref = kind === 'file' ? toFileRef(value) : null;
+		const raw = ref ? ref.url : value;
 		// Sin esta guarda, cualquier texto suelto en la celda acabaría en `src`
 		// o en `href`, y el navegador lo pediría o lo abriría.
-		if (isBlank(value) || !pattern.test(String(value))) {
+		if (isBlank(raw) || !pattern.test(String(raw))) {
 			const placeholder = document.createElement('span');
 			placeholder.className = 'oc-image-empty';
-			placeholder.textContent = isBlank(value) ? '—' : '⚠︎';
+			placeholder.textContent = isBlank(raw) ? '—' : '⚠︎';
 			cell.appendChild(placeholder);
 			return;
 		}
-		const url = String(value);
+		const url = String(raw);
 
 		if (kind === 'image') {
 			const img = document.createElement('img');
@@ -1231,24 +1269,7 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 			return;
 		}
 
-		const wrap = document.createElement('div');
-		wrap.className = 'oc-file';
-		const icon = document.createElement('span');
-		icon.className = 'oc-file__icon';
-		icon.innerHTML = iconSvg(fileIcon(url));
-		const name = document.createElement('span');
-		name.className = 'oc-file__name';
-		name.textContent = fileNameOf(url);
-		const open = document.createElement('a');
-		open.className = 'oc-file__open';
-		open.href = url;
-		open.target = '_blank';
-		open.rel = 'noopener noreferrer';
-		open.title = 'Abrir';
-		open.setAttribute('aria-label', `Abrir ${fileNameOf(url)}`);
-		open.innerHTML = iconSvg('external-link');
-		wrap.append(icon, name, open);
-		cell.appendChild(wrap);
+		cell.appendChild(fileNode(ref ?? { url, nombre: fileNameOf(url), tipo: '', tamano: 0 }));
 	};
 
 	return {
@@ -1287,7 +1308,7 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 			const preview = overlay.querySelector('.oc-cell-editor__preview') as HTMLDivElement;
 			const status = overlay.querySelector('.oc-cell-editor__status') as HTMLDivElement;
 			const picker = overlay.querySelector<HTMLInputElement>('input.oc-cell-editor__file');
-			input.value = value == null ? '' : String(value);
+			input.value = value == null ? '' : kind === 'file' ? (toFileRef(value)?.url ?? '') : String(value);
 			let busy = false;
 
 			const refreshPreview = () => {
@@ -1347,7 +1368,8 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 				try {
 					const result = await upload.send(file);
 					if (activeEditor?.overlay !== overlay) return;
-					commit(result.url);
+					// Un archivo queda con su nombre, tipo y tamaño (SB-38); una imagen, con su URL.
+					commit(kind === 'file' ? { url: result.url, nombre: result.name || fileNameOf(result.url), tipo: result.type, tamano: result.size } : result.url);
 				} catch (err) {
 					if (activeEditor?.overlay !== overlay) return;
 					setStatus(err instanceof Error ? err.message : 'No se pudo subir el archivo', true);
@@ -1613,7 +1635,9 @@ function buildAvatarTextEditor(column: ColumnDef, ctx: CellTypeContext) {
 	const paint = (cell: HTMLTableCellElement, value: CellValue, y: number) => {
 		cell.innerHTML = '';
 		const text = isBlank(value) ? '' : String(value);
-		const image = spec.image && Number.isFinite(y) ? ctx.rowAt?.(y)?.[spec.image] : null;
+		// jspreadsheet puede pasar la fila como texto («3»): se lee como número.
+		const at = Number(y);
+		const image = spec.image && Number.isFinite(at) ? ctx.rowAt?.(at)?.[spec.image] : null;
 		const avatar = avatarNode(spec, text, typeof image === 'string' ? image : null);
 		if (!avatar) return;
 		const wrap = document.createElement('div');
@@ -2030,19 +2054,393 @@ const imageType: CellTypeDef = {
 const fileType: CellTypeDef = {
 	name: 'file',
 	align: 'left',
-	parse: (raw) => (isBlank(raw) ? null : String(raw).trim()),
-	format: (value) => (isBlank(value) ? '' : fileNameOf(String(value))),
-	toClipboard: (value) => (isBlank(value) ? '' : String(value)),
+	parse: (raw) => parseFileValue(raw),
+	format: (value) => (isBlank(value) ? '' : (toFileRef(value)?.nombre ?? String(value))),
+	toClipboard: (value) => (isBlank(value) ? '' : (toFileRef(value)?.url ?? '')),
 	fromClipboard: (raw) => (raw.trim() === '' ? null : raw.trim()),
+	equals: (a, b) => fileEquals(a, b),
+	validate: (value, column) => {
+		const req = requiredError(value, column);
+		if (req) return req;
+		if (isBlank(value)) return null;
+		const ref = toFileRef(value);
+		return ref && FILE_URL.test(ref.url) ? null : 'URL de archivo inválida';
+	},
+	toColumn: (column) => ({ type: buildMediaEditor(column, 'file'), align: 'left' })
+};
+
+/** Un valor de archivo como llega (objeto, URL o el JSON de un objeto, al pegar): `FileRef`, URL o `null`. */
+function parseFileValue(raw: unknown): CellValue {
+	if (isBlank(raw)) return null;
+	if (isFileRef(raw)) return { url: raw.url, nombre: raw.nombre ?? fileNameOf(raw.url), tipo: raw.tipo ?? '', tamano: Number(raw.tamano) || 0 };
+	const text = String(raw).trim();
+	if (text.startsWith('{')) {
+		try {
+			return parseFileValue(JSON.parse(text));
+		} catch {
+			// No es JSON: se queda como texto (y la validación lo marca si no es una URL).
+		}
+	}
+	return text;
+}
+
+function fileEquals(a: CellValue, b: CellValue): boolean {
+	return isBlank(a) || isBlank(b) ? isBlank(a) && isBlank(b) : canonicalJson(a) === canonicalJson(b);
+}
+
+/**
+ * Carpeta (SB-38): varios archivos, `FileRef[]`. La celda muestra el conteo y
+ * los nombres; el panel los lista (cada uno se abre o descarga), quita y
+ * suma con «Subir» (varios a la vez). Se copia una URL por línea.
+ */
+const folderType: CellTypeDef = {
+	name: 'folder',
+	align: 'left',
+	parse: (raw) => {
+		if (isBlank(raw)) return null;
+		let value: unknown = raw;
+		if (typeof raw === 'string') {
+			const text = raw.trim();
+			if (text.startsWith('[') || text.startsWith('{')) {
+				try {
+					value = JSON.parse(text);
+				} catch {
+					value = text;
+				}
+			} else value = text.split(/\r?\n/).filter((l) => l.trim());
+		}
+		const refs = fileRefsOf(value).map((r) => parseFileValue(r) as FileRef);
+		return refs.length ? refs : null;
+	},
+	format: (value) => {
+		const n = fileRefsOf(value).length;
+		return n ? `${n} ${n === 1 ? 'archivo' : 'archivos'}` : '';
+	},
+	toClipboard: (value) => fileRefsOf(value).map((r) => r.url).join('\n'),
+	fromClipboard: (raw) => (raw.trim() === '' ? null : raw.trim()),
+	equals: (a, b) => fileEquals(a, b),
+	validate: (value, column) => {
+		const req = requiredError(value, column);
+		if (req) return req;
+		if (isBlank(value)) return null;
+		if (!Array.isArray(value)) return 'Debe ser una lista de archivos';
+		return value.every((r) => isFileRef(r) && FILE_URL.test(r.url)) ? null : 'URL de archivo inválida';
+	},
+	toColumn: (column) => ({ type: buildFolderEditor(column), align: 'left' })
+};
+
+/**
+ * La celda de una carpeta y su panel. Celda: ícono, «3 archivos» y los
+ * nombres. Panel: cada archivo con ↗ (abrir o descargar) y ✕ (quitar); con
+ * `upload`, «Subir» agrega uno o varios; «Aceptar» deja la lista en la celda.
+ */
+function buildFolderEditor(column: ColumnDef) {
+	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
+		cell.innerHTML = '';
+		cell.classList.add('oc-file-cell', 'oc-folder-cell');
+		const refs = fileRefsOf(value);
+		if (!refs.length) {
+			const empty = document.createElement('span');
+			empty.className = 'oc-image-empty';
+			empty.textContent = '—';
+			cell.appendChild(empty);
+			return;
+		}
+		const wrap = document.createElement('div');
+		wrap.className = 'oc-file oc-folder';
+		wrap.title = refs.map((r) => r.nombre).join('\n');
+		const icon = document.createElement('span');
+		icon.className = 'oc-file__icon';
+		icon.innerHTML = iconSvg('folder');
+		const count = document.createElement('span');
+		count.className = 'oc-folder__count';
+		count.textContent = `${refs.length} ${refs.length === 1 ? 'archivo' : 'archivos'}`;
+		const names = document.createElement('span');
+		names.className = 'oc-file__name oc-folder__names';
+		names.textContent = refs.map((r) => r.nombre).join(', ');
+		wrap.append(icon, count, names);
+		cell.appendChild(wrap);
+	};
+
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return value;
+		},
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+			const upload = column.upload;
+			const overlay = mountOverlay(cell, 360);
+			overlay.classList.add('oc-media-editor', 'oc-folder-editor');
+			overlay.innerHTML = `
+				<div class="oc-folder-editor__title"></div>
+				<ul class="oc-folder-editor__list" role="list"></ul>
+				<div class="oc-cell-editor__status" role="status"></div>
+				<div class="oc-cell-editor__actions">
+					${upload ? '<button type="button" data-action="upload" class="oc-cell-editor__upload">Subir</button>' : ''}
+					<span class="oc-cell-editor__spacer"></span>
+					<button type="button" data-action="clear">Vaciar</button>
+					<button type="button" data-action="save" class="is-primary">Aceptar</button>
+				</div>
+				${upload ? `<input type="file" class="oc-cell-editor__file" multiple hidden ${upload.accept?.length ? `accept="${escapeHtml(upload.accept.join(','))}"` : ''} />` : ''}
+			`;
+			const title = overlay.querySelector('.oc-folder-editor__title') as HTMLDivElement;
+			const list = overlay.querySelector('.oc-folder-editor__list') as HTMLUListElement;
+			const status = overlay.querySelector('.oc-cell-editor__status') as HTMLDivElement;
+			const picker = overlay.querySelector<HTMLInputElement>('input.oc-cell-editor__file');
+			let refs = fileRefsOf(value);
+			let busy = false;
+
+			const render = () => {
+				title.textContent = refs.length ? `${refs.length} ${refs.length === 1 ? 'archivo' : 'archivos'}` : 'Carpeta vacía';
+				list.innerHTML = '';
+				refs.forEach((ref, i) => {
+					const li = document.createElement('li');
+					li.className = 'oc-folder-editor__item';
+					li.appendChild(fileNode(ref));
+					const remove = document.createElement('button');
+					remove.type = 'button';
+					remove.className = 'oc-folder-editor__remove';
+					remove.dataset.remove = String(i);
+					remove.title = 'Quitar';
+					remove.setAttribute('aria-label', `Quitar ${ref.nombre}`);
+					remove.innerHTML = iconSvg('x');
+					li.appendChild(remove);
+					list.appendChild(li);
+				});
+				placeOverlay(overlay, cell);
+			};
+			render();
+
+			const setStatus = (text: string, error = false) => {
+				status.textContent = text;
+				status.classList.toggle('is-error', error);
+				placeOverlay(overlay, cell);
+			};
+			const commit = (next: CellValue) => {
+				if (activeEditor) activeEditor.value = next;
+				closeThroughInstance(instance, cell, true);
+			};
+
+			/** Sube los archivos de uno en uno; los que fallan lo dicen y no entran. */
+			const send = async (files: File[]) => {
+				if (!upload || busy || !files.length) return;
+				busy = true;
+				overlay.classList.add('is-busy');
+				const errors: string[] = [];
+				for (const file of files) {
+					if (upload.maxSize && file.size > upload.maxSize) {
+						errors.push(`${file.name}: pasa del máximo (${formatBytes(upload.maxSize)})`);
+						continue;
+					}
+					if (upload.accept?.length && file.type && !upload.accept.includes(file.type)) {
+						errors.push(`${file.name}: tipo no permitido`);
+						continue;
+					}
+					setStatus(`Subiendo ${file.name}…`);
+					try {
+						const result = await upload.send(file);
+						if (activeEditor?.overlay !== overlay) return;
+						const ref: FileRef = { url: result.url, nombre: result.name || file.name, tipo: result.type, tamano: result.size };
+						refs = [...refs.filter((r) => r.nombre !== ref.nombre), ref];
+						render();
+					} catch (err) {
+						errors.push(`${file.name}: ${err instanceof Error ? err.message : 'no se pudo subir'}`);
+					}
+				}
+				busy = false;
+				overlay.classList.remove('is-busy');
+				setStatus(errors.join(' · '), errors.length > 0);
+			};
+
+			picker?.addEventListener('change', () => {
+				void send([...(picker.files ?? [])]);
+				picker.value = '';
+			});
+			if (upload) {
+				overlay.addEventListener('dragover', (e) => {
+					e.preventDefault();
+					overlay.classList.add('is-dropping');
+				});
+				overlay.addEventListener('dragleave', () => overlay.classList.remove('is-dropping'));
+				overlay.addEventListener('drop', (e) => {
+					e.preventDefault();
+					overlay.classList.remove('is-dropping');
+					void send([...(e.dataTransfer?.files ?? [])]);
+				});
+			}
+			overlay.addEventListener('mousedown', (e: MouseEvent) => {
+				const target = e.target as HTMLElement;
+				// Los enlaces (abrir o descargar) siguen su curso.
+				if (target.closest('a')) return;
+				const removeAt = target.closest<HTMLElement>('[data-remove]')?.dataset.remove;
+				if (removeAt !== undefined) {
+					e.preventDefault();
+					refs = refs.filter((_, i) => i !== Number(removeAt));
+					render();
+					return;
+				}
+				const action = target.closest('[data-action]')?.getAttribute('data-action');
+				if (!action) return;
+				e.preventDefault();
+				if (busy) return;
+				if (action === 'upload') picker?.click();
+				else commit(action === 'clear' || !refs.length ? null : refs);
+			});
+			overlay.addEventListener('keydown', (e: KeyboardEvent) => {
+				e.stopPropagation();
+				if (e.key === 'Escape') closeThroughInstance(instance, cell, false);
+				else if (e.key === 'Enter' && !(e.target as HTMLElement).closest('a')) commit(refs.length ? refs : null);
+			});
+			const onDocMouseDown = (e: MouseEvent) => {
+				if (!busy && !overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
+			};
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
+			activeEditor = { cell, overlay, value, original: value, dispose: () => document.removeEventListener('mousedown', onDocMouseDown) };
+			(overlay.querySelector('[data-action="save"]') as HTMLButtonElement).focus();
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			paint(cell, result);
+			return result;
+		}
+	};
+}
+
+/**
+ * Texto largo (SB-38): una ficha en markdown, un JSON. La columna `text` del
+ * servidor con `multiline: true`. La celda muestra la primera línea con su
+ * tipo (MD, JSON); el panel es un visor amplio que se edita, con «Formatear»
+ * para un JSON válido. Ctrl/⌘+Enter acepta; Escape descarta.
+ */
+const longTextType: CellTypeDef = {
+	name: 'longtext',
+	align: 'left',
+	parse: (raw) => (isBlank(raw) ? null : String(raw)),
+	format: (value) => (isBlank(value) ? '' : String(value)),
 	equals: looseEquals,
 	validate: (value, column) => {
 		const req = requiredError(value, column);
 		if (req) return req;
 		if (isBlank(value)) return null;
-		return FILE_URL.test(String(value)) ? null : 'URL de archivo inválida';
+		if (column.maxLength !== undefined && String(value).length > column.maxLength) return `Máximo ${column.maxLength} caracteres`;
+		return null;
 	},
-	toColumn: (column) => ({ type: buildMediaEditor(column, 'file'), align: 'left' })
+	toColumn: () => ({ type: buildLongTextEditor(), align: 'left' })
 };
+
+/** ¿Qué es el texto? JSON si se puede leer como tal; markdown si trae encabezados, listas o tablas. */
+function longTextKind(text: string): 'JSON' | 'MD' | null {
+	const t = text.trim();
+	if (/^[[{]/.test(t)) {
+		try {
+			JSON.parse(t);
+			return 'JSON';
+		} catch {
+			// No es JSON.
+		}
+	}
+	return /^(#{1,6} |[-*] |\d+\. |\|)/m.test(t) ? 'MD' : null;
+}
+
+function buildLongTextEditor() {
+	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
+		cell.innerHTML = '';
+		cell.classList.add('oc-longtext-cell');
+		if (isBlank(value)) return;
+		const text = String(value);
+		const kind = longTextKind(text);
+		if (kind) {
+			const badge = document.createElement('span');
+			badge.className = 'oc-longtext__kind';
+			badge.textContent = kind;
+			cell.appendChild(badge);
+		}
+		const first = document.createElement('span');
+		first.className = 'oc-longtext__first';
+		first.textContent = (text.split(/\r?\n/).find((l) => l.trim()) ?? '').replace(/^#+\s*/, '');
+		cell.appendChild(first);
+		cell.title = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+	};
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return value;
+		},
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+			const overlay = mountOverlay(cell, 560);
+			overlay.classList.add('oc-longtext-editor');
+			overlay.innerHTML = `
+				<textarea class="oc-longtext-editor__text" spellcheck="false" aria-label="Texto"></textarea>
+				<div class="oc-cell-editor__status" role="status"></div>
+				<div class="oc-cell-editor__actions">
+					<button type="button" data-action="format" hidden>Formatear JSON</button>
+					<span class="oc-cell-editor__spacer"></span>
+					<button type="button" data-action="cancel">Cancelar</button>
+					<button type="button" data-action="save" class="is-primary">Aceptar</button>
+				</div>
+			`;
+			const area = overlay.querySelector('textarea') as HTMLTextAreaElement;
+			const status = overlay.querySelector('.oc-cell-editor__status') as HTMLDivElement;
+			const format = overlay.querySelector('[data-action="format"]') as HTMLButtonElement;
+			area.value = isBlank(value) ? '' : String(value);
+			const refresh = () => {
+				const kind = longTextKind(area.value);
+				format.hidden = kind !== 'JSON';
+				status.textContent = `${kind ? `${kind} · ` : ''}${area.value.length} caracteres`;
+			};
+			refresh();
+			placeOverlay(overlay, cell);
+			const commit = () => {
+				if (activeEditor) activeEditor.value = area.value === '' ? null : area.value;
+				closeThroughInstance(instance, cell, true);
+			};
+			area.addEventListener('input', refresh);
+			area.addEventListener('keydown', (e: KeyboardEvent) => {
+				e.stopPropagation();
+				if (e.key === 'Escape') closeThroughInstance(instance, cell, false);
+				else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit();
+			});
+			overlay.addEventListener('mousedown', (e: MouseEvent) => {
+				const action = (e.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
+				if (!action) return;
+				e.preventDefault();
+				if (action === 'format') {
+					area.value = JSON.stringify(JSON.parse(area.value), null, 2);
+					refresh();
+				} else if (action === 'cancel') closeThroughInstance(instance, cell, false);
+				else commit();
+			});
+			const onDocMouseDown = (e: MouseEvent) => {
+				if (!overlay.contains(e.target as Node)) closeThroughInstance(instance, cell, false);
+			};
+			setTimeout(() => {
+				if (activeEditor?.overlay === overlay) document.addEventListener('mousedown', onDocMouseDown);
+			}, 0);
+			activeEditor = { cell, overlay, value, original: value, dispose: () => document.removeEventListener('mousedown', onDocMouseDown) };
+			area.focus();
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			paint(cell, result);
+			return result;
+		}
+	};
+}
+
 
 /**
  * Marcado SVG de un icono de `@lucide/svelte`, calculado una sola vez.
@@ -2256,6 +2654,8 @@ export function listCellTypes(): string[] {
 	booleanType,
 	imageType,
 	fileType,
+	folderType,
+	longTextType,
 	passwordType,
 	actionType
 ].forEach(registerCellType);

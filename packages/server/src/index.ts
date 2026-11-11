@@ -7,6 +7,8 @@ export { postgresSource } from './postgresSource.ts';
 export { diskStorage, sniffType, safeFileName } from './storage.ts';
 export type { DiskStorage, DiskStorageOptions } from './storage.ts';
 export type { PostgresSourceOptions, PoolLike, Queryable } from './postgresSource.ts';
+export { mongoSource } from './mongoSource.ts';
+export type { MongoSourceOptions, MongoClientLike, MongoDbLike, MongoCollectionLike, MongoSessionLike } from './mongoSource.ts';
 export { parseListQuery, parseBatch, parseLookupQuery, parseResolve, sheetRouter, sheetUpload } from './http.ts';
 export type { SheetRouterOptions } from './http.ts';
 export { ImportFormat, importFormat, importRoutes, parseImportPayload } from './imports.ts';
@@ -14,3 +16,5 @@ export type { ImportContext, ImportOutcome, ImportFormatDefinition, ImportRow, I
 export { SpreadBaseError, ValidationError, NotFoundError, errorHandler, notFoundHandler } from './errors.ts';
 export { types, toSchema, PASSWORD_MARK, isPasswordMark } from '@spreadbase/core';
 export type * from '@spreadbase/core';
+export * from './extraction/index.ts';
+export * from './importAgent/index.ts';

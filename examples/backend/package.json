@@ -15,7 +15,7 @@
 		"postgres:reset": "tsx src/examples/postgres/db/setup.js --reset"
 	},
 	"dependencies": {
-		"@spreadbase/server": "0.1.0",
+		"@spreadbase/server": "*",
 		"cors": "^2.8.6",
 		"express": "^5.2.1",
 		"pg": "^8.16.3"

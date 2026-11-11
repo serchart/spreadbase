@@ -92,6 +92,14 @@ Uso:
 		 * sale del tema global (ver `datagrid.css` y su adaptador).
 		 */
 		theme?: DataGridTheme;
+		/**
+		 * La leyenda inferior («Celda editada sin guardar», «Fila nueva», «Valor
+		 * inválido», «Fila eliminada» y la ventana de filas). `true` (default) la
+		 * muestra; `false` la quita —para hojas dentro de otra interfaz que ya
+		 * explica sus colores, como el asistente de importación—. Los avisos de
+		 * trabajo («Resolviendo nombres…», «Cargando siguientes…») se siguen viendo.
+		 */
+		legend?: boolean;
 	}
 
 	let {
@@ -101,7 +109,8 @@ Uso:
 		fill = false,
 		controller: externalController,
 		toolbar = true,
-		theme
+		theme,
+		legend = true
 	}: Props = $props();
 
 	/** `{ headerBg: 'red' }` → `--dg-header-bg: red;` para el `style` del contenedor. */
@@ -596,11 +605,16 @@ Uso:
 
 		set('oc-cell-dirty', controller.isDirtyCell(row.__key, column.field));
 		set('oc-cell-invalid', controller.isInvalidCell(row.__key, column.field));
+		const warning = controller.cellWarning(row.__key, column.field);
+		set('oc-cell-warning', !!warning);
 		set('oc-cell-new', isNew);
 
 		// Fila marcada como eliminada (fuente remota, G-7): tachada, atenuada y de solo lectura.
 		const deleted = controller.isDeletedRow(row.__key);
 		set('oc-row-deleted', deleted);
+
+		// Resaltada desde fuera (`highlightRows`: las filas de un archivo en el staging del asistente).
+		set('oc-row-highlight', controller.isHighlightedRow(row.__key));
 
 		// Recién combinada con un cambio ajeno: se resalta unos segundos y se desvanece sola.
 		set('oc-cell-merged', controller.isMergedCell(row.__key, column.field));
@@ -653,7 +667,7 @@ Uso:
 
 		const message = conflict?.yours || conflict?.remote
 			? `Conflicto · Tuyo: ${conflict.yours || '—'} · Remoto: ${conflict.remote || '—'}`
-			: controller.cellError(row.__key, column.field);
+			: (controller.cellError(row.__key, column.field) ?? warning);
 		if (message) td.setAttribute('title', message);
 		else if (!fresh) td.removeAttribute('title');
 	}
@@ -715,6 +729,7 @@ Uso:
 		// Solo se repinta la hoja si el guardado alteró los datos.
 		if (result.status === 'ok') await syncToSheet();
 		else paintStates();
+		return result;
 	}
 
 	async function handleDiscard() {
@@ -1374,7 +1389,11 @@ Uso:
 				await syncToSheet();
 			},
 			// Cambió el estado de las celdas desde fuera (avisos del servidor, SB-34): solo repintar.
-			repaint: () => paintStates()
+			repaint: () => paintStates(),
+			// Cambiaron filas desde fuera (el staging del asistente, SB-36): volcar y repintar.
+			repaintAll: () => syncToSheet(),
+			// Llevar la hoja a una fila (la primera resaltada del staging, SB-36).
+			revealRow: (rowKey) => jumpToKey(0, rowKey)
 		});
 	});
 
@@ -1466,6 +1485,7 @@ Uso:
 		{/if}
 	</div>
 
+	{#if legend}
 	<footer class="oc-grid__legend">
 		<span><i class="swatch swatch--dirty"></i> Celda editada sin guardar</span>
 		<span><i class="swatch swatch--new"></i> Fila nueva</span>
@@ -1500,6 +1520,24 @@ Uso:
 			</span>
 		{/if}
 	</footer>
+	{:else if pasteResolving || controller.windowLoading}
+		<!-- Sin leyenda (`legend={false}`): solo los avisos de trabajo. -->
+		<footer class="oc-grid__legend" data-legend="off">
+			{#if pasteResolving}
+				<span class="oc-grid__resolving">
+					<span class="loading loading-spinner loading-xs"></span>
+					Resolviendo {pasteResolving.toLocaleString('es-MX')}
+					{pasteResolving === 1 ? 'nombre' : 'nombres'}…
+				</span>
+			{/if}
+			{#if controller.windowLoading}
+				<span class="tabular-nums ml-auto">
+					<span class="loading loading-spinner loading-xs"></span>
+					Cargando {controller.windowLoading === 'down' ? 'siguientes' : 'anteriores'}…
+				</span>
+			{/if}
+		</footer>
+	{/if}
 
 	<!-- Con `each` y no `if`: el menú conserva su columna mientras se desmonta (al cerrar, `columnMenu` ya es null). -->
 	{#each columnMenu ? [columnMenu] : [] as open (open.column.field)}

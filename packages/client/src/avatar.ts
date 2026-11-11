@@ -23,6 +23,8 @@ import FileCode from '@lucide/svelte/icons/file-code';
 import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
 import FileArchive from '@lucide/svelte/icons/file-archive';
 import ExternalLink from '@lucide/svelte/icons/external-link';
+import Folder from '@lucide/svelte/icons/folder';
+import X from '@lucide/svelte/icons/x';
 import type { AvatarSpec } from '@spreadbase/core';
 
 /** Los íconos que SpreadBase trae; la app agrega los suyos con `registerIcons`. */
@@ -44,7 +46,10 @@ const icons = new Map<string, Component>([
 	['file-code', FileCode],
 	['file-spreadsheet', FileSpreadsheet],
 	['file-archive', FileArchive],
-	['external-link', ExternalLink]
+	['external-link', ExternalLink],
+	// Carpeta de archivos (SB-38).
+	['folder', Folder],
+	['x', X]
 ]);
 const svgCache = new Map<string, string>();
 

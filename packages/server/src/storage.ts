@@ -7,7 +7,7 @@
  * queda en la celda.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import express, { type Router } from 'express';
 import type { FileStorage, UploadedFile } from '@spreadbase/core';
@@ -103,6 +103,10 @@ export interface DiskStorage extends FileStorage {
 	 * documentos privados, detrás del middleware de sesión de la app.
 	 */
 	serve(): Router;
+	/** Los bytes de un archivo guardado, por su URL (el asistente de importación los analiza, SB-36). */
+	read(url: string): Promise<Uint8Array>;
+	/** Borra un archivo guardado, por su URL (retención). */
+	remove(url: string): Promise<void>;
 }
 
 /** Tipos que el navegador puede mostrar sin riesgo; el resto se descarga. */
@@ -117,7 +121,22 @@ const INLINE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'a
 export function diskStorage({ dir, publicUrl }: DiskStorageOptions): DiskStorage {
 	const root = path.resolve(dir);
 	const base = publicUrl.replace(/\/+$/, '');
+	/** De una URL de este destino a su ruta en disco; otra URL, o una que salga de la carpeta, no. */
+	const fileOf = (url: string) => {
+		if (!url.startsWith(`${base}/`)) throw new Error(`La URL no es de este almacenamiento: ${url}`);
+		const parts = url.slice(base.length + 1).split('/').map(decodeURIComponent);
+		const file = path.resolve(root, ...parts);
+		if (parts.length !== 2 || !file.startsWith(`${root}${path.sep}`)) throw new Error(`URL inválida: ${url}`);
+		return file;
+	};
 	return {
+		async read(url: string) {
+			return new Uint8Array(await readFile(fileOf(url)));
+		},
+		async remove(url: string) {
+			const file = fileOf(url);
+			await rm(path.dirname(file), { recursive: true, force: true });
+		},
 		async save(file: UploadedFile) {
 			const folder = randomBytes(9).toString('base64url');
 			await mkdir(path.join(root, folder), { recursive: true });

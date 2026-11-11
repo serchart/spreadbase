@@ -48,6 +48,8 @@
 	--dg-new-accent: var(--color-success);
 	--dg-invalid-bg: color-mix(in oklab, var(--color-error) 16%, var(--color-base-100));
 	--dg-invalid-accent: var(--color-error);
+	--dg-warning-bg: color-mix(in oklab, var(--color-warning) 18%, var(--color-base-100));
+	--dg-warning-accent: var(--color-warning);
 	/* Conflicto (§11.14): naranja derivado de warning + error, distinto de editada y de error. */
 	--dg-conflict-accent: color-mix(in oklab, var(--color-warning) 50%, var(--color-error));
 

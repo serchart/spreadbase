@@ -128,7 +128,7 @@ export class SpreadBase {
 		// Subir archivos (SB-30): solo a `image` o `file`, con un destino que sepa guardar.
 		for (const [field, spec] of Object.entries(definition.columns)) {
 			if (!spec.upload) continue;
-			if (spec.type !== 'image' && spec.type !== 'file') throw new Error(`La columna "${field}" (${spec.type}) no admite upload: solo image y file`);
+			if (spec.type !== 'image' && spec.type !== 'file' && spec.type !== 'folder') throw new Error(`La columna "${field}" (${spec.type}) no admite upload: solo image, file y folder`);
 			if (typeof spec.upload.storage?.save !== 'function') throw new Error(`La columna "${field}" necesita upload.storage con save(file, ctx)`);
 			uploadLimits(spec.type, spec.upload);
 		}

@@ -147,6 +147,34 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		}
 	}
 
+	/**
+	 * Archivos (SB-38): `FILE` y `FOLDER` se guardan como JSON, en una columna
+	 * `jsonb` o de texto. Al leer, el texto JSON vuelve a ser objeto (`jsonb` ya
+	 * llega así); una URL suelta (SB-30) se queda como texto. Al escribir, el
+	 * objeto o la lista van como JSON (`pg` convertiría una lista en un arreglo
+	 * de Postgres).
+	 */
+	const isFileColumn = (field: string) => {
+		const type = def().columns[field]?.type;
+		return type === 'file' || type === 'folder';
+	};
+	function fromDb<T extends Record<string, unknown> | undefined>(row: T): T {
+		if (!row) return row;
+		for (const [field, c] of columns()) {
+			if (c.type !== 'file' && c.type !== 'folder') continue;
+			const v = row[field];
+			if (typeof v === 'string' && /^\s*[[{]/.test(v)) {
+				try {
+					(row as Record<string, unknown>)[field] = JSON.parse(v);
+				} catch {
+					// No era JSON: se queda como texto.
+				}
+			}
+		}
+		return row;
+	}
+	const toDb = (field: string, value: unknown) => (isFileColumn(field) && value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
+
 	function versionExpr(): string {
 		if (options.versionColumn) return `${ident(options.versionColumn)}::text`;
 		const fields = writable();
@@ -306,7 +334,7 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		async function get(id: string): Promise<Row | undefined> {
 			try {
 				const { rows } = await db.query(`SELECT ${selectList()} FROM ${view} WHERE ${ident(idField)} = $1`, [id]);
-				return rows[0] as Row | undefined;
+				return fromDb(rows[0] as Row | undefined);
 			} catch (err) {
 				// Un id que no es del tipo de la llave («abc» en una `integer`) no existe: 404, no 500.
 				if ((err as { code?: string }).code === '22P02') return undefined;
@@ -337,7 +365,7 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 				const seen = query.offset + data.rows.length;
 				const total = data.rows.length === 0 ? Math.min(counted, query.offset) : data.rows.length < query.limit ? seen : Math.max(counted, seen);
 				return {
-					rows: data.rows as Row[],
+					rows: (data.rows as Row[]).map(fromDb),
 					total,
 					offset: query.offset,
 					limit: query.limit,
@@ -383,7 +411,7 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 
 			async insert(values) {
 				const fields = Object.keys(values).filter(isColumn);
-				const params: unknown[] = fields.map((f) => values[f]);
+				const params: unknown[] = fields.map((f) => toDb(f, values[f]));
 				if (options.createId) {
 					fields.unshift(idField);
 					params.unshift(options.createId());
@@ -402,7 +430,7 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 				if (fields.length > 0) {
 					await db.query(`UPDATE ${table} SET ${fields.map((f, i) => `${ident(f)} = $${i + 2}`).join(', ')} WHERE ${ident(idField)} = $1`, [
 						id,
-						...fields.map((f) => values[f])
+						...fields.map((f) => toDb(f, values[f]))
 					]);
 				}
 				const row = await get(id);

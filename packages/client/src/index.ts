@@ -3,6 +3,7 @@ export type { SheetOptions } from './Sheet.svelte';
 export { applyColumnOverrides } from './columns';
 export type { ColumnOverride, ColumnPlacement } from './columns';
 export { default as SpreadBase } from './SpreadBase.svelte';
+export type { SpreadBaseImportAssistant } from './SpreadBase.svelte';
 export { default as SpreadsheetGrid } from './SpreadsheetGrid.svelte';
 export { default as Toolbar } from './Toolbar.svelte';
 // Formularios con las columnas y los editores de la hoja (SB-25).
@@ -17,6 +18,21 @@ export { default as SheetImport } from './SheetImport.svelte';
 export { ImportState } from './ImportState.svelte';
 export type { ImportFormatInfo, ImportFileInfo, ImportStateOptions } from './ImportState.svelte';
 export { readImportFile, parseDelimited } from './importFile';
+// Asistente de importación con agente (SB-36).
+export { default as ImportAssistant } from './ImportAssistant.svelte';
+export { ImportAssistantState, destinationValue } from './ImportAssistantState.svelte';
+export type { ImportAssistantStateOptions, ImportAssistantStep, ImportUpload, ImportDetail, ImportDestinationChoice } from './ImportAssistantState.svelte';
+export { filesFromDrop, filesFromInput, expandZips } from './assistantFiles';
+export type { PendingFile } from './assistantFiles';
+export type {
+	ImportRunView,
+	ImportRunFileView,
+	ImportDestination,
+	ImportAssistantConfig,
+	ImportFileRows,
+	ImportChatMessage,
+	ImportRunEvent
+} from '@spreadbase/core';
 export type { FileCell, FileSheet } from './importFile';
 export type { ImportResult, ImportIssue, ImportSchema, ImportPayload } from '@spreadbase/core';
 export type { CellWrite } from './GridController.svelte';

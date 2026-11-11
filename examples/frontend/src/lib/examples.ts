@@ -43,6 +43,13 @@ export const EXAMPLES = [
 		code: 'examples/backend/src/examples/imports/'
 	},
 	{
+		href: '/import-assistant',
+		title: 'Asistente de importación',
+		tag: 'ImportAssistant · importAgent · SB-36',
+		text: 'Suelta archivos o carpetas (PDF, fotos, Excel, CSV, zip) sobre la tabla «Planes GMF»: un agente analiza cada uno, propone a dónde va y sus filas, conversa contigo y lo importa en segundo plano. Las filas con error se corrigen en el Detalle.',
+		code: 'examples/backend/src/examples/import-assistant/'
+	},
+	{
 		href: '/cases',
 		title: 'Casos · 50 000 filas',
 		tag: 'capas · ventana · concurrencia',

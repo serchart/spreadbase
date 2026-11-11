@@ -11,7 +11,8 @@ app.listen(env.port, () => {
 			`Ejemplos de SpreadBase en http://localhost:${env.port} · ${env.appEnv} · listo en ${Math.round(performance.now() - started)} ms`,
 			`  básico    ${base}/basic/contacts`,
 			`  casos     ${base}/cases   (${env.cases.rows} filas, ${env.cases.policy}, latencia ${env.cases.latencyMs} ms)`,
-			`  postgres  ${base}/postgres/products/sheet   ${env.databaseUrl ? '' : '(sin DATABASE_URL: responde 503)'}`
+			`  postgres  ${base}/postgres/products/sheet   ${env.databaseUrl ? '' : '(sin DATABASE_URL: responde 503)'}`,
+			`  asistente ${base}/import-assistant/config   (${process.env.IMPORT_ASSISTANT_LLM === 'gemini' && process.env.GEMINI_API_KEY ? 'Gemini' : 'modelo de guion'})`
 		].join('\n')
 	);
 });

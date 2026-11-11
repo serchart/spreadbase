@@ -14,7 +14,7 @@ El ejemplo completo corre en [`examples/backend/src/examples/postgres`](../examp
 
 | Pieza | Responde | La escribe | ¿Obligatoria? |
 |---|---|---|---|
-| **Fuente** | *De dónde* se lee y dónde se escribe por defecto | La librería (`memorySource`, `postgresSource`…) | Sí |
+| **Fuente** | *De dónde* se lee y dónde se escribe por defecto | La librería (`memorySource`, `postgresSource`, `mongoSource`…) | Sí |
 | **Transacción** | *Cómo* se escribe seguro: todo o nada, y sin que otro usuario se cuele entre leer y escribir | La trae la fuente | La trae la fuente si la base la soporta |
 | **Handlers** | *Qué* se escribe: tus reglas de negocio | Tu app | No: solo si escribir no es un `UPDATE` directo |
 
@@ -564,24 +564,80 @@ source: memorySource({ rows: seed, createId: (n) => `prd_${n}` })
 
 ### 4.3 Mongo (la base de Aggy)
 
-La misma forma con otra fuente. La transacción es una sesión de Mongo y el
-handler recibe esa sesión en `ctx.tx.db`:
+La misma forma con otra fuente: `mongoSource` (2026-10-08). Recibe el cliente
+de `mongodb` de la app (la librería no lo instala: es dependencia opcional y se
+importa solo para construir un `ObjectId`). La hoja puede ser **parte de una
+colección**: en Aggy Legacy todas las tablas de datos comparten
+`datadocuments`, y una hoja es `{ accountId, dataTableId }`.
 
 ```js
-source: mongoSource({ model: Product }),
-handlers: {
-	updateMany: async (items, { tx }) => {
-		for (const { id, values } of items) {
-			await Product.updateOne({ _id: id }, { $set: values }, { session: tx.db });
+import { MongoClient, ObjectId } from 'mongodb';
+
+const client = await new MongoClient(process.env.MONGO_URL).connect();
+
+this.sheet = new SpreadBase({
+	id: `datatable-${dataTableId}`,
+	allowInsert: true,
+	allowDelete: true,
+	columns,
+	source: mongoSource({
+		client,
+		db: 'aggy',
+		collection: 'datadocuments',
+		// Toda lectura y escritura lo lleva; los documentos nuevos nacen con estos campos.
+		filter: { accountId: new ObjectId(accountId), dataTableId: new ObjectId(dataTableId) },
+		collation: { locale: 'es', strength: 1 } // ordenar sin acentos ni mayúsculas
+	}),
+	handlers: {
+		updateMany: async (items, { tx }) => {
+			for (const { id, values } of items) {
+				await DataDocument.updateOne({ _id: id }, { $set: values }, { session: tx.db });
+			}
+			return items.map((i) => ({ id: i.id })); // el motor relee la fila y la fuente pone la huella
 		}
-		return Product.find({ _id: { $in: items.map((i) => i.id) } }, null, { session: tx.db }).lean();
 	}
-}
+});
 ```
 
-La huella se calcula igual, sobre los valores del documento: cualquier parte
-de la app que escriba la colección cuenta, sin campo de versión. (`mongoSource`
-no existe todavía; la forma sería esta.)
+- **El id viaja como texto**: `_id` (u `idField`) sale como su cadena; un id
+  de 24 hexadecimales se busca como `ObjectId` y como texto.
+- **`rowVersion`**: la huella md5 de los campos escribibles tal como están
+  guardados, calculada al leer (SB-4): cualquier parte de la app que escriba la
+  colección cuenta, sin campo de versión. Con `versionField`, un contador que la
+  fuente pone en 1 al crear y sube (`$inc`) en cada escritura; entonces todo
+  proceso que escriba debe subirlo también.
+- **Valores**: los documentos de una app sin esquema guardan como pueden. Al
+  leer, un número guardado como texto sale como número, una fecha `Date` o
+  texto sale `AAAA-MM-DD` (fecha-hora en UTC), `'true'` sale `true`. Al
+  escribir, se guarda lo que manda el motor (números como número, fechas como
+  texto canónico).
+- **Filtros (SB-33)**: la misma regla que `matchesFilter`, como expresiones de
+  agregación (`$expr`): vacío = `null`, ausente o `''`; texto sin acentos ni
+  mayúsculas; número como número aunque se guarde como texto; fecha-hora por su
+  día. Lo que va en `$expr` no usa índices: el filtro fijo sí (conviene un
+  índice `{ accountId: 1, dataTableId: 1 }`).
+- **Total (SB-35)**: `countDocuments` exacto; `estimatedDocumentCount` solo si
+  la consulta es la colección entera (con filtro fijo, la estimación sería de
+  todas las tablas).
+- **Transacción (SB-19)**: `session.withTransaction`, con lectura `snapshot`.
+  **Exige un replica set** (uno de un solo nodo basta); sin él,
+  `transactions: false` y el motor aplica los lotes de uno en uno en el
+  proceso, como en memoria. El handler recibe la sesión en `ctx.tx.db`.
+- **Bloqueo (`lock`)**: Mongo no tiene `SELECT … FOR UPDATE`. Dentro de la
+  transacción se escribe un candado por fila en `spreadbase_locks`
+  (`{ _id: '<hoja>:<id>' }`, índice TTL de una hora). Dos lotes sobre la misma
+  fila chocan al escribirlo (`WriteConflict`) y el driver **reintenta el
+  segundo desde el principio**, ya con lo que confirmó el primero: el segundo
+  ve el conflicto. Como las lecturas de la transacción son de una foto fija, lo
+  que otro proceso escriba en el documento después de la foto también hace
+  chocar la escritura y reintentar. Es concurrencia optimista con reintento,
+  no una espera.
+- **Idempotencia (SB-18)**: en `spreadbase_idempotency`, en la misma
+  transacción que el lote, con índice TTL sobre `expiresAt`. Dos reintentos
+  simultáneos con la misma llave: uno se aplica y el otro, al reintentarse,
+  encuentra la respuesta guardada.
+- Requisitos: MongoDB 4.4 o más (`$replaceAll`). Probado contra Mongo 7 en
+  Docker: `tests/mongo/`, con el kit de contrato (SB-26) por HTTP.
 
 ---
 
@@ -624,6 +680,6 @@ escribirla hasta el `COMMIT`.
 |---|---|
 | **SB-4** | La tabla del usuario no necesita nada: `rowVersion` es una huella de las columnas escribibles, o una columna de versión si ya existe |
 | **SB-16** | Los avisos los calcula el servidor con `base`, lo que el cliente leyó en las escribibles que no tocó |
-| **SB-18** | La idempotencia la lleva el motor y la guarda la fuente en la misma transacción; con Postgres, en `spreadbase_idempotency`, creada por la librería |
+| **SB-18** | La idempotencia la lleva el motor y la guarda la fuente en la misma transacción; con Postgres, en `spreadbase_idempotency`, creada por la librería; con Mongo, en la colección del mismo nombre, con TTL |
 | **SB-19** | La transacción la trae la fuente; los handlers la reciben en `ctx.tx` |
 | **SB-20** | Un error de dominio deshace el lote entero |

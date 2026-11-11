@@ -5,7 +5,8 @@
  * reglas declarativas viajan y el front las aplica al editar; `validate`, que
  * es una función, solo corre en el servidor.
  */
-import type { CellValue } from './values.ts';
+import type { CellValue, FileRef } from './values.ts';
+import { isFileRef } from './values.ts';
 
 export const types = {
 	TEXT: 'text',
@@ -16,10 +17,14 @@ export const types = {
 	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). Con `upload`, también se sube (SB-30). */
 	IMAGE: 'image',
 	/**
-	 * Un archivo (SB-30): su URL (`https://…` o `/ruta`). La celda muestra el
-	 * nombre, que es el último tramo de la URL. Con `upload`, se sube.
+	 * Un archivo (SB-30, SB-38): `{ url, nombre, tipo, tamano }` (`FileRef`).
+	 * También vale solo su URL (`https://…` o `/ruta`), como antes de SB-38: la
+	 * celda muestra el nombre, que es el último tramo de la URL. Con `upload`,
+	 * se sube.
 	 */
 	FILE: 'file',
+	/** Varios archivos (SB-38): una lista de `FileRef`. La celda muestra el conteo y la lista. Con `upload`, se suben. */
+	FOLDER: 'folder',
 	/** Llave de un registro de otro recurso, elegido en una mini tabla (SB-21). */
 	LOOKUP: 'lookup',
 	/** Casilla: `true` o `false`. */
@@ -190,7 +195,7 @@ export interface ColumnSpec {
 	options?: Option[];
 	/** Solo `lookup`: de dónde salen sus registros. */
 	lookup?: LookupSpec;
-	/** Solo `image` y `file`: se pueden subir archivos (SB-30). El destino no viaja. */
+	/** Solo `image`, `file` y `folder`: se pueden subir archivos (SB-30, SB-38). El destino no viaja. */
 	upload?: UploadSpec;
 	/**
 	 * Solo `password`, y obligatoria: convierte la contraseña en claro en lo que
@@ -212,6 +217,8 @@ export interface ColumnSpec {
 	thousands?: boolean;
 	/** Solo `image`: `round` la pinta como avatar. */
 	shape?: 'round' | 'square';
+	/** Solo `text`: texto largo (una ficha en markdown, un JSON): la celda muestra la primera línea y se lee y edita en un visor amplio (SB-38). */
+	multiline?: boolean;
 	/** Solo `text` y `lookup`: miniatura antes del texto (SB-29). */
 	avatar?: AvatarSpec;
 	/**
@@ -284,7 +291,7 @@ export function toSchema(def: SheetDefinition): SheetSchema {
 const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
 const FILE_URL = /^(https?:\/\/|\/)/;
 
-/** Tipos que se aceptan sin `accept`, por tipo de columna (SB-30). */
+/** Tipos que se aceptan sin `accept`, por tipo de columna (SB-30). `folder`, como `file`. */
 export const DEFAULT_ACCEPT: Record<'image' | 'file', string[]> = {
 	image: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
 	file: ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/xml']
@@ -370,11 +377,47 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 		case 'image':
 			return typeof value === 'string' && IMAGE_URL.test(value) ? null : 'URL de imagen inválida';
 		case 'file':
-			return typeof value === 'string' && FILE_URL.test(value) ? null : 'URL de archivo inválida';
+			return fileProblem(value);
+		case 'folder': {
+			if (!Array.isArray(value)) return 'Debe ser una lista de archivos';
+			if (!value.length && spec.required) return 'No admite vacío';
+			for (const item of value) {
+				const problem = isFileRef(item) ? fileProblem(item) : 'Cada archivo debe ser { url, nombre, tipo, tamano }';
+				if (problem) return problem;
+			}
+			return null;
+		}
 		// Que el registro exista lo comprueba el motor con `lookup.byIds`, de una vez por lote.
 		case 'lookup':
 			return (typeof value === 'string' && value.trim() !== '') || typeof value === 'number' ? null : 'Valor inválido';
 		default:
 			return 'Tipo de columna desconocido';
 	}
+}
+
+/** Un archivo válido: su URL (como en SB-30) o `{ url, nombre, tipo, tamano }` con una URL válida. */
+function fileProblem(value: unknown): string | null {
+	if (typeof value === 'string') return FILE_URL.test(value) ? null : 'URL de archivo inválida';
+	if (!isFileRef(value)) return 'URL de archivo inválida';
+	if (!FILE_URL.test(value.url)) return 'URL de archivo inválida';
+	if (typeof value.nombre !== 'string' || !value.nombre.trim()) return 'El archivo necesita nombre';
+	if (value.tamano !== undefined && (typeof value.tamano !== 'number' || value.tamano < 0)) return 'Tamaño inválido';
+	return null;
+}
+
+/**
+ * Un valor de archivo como `FileRef` (SB-38): un objeto se queda igual; una URL
+ * suelta (SB-30) toma su nombre del final de la URL, sin tipo ni tamaño.
+ */
+export function toFileRef(value: unknown): FileRef | null {
+	if (isFileRef(value)) return value;
+	if (typeof value === 'string' && value.trim()) return { url: value.trim(), nombre: fileNameOf(value.trim()), tipo: '', tamano: 0 };
+	return null;
+}
+
+/** Los archivos de una celda `folder` (o `file`) como lista de `FileRef`. */
+export function fileRefsOf(value: unknown): FileRef[] {
+	if (Array.isArray(value)) return value.map(toFileRef).filter((f): f is FileRef => f !== null);
+	const one = toFileRef(value);
+	return one ? [one] : [];
 }

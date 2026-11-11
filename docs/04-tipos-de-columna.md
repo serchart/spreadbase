@@ -4,7 +4,7 @@
 > ellos. La contraseña tiene su propio apartado (§2): es el único tipo cuyo
 > valor guardado nunca sale del servidor.
 
-**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-21, SB-22)
+**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-21, SB-22, SB-38)
 
 ---
 
@@ -22,8 +22,13 @@ ejemplo de Postgres (hojas de productos y de usuarios).
 | `DATE` | `AAAA-MM-DD` | `required`, fecha válida | `DD/MM/AAAA`; calendario | Lanzamiento |
 | `DATETIME` | `AAAA-MM-DD HH:mm` | `required`, fecha y hora válidas | `DD/MM/AAAA HH:mm`; calendario con hora | Último surtido |
 | `IMAGE` | URL (`https://`, `/`, `data:image/`) | `required`, que sea URL de imagen | Miniatura (`shape: 'round'` = avatar) | Foto, avatar |
+| `FILE` | `{ url, nombre, tipo, tamano }` (`FileRef`) o solo la URL (SB-30) | `required`, URL `http(s)` o ruta, nombre no vacío | Ícono, nombre, tamaño y ↗ (§3) | Contrato, ficha en PDF |
+| `FOLDER` | lista de `FileRef` | `required` (lista no vacía), cada archivo válido | Carpeta, «3 archivos» y los nombres; panel con la lista (§3) | Archivos del plan |
 | `BOOLEAN` | `true` / `false` | `required`, que sea booleano | Casilla: un clic la alterna. Al copiar, «Sí»/«No» | Activo |
 | `PASSWORD` | ver §2 | `required`, `minLength` (default 8), `maxLength` | `••••••••` | Contraseña |
+
+`TEXT` con `multiline: true` es **texto largo** (una ficha en markdown, un JSON): la celda muestra su
+tipo (MD/JSON) y la primera línea; se lee y edita en un visor amplio (§3.4).
 
 Comunes a todos: `label`, `readOnly`, `required`, `defaultValue`, `validate`
 (función, solo en el servidor), `width`, `align`, `searchable` (texto).
@@ -100,9 +105,75 @@ idempotencia solo hay una huella del cuerpo del lote.
 
 ---
 
-## 3. Pruebas
+## 3. Archivos: `FILE` y `FOLDER` (SB-38)
+
+### 3.1 Declararlos
+
+```ts
+import { diskStorage, types } from '@spreadbase/server';
+const archivos = diskStorage({ dir: './uploads/planes', publicUrl: 'https://api.midominio.mx/uploads/planes' });
+
+columns: {
+	imagen:       { type: types.IMAGE,  label: 'Imagen', upload: { storage: archivos, maxSize: '5mb' } },
+	contrato:     { type: types.FILE,   label: 'Contrato', upload: { storage: archivos, accept: ['application/pdf'] } },
+	archivos:     { type: types.FOLDER, label: 'Archivos', upload: { storage: archivos, maxSize: '20mb' } },
+	fichaTecnica: { type: types.TEXT,   label: 'Ficha técnica', multiline: true }
+}
+```
+
+En la tabla: `jsonb` (o `text`) para `FILE` y `FOLDER`; `text` para el texto largo.
+
+### 3.2 El valor
+
+```ts
+interface FileRef { url: string; nombre: string; tipo: string; tamano: number }   // @spreadbase/core
+// FILE:   FileRef | 'https://…/contrato.pdf' (la URL suelta de SB-30 sigue valiendo)
+// FOLDER: FileRef[]
+```
+
+- `url` es la de `FileStorage.save` (SB-30); `nombre` el que se muestra (al subir, el nombre limpio);
+  `tipo` el real (por el contenido); `tamano` en bytes.
+- Igualdad por contenido (`sameValue`: JSON con las claves ordenadas): leer un archivo y devolverlo en
+  `from` no es conflicto, aunque la base devuelva las claves en otro orden.
+- `postgresSource` escribe el objeto o la lista como JSON (en `jsonb` o en `text`) y al leer convierte el
+  JSON en objeto; una URL suelta se queda como texto. La huella (SB-4) los incluye como cualquier columna.
+- `mongoSource` los guarda como subdocumento o lista (los números de BSON, como `Int32`, vuelven como
+  número).
+- Filtrar: `FILE` por su texto (en Postgres, el JSON de la columna); `FOLDER` no se filtra.
+
+### 3.3 En la celda
+
+| | `FILE` | `FOLDER` |
+|---|---|---|
+| Celda | Ícono por tipo, nombre, tamaño (si se conoce) y ↗ (abre; lo que no es imagen, PDF o texto se descarga, `serve()` de SB-30) | Ícono de carpeta, «N archivos» y los nombres (todos en el tooltip) |
+| Panel (doble clic) | Pegar una URL, **Subir**, arrastrar o pegar el archivo; al subir queda el `FileRef` | La lista: cada archivo con nombre, tamaño, ↗ y ✕ (quitar); **Subir** agrega varios (o soltarlos en el panel); «Vaciar» y «Aceptar» |
+| Copiar / pegar | La URL | Una URL por línea |
+
+Todo cambio queda pendiente y se guarda con el lote, como cualquier celda (deshacer, borrador y
+conflictos no cambian).
+
+### 3.4 Texto largo (`multiline`)
+
+La celda: una etiqueta `MD` o `JSON` (si el texto lo es) y la primera línea (sin `#`). El visor: un
+área de 560 px en monoespaciado con el conteo de caracteres; «Formatear JSON» si el texto es un JSON
+válido; Ctrl/⌘+Enter acepta y Escape descarta. Es presentación: el valor sigue siendo texto y se valida
+como `TEXT`. (El texto nunca se interpreta como HTML.)
+
+### 3.5 Desde el asistente de importación (SB-36 §8)
+
+Un destino `adjuntar` con `columna: { formato, campo, emparejar? }` lleva el archivo a esa columna de la
+fila que **empareja**: por `destino.fila` (la llave exacta, la deja el cerebro o la persona) o por nombre
+(los valores de `emparejar` como palabras completas del nombre o la carpeta del archivo). El valor sale
+del tipo de la columna: `IMAGE` la URL, `FILE` el `FileRef`, `FOLDER` se suma a la lista, texto el
+derivado del agente (ficha.md) o el documento en markdown (método P). Queda como `update` en el staging.
+
+## 4. Pruebas
 
 | Archivo | Qué cubre |
 |---|---|
 | `tests/postgres/password.test.ts` (11) | La marca en lista, fila, respuesta y conflicto; distinta por fila; filtro ignorado y orden rechazado; sin `hash` no arranca; el hash con su contexto, el handler solo ve el hash; alta obligatoria; longitud, vaciar y marca rechazadas; conflicto y aviso sobre la marca; booleano de ida y vuelta y su filtro |
+| `tests/postgres/archivos.test.ts` (4) | `FILE`/`FOLDER` en `jsonb` y `text`: leer el JSON como objeto y la URL suelta como texto, escribir objetos y listas sin conflicto falso, validación, esquema y sin filtro de carpeta |
+| `tests/mongo/archivos.test.ts` (2) | Lo mismo sobre MongoDB (subdocumento, lista, `Int32` → número) |
+| `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7) | Subir un `FILE` deja `{ url, nombre, tipo, tamano }` con su tamaño en la celda; carpeta con conteo y nombres, panel que lista, abre, quita y sube varios; texto largo con su tipo, visor amplio y «Formatear JSON» |
+| `tests/protocol/asistente.test.ts` (T-1 a T-3) | La hoja Planes GMF con imagen, carpeta y ficha; emparejar por nombre (unidad completa, carpeta, ficha en markdown, sin emparejar y ambiguo) y por `destino.fila` |
 | `tests/grid/tipos.test.ts` (T-1 a T-5) | Puntos y casilla al cargar, sin rastro del hash en la página; editor vacío que no cambia nada; contraseña nueva que no llega al borrador y se guarda; contraseña corta marcada; casilla con clic, deshacer, rehacer y guardado; copiar una contraseña da vacío |

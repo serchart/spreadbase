@@ -23,7 +23,8 @@
 		"@spreadbase/core": "0.1.2",
 		"exceljs": "^4.4.0",
 		"jspreadsheet-ce": "^5.0.4",
-		"jsuites": "^6.4.3"
+		"jsuites": "^6.4.3",
+		"jszip": "^3.10.2"
 	},
 	"peerDependencies": {
 		"daisyui": "^5.0.0",

@@ -63,6 +63,9 @@ export function filterKind(type: ColumnType): FilterKind | null {
 		case 'image':
 		case 'file':
 			return 'text';
+		// Una lista de archivos no se filtra (SB-38).
+		case 'folder':
+			return null;
 		case 'number':
 			return 'number';
 		case 'date':
@@ -182,6 +185,8 @@ export function filterValueOf(value: unknown, type: ColumnType): string | number
 	if (type === 'number') return Number(value);
 	if (type === 'datetime') return String(value).slice(0, 10);
 	if (type === 'boolean') return value === true || value === 'true';
+	// Un archivo guardado como objeto (SB-38) se filtra por su JSON, como lo ve Postgres en una columna de texto.
+	if (typeof value === 'object') return JSON.stringify(value);
 	return String(value);
 }
 

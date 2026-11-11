@@ -7,7 +7,7 @@
  */
 
 import type { Component } from 'svelte';
-import type { AvatarSpec, ColumnFilter, ValuesResult } from '@spreadbase/core';
+import type { AvatarSpec, ColumnFilter, FileRef, ValuesResult } from '@spreadbase/core';
 
 export type { AvatarSpec, ColumnFilter, ValuesResult };
 
@@ -17,7 +17,8 @@ export interface SortSpec {
 	dir: 'asc' | 'desc';
 }
 
-export type CellValue = string | number | boolean | null;
+/** El valor de una celda; los archivos (`file`, `folder`, SB-38) son `FileRef` o lista de `FileRef`. */
+export type CellValue = string | number | boolean | null | FileRef | FileRef[];
 
 export interface Option {
 	value: string;
@@ -321,8 +322,11 @@ export interface ChangeSet {
 export type SaveResult =
 	/** Hay celdas inválidas: no se llegó a llamar al backend. */
 	| { status: 'invalid'; issues: GridIssue[] }
-	/** El backend rechazó la operación o hubo un fallo de red. */
-	| { status: 'error'; message: string }
+	/**
+	 * El backend rechazó la operación o hubo un fallo de red. `problems`: los
+	 * valores que el servidor rechazó, por fila y campo (ya marcados en su celda).
+	 */
+	| { status: 'error'; message: string; problems?: { rowKey: string; field: string | null; message: string }[] }
 	/**
 	 * Guardado hecho, con el desglose de lo aplicado. Con fuente remota puede
 	 * ser parcial (G-11): `conflicts` filas quedaron pendientes de resolver y
@@ -668,6 +672,8 @@ export interface DataGridTheme {
 	newAccent?: string;
 	invalidBg?: string;
 	invalidAccent?: string;
+	warningBg?: string;
+	warningAccent?: string;
 
 	popoverBg?: string;
 	popoverFg?: string;

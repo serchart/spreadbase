@@ -9,11 +9,14 @@
 		"test:watch": "vitest"
 	},
 	"devDependencies": {
-		"playwright": "^1.63.0",
-		"vitest": "^4.1.11",
-		"@spreadbase/server": "0.1.0",
-		"pg": "^8.16.3",
+		"@spreadbase/server": "*",
+		"@spreadbase/testing": "*",
 		"@types/pg": "^8.15.5",
-		"@spreadbase/testing": "0.1.0"
+		"exceljs": "^4.4.0",
+		"express": "^5.2.1",
+		"mongodb": "^7.7.0",
+		"pg": "^8.16.3",
+		"playwright": "^1.63.0",
+		"vitest": "^4.1.11"
 	}
 }

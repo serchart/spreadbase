@@ -82,13 +82,18 @@ export interface SheetCommands {
 	addRow(): void | Promise<void>;
 	deleteSelection(): void | Promise<void>;
 	reload(): void | Promise<void>;
-	save(): void | Promise<void>;
+	/** Guarda y repinta; devuelve el resultado del guardado. */
+	save(): void | Promise<SaveResult | void>;
 	discard(): void | Promise<void>;
 	undo(): void | Promise<void>;
 	redo(): void | Promise<void>;
 	setValues(changes: CellWrite[]): void | Promise<void>;
 	/** Repinta el estado de las celdas (clases y avisos) sin tocar los datos. */
 	repaint?(): void;
+	/** Vuelca los datos del controlador a la hoja y la repinta (tras cambiar filas desde fuera). */
+	repaintAll?(): void | Promise<void>;
+	/** Lleva la hoja a una fila (la carga si está fuera de la ventana) y la selecciona. */
+	revealRow?(rowKey: string): void | Promise<void>;
 }
 
 /** Un valor escrito desde fuera de la hoja (un botón de la barra, un reparto). */
@@ -227,6 +232,8 @@ export class GridController {
 	 * (se corrigió) y una recarga los borra todos. Las reglas propias ganan.
 	 */
 	private external = new Map<string, string>();
+	/** Avisos de fuera que no son error (SB-36): se pintan en ámbar y no bloquean ni cuentan como error. */
+	private externalWarnings = new Map<string, string>();
 
 	/** Contador para disparar reactividad tras mutaciones imperativas. */
 	version = $state(0);
@@ -676,7 +683,21 @@ export class GridController {
 		 * además la repinta; sin ella, solo cambia los datos.
 		 */
 		setValues: (changes: CellWrite[]) =>
-			this.sheetCommands ? this.sheetCommands.setValues(changes) : this.writeValues(changes)
+			this.sheetCommands ? this.sheetCommands.setValues(changes) : this.writeValues(changes),
+		/** Vuelca los datos a la hoja montada y la repinta (tras `save()` o cambios hechos por fuera de la hoja). */
+		sync: async () => {
+			await this.sheetCommands?.repaintAll?.();
+		},
+		/** Lleva la hoja a una fila por su clave (p. ej. la primera resaltada con `highlightRows`). */
+		revealRow: async (rowKey: string) => {
+			await this.sheetCommands?.revealRow?.(rowKey);
+		},
+		/** `stageChanges` y, con la hoja montada, repintarla (las altas y bajas cambian sus filas). */
+		stage: async (input: Parameters<GridController['stageChanges']>[0]) => {
+			const out = await this.stageChanges(input);
+			await this.sheetCommands?.repaintAll?.();
+			return out;
+		}
 	};
 
 	/** Los valores en el controlador, en una sola acción del historial. */
@@ -738,6 +759,17 @@ export class GridController {
 		return this.dirtyCells.size;
 	}
 
+	/** Las filas nuevas pendientes, con su clave (en el orden en que se crearon). */
+	get createdRows(): GridRow[] {
+		this.version;
+		return [...this.rows, ...this.detached.values()].filter((r) => this.createdKeys.has(r.__key));
+	}
+
+	/** Lo que la fila tenía en el servidor (antes de editarla), o `undefined` si es nueva o no se conoce. */
+	baselineOf(key: string): GridRow | undefined {
+		return this.baseline.get(key);
+	}
+
 	get createdCount(): number {
 		this.version;
 		return this.createdKeys.size;
@@ -757,17 +789,43 @@ export class GridController {
 
 	/**
 	 * Pone los avisos de fuera (SB-34) y quita los anteriores. `field` es la
-	 * columna; sin él, la primera columna visible de la fila.
+	 * columna; sin él, la primera columna visible de la fila. `level: 'warning'`
+	 * (SB-36) la pinta en ámbar, sin contarla como error.
 	 */
-	setExternalErrors(list: { rowKey: string; field?: string | null; message: string }[]): void {
+	/** Filas resaltadas desde fuera (`highlightRows`): un fondo de color, sin tocar sus datos ni su estado. */
+	private highlighted = new Set<string>();
+
+	/**
+	 * Resalta filas por su clave —«las filas que salieron de este archivo» en el
+	 * staging del asistente (SB-36)— o, con una lista vacía, quita el resaltado.
+	 * Es solo pintura: no cambia datos, historial ni cambios pendientes.
+	 */
+	highlightRows(keys: Iterable<string>): void {
+		this.highlighted = new Set(keys);
+		this.version++;
+		this.sheetCommands?.repaint?.();
+	}
+
+	isHighlightedRow(rowKey: string): boolean {
+		return this.highlighted.has(rowKey);
+	}
+
+	get highlightedCount(): number {
+		this.version;
+		return this.highlighted.size;
+	}
+
+	setExternalErrors(list: { rowKey: string; field?: string | null; message: string; level?: 'error' | 'warning' }[]): void {
 		this.external.clear();
+		this.externalWarnings.clear();
 		const first = this.columns.find((c) => !c.hidden && c.type !== 'action')?.field;
-		for (const { rowKey, field, message } of list) {
+		for (const { rowKey, field, message, level } of list) {
 			const target = field && this.columnIndex.has(field) ? field : first;
 			if (!target) continue;
 			const id = cellId(rowKey, target);
-			const previous = this.external.get(id);
-			this.external.set(id, previous ? `${previous} · ${message}` : message);
+			const map = level === 'warning' ? this.externalWarnings : this.external;
+			const previous = map.get(id);
+			map.set(id, previous ? `${previous} · ${message}` : message);
 		}
 		this.version++;
 		this.sheetCommands?.repaint?.();
@@ -830,6 +888,11 @@ export class GridController {
 	cellError(rowKey: string, field: string): string | undefined {
 		const id = cellId(rowKey, field);
 		return this.errors.get(id) ?? this.external.get(id);
+	}
+
+	/** El aviso de fuera (no error) de una celda, si lo hay (SB-36). */
+	cellWarning(rowKey: string, field: string): string | undefined {
+		return this.externalWarnings.get(cellId(rowKey, field));
 	}
 
 	// -- registro de cambios por fila ---------------------------------------
@@ -1641,10 +1704,19 @@ export class GridController {
 		this.deletedRows = [];
 		this.errors.clear();
 		this.external.clear();
+		this.externalWarnings.clear();
 		// Los datos de partida son otros: deshacer hacia el estado anterior
 		// produciría filas que ya no existen en el servidor.
 		this.clearHistory();
 	}
+
+	/** Campos de `avatar.image` que no son columnas: viajan en la fila para pintar la miniatura. */
+	private get avatarImageFields(): string[] {
+		return (this.#avatarImageFields ??= [
+			...new Set(this.columns.flatMap((c) => (c.type !== 'lookup' && c.avatar?.image && !this.columnIndex.has(c.avatar.image) ? [c.avatar.image] : [])))
+		]);
+	}
+	#avatarImageFields: string[] | undefined;
 
 	private toGridRow(raw: Record<string, unknown>): GridRow {
 		const id = raw[this.idField];
@@ -1654,6 +1726,9 @@ export class GridController {
 			row[column.field] = type.parse(raw[column.field], column);
 		}
 		row[this.idField] = id ?? null;
+		// La foto de la miniatura (`avatar.image`, SB-29) sale de la misma fila aunque no sea una columna
+		// (p. ej. el ícono de estado de la hoja de archivos del asistente): se conserva tal cual.
+		for (const field of this.avatarImageFields) if (raw[field] !== undefined) row[field] = raw[field];
 		// Testigo de modificación del servidor, si lo envía: lo necesitan el borrador y R3.
 		if (raw.rowVersion !== undefined) row.__version = raw.rowVersion;
 		return row;
@@ -1771,6 +1846,7 @@ export class GridController {
 		row[field] = value;
 		// Corregida a mano: el aviso de fuera ya no aplica.
 		this.external.delete(cellId(row.__key, field));
+		this.externalWarnings.delete(cellId(row.__key, field));
 		this.refreshDirty(row, column);
 		/*
 			Un validador a nivel de fila (`column.validate` recibe la fila entera) ve
@@ -1894,22 +1970,86 @@ export class GridController {
 				this.createdKeys.delete(key);
 				this.forgetRowState(key);
 			}
-			for (const row of server) {
-				const key = row.__key;
-				const base = this.baseline.get(key);
-				for (const column of this.columns) {
-					if (!base || !this.dirtyCells.has(cellId(key, column.field))) continue;
-					const original = (base[column.field] ?? null) as CellValue;
-					this.record({ kind: 'cell', rowKey: key, field: column.field, before: (row[column.field] ?? null) as CellValue, after: original });
-					row[column.field] = original;
-				}
-				this.record({ kind: 'mark', rowKey: key, before: false, after: true });
-				this.deletedKeys.add(key);
-				this.forgetRowState(key);
-			}
+			for (const row of server) this.markDeleted(row);
 		});
 		if (created.length) this.composeWindow();
 		this.touch();
+	}
+
+	/** Marca como eliminada una fila del servidor (tachada hasta guardar), revirtiendo antes sus ediciones. */
+	private markDeleted(row: GridRow): void {
+		const key = row.__key;
+		const base = this.baseline.get(key);
+		for (const column of this.columns) {
+			if (!base || !this.dirtyCells.has(cellId(key, column.field))) continue;
+			const original = (base[column.field] ?? null) as CellValue;
+			this.record({ kind: 'cell', rowKey: key, field: column.field, before: (row[column.field] ?? null) as CellValue, after: original });
+			row[column.field] = original;
+		}
+		this.record({ kind: 'mark', rowKey: key, before: false, after: true });
+		this.deletedKeys.add(key);
+		this.forgetRowState(key);
+	}
+
+	/**
+	 * Aplica cambios propuestos desde fuera como **pendientes** (el staging del
+	 * asistente de importación, SB-36 §8.3): ediciones de filas existentes (por
+	 * id), altas y bajas, en una sola acción del historial. Quedan con los
+	 * estados de siempre —celda editada, fila nueva, fila eliminada— en el panel
+	 * de cambios, y se guardan con `save()` como cualquier lote.
+	 *
+	 * Con fuente remota, las filas que no están en la ventana se piden por id
+	 * (`where id in …`) y quedan retenidas fuera de ella. Devuelve la clave de
+	 * cada alta, en el orden recibido, y los ids que ya no existen.
+	 */
+	async stageChanges(input: {
+		updates?: { id: string; values: Record<string, unknown> }[];
+		inserts?: Record<string, unknown>[];
+		deletes?: string[];
+	}): Promise<{ inserted: string[]; missing: string[] }> {
+		const updates = input.updates ?? [];
+		const deletes = input.deletes ?? [];
+		const wanted = [...new Set([...updates.map((u) => u.id), ...deletes])].filter((id) => !this.getRow(id));
+		if (wanted.length && this.remote) {
+			for (let i = 0; i < wanted.length; i += 200) {
+				const ids = wanted.slice(i, i + 200);
+				const page = await this.remote.loadPage(
+					{ offset: 0, limit: ids.length, where: [{ field: this.idField, op: 'in', values: ids }] },
+					new AbortController().signal
+				);
+				for (const raw of page.rows) {
+					const fresh = this.toGridRow(raw);
+					if (this.getRow(fresh.__key)) continue;
+					this.baseline.set(fresh.__key, structuredClone(fresh));
+					this.detached.set(fresh.__key, fresh);
+				}
+			}
+		}
+		const missing = wanted.filter((id) => !this.getRow(id));
+		const inserted: string[] = [];
+		this.transaction(() => {
+			for (const u of updates) {
+				const row = this.getRow(u.id);
+				if (!row) continue;
+				for (const [field, value] of Object.entries(u.values)) this.setRowValue(row, field, value);
+			}
+			for (const id of deletes) {
+				const row = this.getRow(id);
+				if (!row || this.deletedKeys.has(row.__key)) continue;
+				if (this.remote) this.markDeleted(row);
+				else {
+					const at = this.rows.indexOf(row);
+					if (at >= 0) this.removeRowsAt([at]);
+				}
+			}
+			const created = this.remote ? this.insertRemoteRows(input.inserts?.length ?? 0) : this.insertRows(0, input.inserts?.length ?? 0);
+			created.forEach((row, i) => {
+				inserted.push(row.__key);
+				for (const [field, value] of Object.entries(input.inserts![i]!)) if (this.columnIndex.has(field) && field !== this.idField) this.setRowValue(row, field, value);
+			});
+		});
+		this.touch();
+		return { inserted, missing };
 	}
 
 	removeRowsAt(indexes: number[]): void {
@@ -2189,6 +2329,33 @@ export class GridController {
 		return { creates, updates, deletes };
 	}
 
+	/**
+	 * Un lote rechazado por valores inválidos (`validation_error` con `details`
+	 * `[{ path: 'updates[0].changes.precio', message }]`): cada motivo vuelve a
+	 * su celda como aviso de fuera (rojo, con el motivo en el tooltip), igual
+	 * que los de SB-34. Corregir la celda lo quita.
+	 */
+	private placeServerProblems(batch: BatchRequest, err: unknown): { rowKey: string; field: string | null; message: string }[] {
+		const details = (err as { details?: unknown } | null)?.details;
+		if (!Array.isArray(details)) return [];
+		const out: { rowKey: string; field: string | null; message: string }[] = [];
+		for (const d of details as { path?: string; message?: string }[]) {
+			const m = /^(creates|updates|deletes)\[(\d+)\](?:\.(?:values|changes)\.([^.]+))?/.exec(d.path ?? '');
+			if (!m) continue;
+			const i = Number(m[2]);
+			const rowKey = m[1] === 'creates' ? batch.creates[i]?.key : m[1] === 'updates' ? String(batch.updates[i]?.id ?? '') : String(batch.deletes[i]?.id ?? '');
+			if (!rowKey || !this.getRow(rowKey)) continue;
+			const field = m[3] && this.columnIndex.has(m[3]) ? m[3] : null;
+			out.push({ rowKey, field, message: d.message ?? 'Valor inválido' });
+			const target = field ?? this.columns.find((c) => !c.hidden && c.type !== 'action')?.field;
+			if (!target) continue;
+			const id = cellId(rowKey, target);
+			const previous = this.external.get(id);
+			this.external.set(id, previous && previous !== d.message ? `${previous} · ${d.message}` : (d.message ?? 'Valor inválido'));
+		}
+		return out;
+	}
+
 	/** Log de depuración (`config.debug`): un grupo plegable por evento en la consola. */
 	private debug(title: string, details: Record<string, unknown>): void {
 		if (!this.config.debug) return;
@@ -2254,7 +2421,8 @@ export class GridController {
 			// Red o servidor: el mismo lote reintentará con la misma llave.
 			this.failedAttempt = { body, key };
 			this.debug('guardar falló (el reintento usará la misma llave)', { error: err, key });
-			return { status: 'error', message: err instanceof Error ? err.message : 'Error desconocido al guardar' };
+			const problems = this.placeServerProblems(batch, err);
+			return { status: 'error', message: err instanceof Error ? err.message : 'Error desconocido al guardar', ...(problems.length ? { problems } : {}) };
 		} finally {
 			this.saving = false;
 			this.version++;

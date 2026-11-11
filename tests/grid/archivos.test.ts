@@ -37,7 +37,7 @@ describe('columna de archivo', () => {
 		await reset();
 	});
 
-	it('AR-1 · subir desde el panel: la celda muestra el nombre, queda editada y se guarda la URL', async () => {
+	it('AR-1 · subir desde el panel: la celda muestra el nombre y el tamaño, queda editada y se guarda { url, nombre, tipo, tamano } (SB-38)', async () => {
 		const { grid, page } = await open('/cases');
 		const cell = grid.cell(grid.rowById('case_000001'), 'Contrato');
 		expect((await cell.innerText()).trim()).toBe('—');
@@ -47,12 +47,13 @@ describe('columna de archivo', () => {
 		await panel(page).waitFor({ state: 'detached' });
 
 		expect(await cell.locator('.oc-file__name').innerText()).toBe('Contrato-Nunez.pdf');
+		expect(await cell.locator('.oc-file__size').innerText()).toBe(`${PDF.length} B`);
 		expect(await grid.state(grid.rowById('case_000001'), 'Contrato')).toContain('oc-cell-dirty');
 		const href = await cell.locator('a.oc-file__open').getAttribute('href');
 		expect(href).toMatch(new RegExp(`^${API_URL}/uploads/cases/[^/]+/Contrato-Nunez\\.pdf$`));
 
 		expect(await grid.save()).toContain('Cambios guardados');
-		expect((await getCase('case_000001')).contract_file).toBe(href);
+		expect((await getCase('case_000001')).contract_file).toEqual({ url: href, nombre: 'Contrato-Nunez.pdf', tipo: 'application/pdf', tamano: PDF.length });
 	});
 
 	it('AR-2 · ↗ abre el archivo en otra pestaña', async () => {
@@ -148,5 +149,95 @@ describe.skipIf(!available)('columna de imagen con subida', () => {
 				});
 			}
 		}
+	});
+});
+
+// -- carpeta y texto largo (SB-38): la hoja Planes GMF del asistente ------------------------------
+
+const PLANES = `${API_URL}/api/import-assistant/planes`;
+
+describe('carpeta y texto largo (SB-38)', () => {
+	beforeEach(async () => {
+		await fetch(`${PLANES}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+		// ONIX con un archivo en su carpeta y su ficha en markdown.
+		const row = await (await fetch(`${PLANES}/pl_00003`)).json();
+		const res = await fetch(`${PLANES}/batch`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				creates: [],
+				deletes: [],
+				updates: [
+					{
+						id: 'pl_00003',
+						rowVersion: row.rowVersion,
+						changes: {
+							archivos: { from: null, to: [{ url: `${API_URL}/uploads/planes/x1/manual.pdf`, nombre: 'manual.pdf', tipo: 'application/pdf', tamano: 2_097_152 }] },
+							fichaTecnica: { from: null, to: '# Ficha técnica ONIX 2026\n\n- Motor 1.0 turbo\n- Transmisión automática' }
+						}
+					}
+				]
+			})
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('AR-6 · carpeta: conteo y nombres en la celda; el panel lista cada archivo (abrir), quita y sube varios; se guarda la lista', async () => {
+		const { grid, page, shot } = await open('/import-assistant');
+		const row = grid.rowById('pl_00003');
+		const cell = grid.cell(row, 'Archivos');
+		await expect.poll(() => cell.innerText()).toMatch(/1 archivo\s*manual\.pdf/);
+		expect(await grid.cell(grid.rowById('pl_00001'), 'Archivos').innerText()).toBe('—');
+		// El texto largo: su tipo y la primera línea.
+		const ficha = grid.cell(row, 'Ficha técnica');
+		expect(await ficha.locator('.oc-longtext__kind').innerText()).toBe('MD');
+		expect(await ficha.locator('.oc-longtext__first').innerText()).toBe('Ficha técnica ONIX 2026');
+		await shot('celdas');
+
+		await cell.scrollIntoViewIfNeeded();
+		await cell.dblclick();
+		const folder = page.locator('.oc-cell-editor.oc-folder-editor');
+		await folder.waitFor();
+		expect(await folder.locator('.oc-folder-editor__title').innerText()).toBe('1 archivo');
+		expect(await folder.locator('.oc-folder-editor__item a.oc-file__open').getAttribute('href')).toBe(`${API_URL}/uploads/planes/x1/manual.pdf`);
+		expect(await folder.locator('.oc-folder-editor__item .oc-file__size').innerText()).toBe('2 MB');
+		// Subir dos a la vez.
+		await folder.locator('input.oc-cell-editor__file').setInputFiles([
+			{ name: 'frente.png', mimeType: 'image/png', buffer: PNG },
+			{ name: 'garantía.pdf', mimeType: 'application/pdf', buffer: PDF }
+		]);
+		await expect.poll(() => folder.locator('.oc-folder-editor__item').count(), { timeout: 10_000 }).toBe(3);
+		await shot('carpeta');
+		// Quitar el primero.
+		await folder.getByRole('button', { name: 'Quitar manual.pdf' }).click();
+		expect(await folder.locator('.oc-folder-editor__item .oc-file__name').allInnerTexts()).toEqual(['frente.png', 'garantia.pdf']);
+		await folder.getByRole('button', { name: 'Aceptar' }).click();
+		await folder.waitFor({ state: 'detached' });
+		expect((await cell.innerText()).replace(/\s+/g, ' ').trim()).toBe('2 archivos frente.png, garantia.pdf');
+		expect(await grid.state(row, 'Archivos')).toContain('oc-cell-dirty');
+		expect(await grid.save()).toContain('Cambios guardados');
+		const saved = (await (await fetch(`${PLANES}/pl_00003`)).json()).archivos;
+		expect(saved).toEqual([
+			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/frente\\.png$`)), nombre: 'frente.png', tipo: 'image/png', tamano: PNG.length },
+			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/garantia\\.pdf$`)), nombre: 'garantia.pdf', tipo: 'application/pdf', tamano: PDF.length }
+		]);
+	});
+
+	it('AR-7 · texto largo: se lee y edita en un visor amplio; un JSON se formatea; Ctrl+Enter acepta y se guarda', async () => {
+		const { grid, page } = await open('/import-assistant');
+		const ficha = grid.cell(grid.rowById('pl_00001'), 'Ficha técnica');
+		await ficha.scrollIntoViewIfNeeded();
+		await ficha.dblclick();
+		const viewer = page.locator('.oc-cell-editor.oc-longtext-editor');
+		await viewer.waitFor();
+		expect((await viewer.boundingBox())!.width).toBeGreaterThanOrEqual(540);
+		await viewer.locator('textarea').fill('{"motor":"1.5","puertas":5}');
+		await viewer.getByRole('button', { name: 'Formatear JSON' }).click();
+		expect(await viewer.locator('textarea').inputValue()).toBe('{\n  "motor": "1.5",\n  "puertas": 5\n}');
+		await page.keyboard.press('ControlOrMeta+Enter');
+		await viewer.waitFor({ state: 'detached' });
+		expect(await ficha.locator('.oc-longtext__kind').innerText()).toBe('JSON');
+		expect(await grid.save()).toContain('Cambios guardados');
+		expect((await (await fetch(`${PLANES}/pl_00001`)).json()).fichaTecnica).toBe('{\n  "motor": "1.5",\n  "puertas": 5\n}');
 	});
 });

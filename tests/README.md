@@ -75,6 +75,9 @@ npm test -- protocol
 | `protocol/` | Las reglas del protocolo por HTTP: lectura, lote, concurrencia por campo, idempotencia |
 | `grid/` | La hoja en el navegador: páginas `/cases` (con servidor) y `/local` (sin él); la columna lookup, la contraseña y la casilla en `/postgres` (se omiten si ese ejemplo no responde) |
 | `postgres/` | `postgresSource`, las columnas lookup y la contraseña contra una base real (`DATABASE_URL`). Proyecto aparte: no necesita los ejemplos encendidos (`npm test -- --project postgres`) |
+| `mongo/` | `mongoSource` contra un MongoDB real (`MONGO_URL`, replica set de un nodo; ver `support/mongo.ts`), sus filtros contra la regla de la memoria y el kit de contrato por HTTP. Si no hay Mongo, se omite (`npm test -- --project mongo`) |
+| `assistant/` | El agente importador (SB-36) sin servidores: reglas, modelo de guion con tools, rutas HTTP, boletín real con `EXTRACTION_PDF` (`npm test -- --project asistente`). El ejemplo encendido se prueba en `protocol/asistente.test.ts` |
+| `extraction/` | Extracción de archivos del asistente de importación (SB-36): PDF mínimo, Excel y CSV generados en la prueba, LLM falso y comparación. El boletín real solo con `EXTRACTION_PDF` (`npm test -- --project extraccion`) |
 | `test-results/` | Capturas y consolas (no se versiona) |
 
 ## Artefactos

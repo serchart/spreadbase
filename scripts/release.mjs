@@ -87,6 +87,7 @@ function build(name, version) {
 		...(name === 'client' ? { svelte: './index.js', sideEffects: ['**/*.css'] } : {}),
 		dependencies: pin(source.dependencies),
 		peerDependencies: source.peerDependencies,
+		peerDependenciesMeta: source.peerDependenciesMeta,
 		publishConfig: { access: process.env.NPM_ACCESS ?? 'public' }
 	};
 	writeFileSync(join(dist, 'package.json'), `${JSON.stringify(manifest, null, '\t')}\n`);
