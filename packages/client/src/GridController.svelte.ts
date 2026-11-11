@@ -11,7 +11,8 @@
  */
 
 import { filterKind, filterOpLabel, needsValue } from '@spreadbase/core';
-import { getCellType } from './cellTypes';
+import { getCellType, lookupKey } from './cellTypes';
+import { rememberMedia } from './avatar';
 import type {
 	BatchRequest,
 	BatchResponse,
@@ -28,6 +29,7 @@ import type {
 	GridConfig,
 	GridIssue,
 	GridRow,
+	PageResult,
 	RemoteDataSource,
 	RowChange,
 	RowSummary,
@@ -366,7 +368,30 @@ export class GridController {
 	 */
 	loadValues(field: string, signal?: AbortSignal): Promise<ValuesResult> | null {
 		if (!this.remote?.values) return null;
-		return this.remote.values(field, { where: this.where.filter((f) => f.field !== field) }, signal);
+		return this.remote.values(field, { where: this.where.filter((f) => f.field !== field) }, signal).then((result) => {
+			// En un `lookup`, el nombre de cada id de la lista (SB-21).
+			this.rememberLabels({ labels: result.labels ? { [field]: result.labels } : undefined });
+			return result;
+		});
+	}
+
+	/**
+	 * Lo que una fuente remota manda de los registros de sus `lookup` —el
+	 * nombre (`labels`), la foto (`images`) y el ícono (`icons`) de cada id—
+	 * entra a la caché antes de pintar: la celda nunca muestra un id pelón y el
+	 * buscador lo reconoce como elegido. Es el único lugar donde entra, venga la
+	 * fuente de `Sheet(url)` o escrita a mano (SB-39).
+	 */
+	private rememberLabels(page: Pick<PageResult, 'labels' | 'images' | 'icons'>) {
+		for (const [field, labels] of Object.entries(page.labels ?? {})) {
+			for (const [id, label] of Object.entries(labels)) this.labelCache.set(lookupKey(field, id), label);
+		}
+		for (const [field, images] of Object.entries(page.images ?? {})) {
+			for (const [id, image] of Object.entries(images)) rememberMedia(this.labelCache, field, id, { image });
+		}
+		for (const [field, icons] of Object.entries(page.icons ?? {})) {
+			for (const [id, icon] of Object.entries(icons)) rememberMedia(this.labelCache, field, id, { icon });
+		}
 	}
 
 	/** Un valor de la lista del filtro como se ve en la hoja: etiquetas, no códigos; la fecha-hora por su día. */
@@ -1219,6 +1244,7 @@ export class GridController {
 		this.inflight.add(abort);
 		try {
 			const page = await this.remote!.loadPage({ ...request, ...this.query }, abort.signal);
+			this.rememberLabels(page);
 			return epoch === this.windowEpoch ? page : null;
 		} catch (err) {
 			if (abort.signal.aborted) return null;
@@ -1710,10 +1736,14 @@ export class GridController {
 		this.clearHistory();
 	}
 
-	/** Campos de `avatar.image` que no son columnas: viajan en la fila para pintar la miniatura. */
+	/** Campos de `avatar.image` y `avatar.iconField` que no son columnas: viajan en la fila para pintar la miniatura. */
 	private get avatarImageFields(): string[] {
 		return (this.#avatarImageFields ??= [
-			...new Set(this.columns.flatMap((c) => (c.type !== 'lookup' && c.avatar?.image && !this.columnIndex.has(c.avatar.image) ? [c.avatar.image] : [])))
+			...new Set(
+				this.columns.flatMap((c) =>
+					c.type === 'lookup' || !c.avatar ? [] : [c.avatar.image, c.avatar.iconField].filter((f): f is string => !!f && !this.columnIndex.has(f))
+				)
+			)
 		]);
 	}
 	#avatarImageFields: string[] | undefined;
@@ -1726,7 +1756,7 @@ export class GridController {
 			row[column.field] = type.parse(raw[column.field], column);
 		}
 		row[this.idField] = id ?? null;
-		// La foto de la miniatura (`avatar.image`, SB-29) sale de la misma fila aunque no sea una columna
+		// La foto y el ícono de la miniatura (`avatar.image`, `avatar.iconField`) salen de la misma fila aunque no sean columnas
 		// (p. ej. el ícono de estado de la hoja de archivos del asistente): se conserva tal cual.
 		for (const field of this.avatarImageFields) if (raw[field] !== undefined) row[field] = raw[field];
 		// Testigo de modificación del servidor, si lo envía: lo necesitan el borrador y R3.
@@ -2017,6 +2047,7 @@ export class GridController {
 					{ offset: 0, limit: ids.length, where: [{ field: this.idField, op: 'in', values: ids }] },
 					new AbortController().signal
 				);
+				this.rememberLabels(page);
 				for (const raw of page.rows) {
 					const fresh = this.toGridRow(raw);
 					if (this.getRow(fresh.__key)) continue;

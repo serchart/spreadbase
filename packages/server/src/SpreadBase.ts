@@ -178,21 +178,32 @@ export class SpreadBase {
 		const lookups = this.lookupFields();
 		if (lookups.length === 0) return page;
 		const labels: Record<string, Record<string, string>> = {};
-		// Con `avatar.image`, también la imagen de cada registro (SB-29).
+		// La miniatura de cada registro: su imagen con `avatar.image` (SB-29) y su
+		// ícono con `avatar.iconField` (SB-39), por el mismo camino.
 		const images: Record<string, Record<string, string>> = {};
+		const icons: Record<string, Record<string, string>> = {};
 		for (const [field, lookup] of lookups) {
 			const ids = unique(page.rows.map((row) => row[field]));
 			labels[field] = {};
-			const image = this.definition.columns[field]?.avatar?.image;
-			if (image) images[field] = {};
+			const avatar = this.definition.columns[field]?.avatar;
+			const media = [
+				[avatar?.image, images],
+				[avatar?.iconField, icons]
+			].filter((m): m is [string, Record<string, Record<string, string>>] => !!m[0]);
+			for (const [, into] of media) into[field] = {};
 			if (ids.length === 0) continue;
 			for (const row of await lookup.byIds(ids, context)) {
 				const id = String(row[lookup.value]);
 				labels[field][id] = String(row[lookup.display] ?? '');
-				if (image && typeof row[image] === 'string' && row[image]) images[field]![id] = row[image] as string;
+				for (const [key, into] of media) if (typeof row[key] === 'string' && row[key]) into[field]![id] = row[key] as string;
 			}
 		}
-		return Object.keys(images).length ? { ...page, labels, images } : { ...page, labels };
+		return {
+			...page,
+			labels,
+			...(Object.keys(images).length ? { images } : {}),
+			...(Object.keys(icons).length ? { icons } : {})
+		};
 	}
 
 	// -- filtros por columna (SB-33) ---------------------------------------------

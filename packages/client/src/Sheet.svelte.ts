@@ -1,6 +1,4 @@
 import { filterKind, type SchemaColumn, type SheetSchema } from '@spreadbase/core';
-import { lookupKey } from './cellTypes';
-import { avatarKey } from './avatar';
 import { applyColumnOverrides, type ColumnOverride } from './columns';
 import { GridController } from './GridController.svelte';
 import { filterParams, remoteClient, type RemoteOptions } from './remote';
@@ -122,38 +120,23 @@ export class Sheet {
 		const remote = remoteClient(this.url!, options);
 		const schema = await remote.schema();
 		this.schema = schema;
-		// Los nombres de los ids de cada tramo (columnas lookup) entran a la caché
-		// antes de pintar: la celda nunca muestra un id pelón.
-		const loadPage = async (request: PageRequest, signal: AbortSignal) => {
-			const page = await remote.loadPage(request, signal);
-			for (const [field, labels] of Object.entries(page.labels ?? {})) {
-				for (const [id, label] of Object.entries(labels)) grid.labelCache.set(lookupKey(field, id), label);
-			}
-			// Y la foto de cada registro, si la columna lleva `avatar.image` (SB-29).
-			for (const [field, images] of Object.entries(page.images ?? {})) {
-				for (const [id, url] of Object.entries(images)) grid.labelCache.set(avatarKey(field, id), url);
-			}
-			return page;
-		};
 		// Con filtros fijos (SB-28), el borrador local es de esa parte: el estado de
 		// cuenta de un cliente no se mezcla con el de otro.
 		const scope = filterParams(options.filters).map(([k, v]) => `${k}=${v}`).join('&');
-		const grid: GridController = new GridController({
+		const grid = new GridController({
 			id: scope ? `${schema.id}?${scope}` : schema.id,
 			idField: schema.idField,
 			allowInsert: schema.allowInsert,
 			allowDelete: schema.allowDelete,
 			columns: applyColumnOverrides(schemaColumns(schema.columns, remote), options.columns, options.actions),
+			// Los nombres y miniaturas de los `lookup` de cada tramo los guarda el
+			// controlador, igual que con una fuente escrita a mano (SB-39).
 			dataSource: {
-				loadPage,
+				loadPage: remote.loadPage,
 				locate: remote.locate,
 				saveBatch: remote.saveBatch,
 				queryable: true,
-				values: async (field, state, signal) => {
-					const result = await remote.values(field, state, signal);
-					for (const [id, label] of Object.entries(result.labels ?? {})) grid.labelCache.set(lookupKey(field, id), label);
-					return result;
-				},
+				values: remote.values,
 				strategy: 'window',
 				pageSize: options.pageSize,
 				windowSize: options.windowSize

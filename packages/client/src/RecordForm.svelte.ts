@@ -89,11 +89,12 @@ export class RecordForm {
 			const byField = new Map(editable.map((c) => [c.field, c]));
 			const columns = wanted.flatMap((f) => (byField.has(f) ? [{ ...byField.get(f)!, ...this.#options.columns?.[f] }] : []));
 			const form = new FormState(columns, Object.fromEntries(columns.map((c) => [c.field, (row[c.field] ?? null) as CellValue])));
-			// Los `lookup` con su nombre y su foto: el campo nunca muestra un id.
+			// Los `lookup` con su nombre, su foto y su ícono: el campo nunca muestra un id.
 			for (const c of columns) {
 				const value = row[c.field];
 				if (c.type !== 'lookup' || value === null || value === undefined) continue;
-				form.set(c.field, value as CellValue, page.labels?.[c.field]?.[String(value)], page.images?.[c.field]?.[String(value)]);
+				const id = String(value);
+				form.set(c.field, value as CellValue, page.labels?.[c.field]?.[id], page.images?.[c.field]?.[id], page.icons?.[c.field]?.[id]);
 			}
 			this.fields = columns.map((c) => c.field);
 			this.form = form;

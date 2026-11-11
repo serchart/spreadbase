@@ -21,7 +21,7 @@
  *
  * Las reglas del cliente guían; el servidor sigue siendo la autoridad al guardar.
  */
-import { avatarKey } from './avatar';
+import { cachedMedia, rememberMedia } from './avatar';
 import { getCellType, lookupKey } from './cellTypes';
 import type { Sheet } from './Sheet.svelte';
 import type { CellTypeContext, CellValue, ColumnDef, GridRow } from './types';
@@ -98,23 +98,33 @@ export class FormState {
 	 * Cambia un valor. En una columna `lookup` que llega ya elegida (un cliente
 	 * que viene en la URL), `label` es su nombre: sin él, el campo mostraría el
 	 * id hasta que el usuario lo vuelva a buscar. `image`, la foto de su
-	 * miniatura si la columna lleva `avatar.image` (SB-29).
+	 * miniatura si la columna lleva `avatar.image` (SB-29); `icon`, el nombre
+	 * de su ícono si lleva `avatar.iconField` (SB-39).
 	 */
-	set(name: string, value: CellValue, label?: string, image?: string | null) {
+	set(name: string, value: CellValue, label?: string, image?: string | null, icon?: string | null) {
 		this.values[name] = value;
 		delete this.#serverErrors[name];
 		if (value !== null && value !== undefined) {
 			if (label !== undefined) this.labelCache.set(lookupKey(name, value), label);
-			if (image) this.labelCache.set(avatarKey(name, value), image);
+			rememberMedia(this.labelCache, name, value, { image, icon });
 		}
 		this.#labels++;
 	}
 
 	/** La foto de la miniatura del valor de un `lookup` con `avatar.image`, si se conoce. */
 	imageOf(name: string): string | null {
+		return this.#media(name).image;
+	}
+
+	/** El nombre del ícono de la miniatura del valor de un `lookup` con `avatar.iconField`, si se conoce (SB-39). */
+	iconOf(name: string): string | null {
+		return this.#media(name).icon;
+	}
+
+	#media(name: string) {
 		void this.#labels;
 		const value = this.values[name];
-		return value === null || value === undefined ? null : (this.labelCache.get(avatarKey(name, value)) ?? null);
+		return value === null || value === undefined ? { image: null, icon: null } : cachedMedia(this.labelCache, name, value);
 	}
 
 	/** Texto visible del valor, con el formato de su tipo (la etiqueta en `select` y `lookup`). */

@@ -22,6 +22,7 @@ campo o con `form.touchAll()`.
 <script lang="ts">
 	import { fileNameOf } from '@spreadbase/core';
 	import Avatar from './Avatar.svelte';
+	import { withRecordIcon } from './avatar';
 	import { getCellType } from './cellTypes';
 	import type { FormState } from './FormState.svelte';
 	import type { CellValue } from './types';
@@ -168,9 +169,10 @@ campo o con `form.touchAll()`.
 				onkeydown={onKeydown}
 			>
 				<!-- Imagen: su miniatura; imagen y archivo: su nombre, no la URL (SB-30). -->
-				<!-- `lookup` con `avatar`: la foto, iniciales o ícono del elegido, como en la celda (SB-29). -->
+				<!-- `lookup` con `avatar`: la foto, el ícono, las iniciales o el ícono fijo del elegido, como en la celda (SB-29, SB-39). -->
 				{#if column.avatar && column.type === 'lookup' && form.values[name] != null && form.display(name)}
-					<Avatar text={form.display(name)} image={form.imageOf(name)} initials={column.avatar.initials} icon={column.avatar.icon} shape={column.avatar.shape} />
+					{@const spec = withRecordIcon(column.avatar, form.iconOf(name))}
+					<Avatar text={form.display(name)} image={form.imageOf(name)} initials={spec.initials} icon={spec.icon} shape={spec.shape} />
 				{/if}
 				{#if column.type === 'image' && typeof form.values[name] === 'string' && form.values[name]}
 					<img src={String(form.values[name])} alt="" class="rounded-field size-6 shrink-0 object-cover" />

@@ -13,7 +13,7 @@
 import { flushSync, mount, unmount, type Component } from 'svelte';
 import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isPasswordMark, toFileRef } from '@spreadbase/core';
 import type { FileRef } from '@spreadbase/core';
-import { avatarKey, avatarNode, iconSvg } from './avatar';
+import { avatarNode, cachedMedia, hasIcon, iconSvg, recordMedia, rememberMedia } from './avatar';
 import { positionFloating } from './internal/floating';
 import type { CellTypeContext, CellTypeDef, CellValue, ColumnDef, GridRow, LookupColumnDef, Option } from './types';
 
@@ -233,7 +233,17 @@ interface PickerSource {
 	debounceMs?: number;
 	/** Oportunidad de memorizar la etiqueta elegida. */
 	remember?: (opt: Option) => void;
+	/** Valor canónico → nombre del ícono de su opción (`Option.icon`, SB-39), para la celda. */
+	icon?: (value: CellValue) => string | undefined;
 	placeholder?: string;
+}
+
+/**
+ * El ícono de una opción (`Option.icon`, SB-39) como marcado, o vacío si el
+ * nombre no está en el registro. El SVG es del registro, no de los datos.
+ */
+function optionIconHtml(name: string | undefined): string {
+	return hasIcon(name) ? `<span class="oc-option-icon" data-icon="${escapeHtml(name)}" aria-hidden="true">${iconSvg(name)}</span>` : '';
 }
 
 const CHEVRON_SVG =
@@ -251,13 +261,15 @@ const CHEVRON_SVG =
  * El envoltorio es un `<div>` y el `<td>` conserva su `display` a propósito: un
  * `td` con `display: flex` sale del modelo de tabla y descuadra la fila.
  */
-function renderPickerCell(cell: HTMLTableCellElement, text: string, avatar: HTMLElement | null = null): void {
+function renderPickerCell(cell: HTMLTableCellElement, text: string, avatar: HTMLElement | null = null, icon?: string): void {
 	cell.classList.add('oc-picker-cell');
 	cell.innerHTML = '';
 
 	const wrap = document.createElement('div');
 	wrap.className = 'oc-picker';
 	if (avatar) wrap.appendChild(avatar);
+	// El ícono de la opción (SB-39), solo con un valor que pintar.
+	if (text && icon) wrap.insertAdjacentHTML('beforeend', optionIconHtml(icon));
 
 	const label = document.createElement('span');
 	label.className = 'oc-picker__text';
@@ -277,7 +289,7 @@ function buildPickerEditor(source: PickerSource) {
 	const minLength = source.minLength ?? 0;
 	const debounceMs = source.debounceMs ?? 0;
 	const paint = (cell: HTMLTableCellElement, value: CellValue) =>
-		renderPickerCell(cell, source.label(value));
+		renderPickerCell(cell, source.label(value), null, source.icon?.(value));
 
 	return {
 		createCell(cell: HTMLTableCellElement, value: CellValue) {
@@ -324,9 +336,11 @@ function buildPickerEditor(source: PickerSource) {
 					list.innerHTML = results
 						.map(
 							(opt, i) =>
+								// El valor a la derecha sirve cuando es un código (`chg_programado`);
+								// si es igual a la etiqueta, solo la repetiría (SB-39).
 								`<div class="oc-cell-editor__option${i === highlighted ? ' is-active' : ''}" data-index="${i}">
-								<span class="oc-cell-editor__label">${escapeHtml(opt.label)}</span>
-								<span class="oc-cell-editor__value">${escapeHtml(opt.value)}</span>
+								${optionIconHtml(opt.icon)}<span class="oc-cell-editor__label">${escapeHtml(opt.label)}</span>
+								${opt.value === opt.label ? '' : `<span class="oc-cell-editor__value">${escapeHtml(opt.value)}</span>`}
 							</div>`
 						)
 						.join('');
@@ -546,10 +560,9 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 	const widths = fields.map((f) => lookup.columns[f]!.width ?? 160);
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
 		const label = lookupLabel(value, column, ctx);
-		const avatar =
-			column.avatar && !isBlank(value)
-				? avatarNode(column.avatar, label, ctx.labelCache.get(avatarKey(column.field, value)))
-				: null;
+		// La foto o el ícono del registro elegido (SB-29, SB-39), de la caché.
+		const media = column.avatar && !isBlank(value) ? cachedMedia(ctx.labelCache, column.field, value) : null;
+		const avatar = media ? avatarNode(column.avatar!, label, media.image, media.icon) : null;
 		renderPickerCell(cell, label, avatar);
 	};
 	/**
@@ -632,8 +645,8 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 					body.querySelectorAll<HTMLTableRowElement>('tr').forEach((tr, i) => {
 						const row = rows[i]!;
 						const text = String(row[lookup.display] ?? '');
-						const image = column.avatar!.image ? row[column.avatar!.image] : null;
-						const node = avatarNode(column.avatar!, text, typeof image === 'string' ? image : null);
+						const { image, icon } = recordMedia(column.avatar!, row);
+						const node = avatarNode(column.avatar!, text, image, icon);
 						const td = tr.cells[avatarAt];
 						if (node && td) {
 							td.classList.add('oc-lookup__with-avatar');
@@ -695,8 +708,7 @@ function buildLookupEditor(column: ColumnDef, ctx: CellTypeContext) {
 			const commit = (row: Record<string, unknown>) => {
 				const id = String(row[lookup.value]);
 				ctx.labelCache.set(lookupKey(column.field, id), String(row[lookup.display] ?? id));
-				const image = column.avatar?.image ? row[column.avatar.image] : null;
-				if (typeof image === 'string' && image) ctx.labelCache.set(avatarKey(column.field, id), image);
+				if (column.avatar) rememberMedia(ctx.labelCache, column.field, id, recordMedia(column.avatar, row));
 				if (activeEditor) activeEditor.value = id;
 				closeThroughInstance(instance, cell, true);
 			};
@@ -1622,8 +1634,9 @@ function buildTextEditor(paint: (cell: HTMLTableCellElement, value: CellValue) =
 }
 
 /**
- * Texto con miniatura (SB-29): la foto sale de `avatar.image` en la misma fila
- * (`ctx.rowAt`); sin foto, las iniciales o el ícono.
+ * Texto con miniatura (SB-29): la foto (`avatar.image`) y el ícono
+ * (`avatar.iconField`, SB-39) salen de la misma fila (`ctx.rowAt`); sin ellos,
+ * las iniciales o el ícono fijo.
  *
  * Se edita **dentro de la celda**, como el texto nativo: el editor de
  * jspreadsheet no deja pintar la celda, así que este lo imita (un `input` en
@@ -1637,8 +1650,8 @@ function buildAvatarTextEditor(column: ColumnDef, ctx: CellTypeContext) {
 		const text = isBlank(value) ? '' : String(value);
 		// jspreadsheet puede pasar la fila como texto («3»): se lee como número.
 		const at = Number(y);
-		const image = spec.image && Number.isFinite(at) ? ctx.rowAt?.(at)?.[spec.image] : null;
-		const avatar = avatarNode(spec, text, typeof image === 'string' ? image : null);
+		const { image, icon } = recordMedia(spec, Number.isFinite(at) ? ctx.rowAt?.(at) : undefined);
+		const avatar = avatarNode(spec, text, image, icon);
 		if (!avatar) return;
 		const wrap = document.createElement('div');
 		wrap.className = 'oc-avatar-cell';
@@ -1935,7 +1948,8 @@ const selectType: CellTypeDef = {
 	toColumn: (column) => ({
 		type: buildPickerEditor({
 			search: (query) => filterOptions(column.options ?? [], query),
-			label: (value) => selectLabel(value, column)
+			label: (value) => selectLabel(value, column),
+			icon: (value) => (isBlank(value) ? undefined : column.options?.find((o) => o.value === value)?.icon)
 		}),
 		align: column.align ?? 'left'
 	})
@@ -2481,13 +2495,21 @@ const actionType: CellTypeDef = {
 	toClipboard: () => '',
 	fromClipboard: () => null,
 	validate: () => null,
-	toColumn: (column) => {
+	toColumn: (column, ctx) => {
 		const action = column.action;
 		const html = iconHtml(action?.icon);
 		const showLabel = action?.showLabel !== false;
-		const label = action?.label ?? '';
-		const paint = (cell: HTMLTableCellElement) => {
-			if (cell.querySelector(':scope > .oc-action')) return;
+		// Texto fijo, o sacado de la fila (`label: (row) => …`, SB-39).
+		const labelOf = (y: number): string => {
+			if (typeof action?.label !== 'function') return action?.label ?? '';
+			const row = Number.isFinite(y) ? ctx.rowAt?.(y) : undefined;
+			return row ? action.label(row) : '';
+		};
+		const paint = (cell: HTMLTableCellElement, y: number) => {
+			const label = labelOf(Number(y));
+			const current = cell.querySelector<HTMLButtonElement>(':scope > .oc-action');
+			// El botón ya está y su texto no cambió: nada que hacer.
+			if (current && current.getAttribute('aria-label') === (label || 'Acción')) return;
 			cell.innerHTML = '';
 			if (!action) return;
 			const button = document.createElement('button');
@@ -2499,7 +2521,7 @@ const actionType: CellTypeDef = {
 			// sigue en la hoja, igual que con la toolbar.
 			button.addEventListener('mousedown', (e) => e.preventDefault());
 			button.innerHTML = html;
-			if (showLabel) {
+			if (showLabel && label) {
 				const text = document.createElement('span');
 				text.textContent = label;
 				button.appendChild(text);
@@ -2508,12 +2530,12 @@ const actionType: CellTypeDef = {
 		};
 		return {
 			type: {
-				createCell(cell: HTMLTableCellElement) {
-					paint(cell);
+				createCell(cell: HTMLTableCellElement, _value: CellValue, _x?: number, y?: number) {
+					paint(cell, y ?? Number(cell.dataset.y));
 					return cell;
 				},
-				updateCell(cell: HTMLTableCellElement, value: CellValue) {
-					paint(cell);
+				updateCell(cell: HTMLTableCellElement, value: CellValue, _x?: number, y?: number) {
+					paint(cell, y ?? Number(cell.dataset.y));
 					return value;
 				}
 			},

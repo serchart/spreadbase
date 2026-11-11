@@ -23,6 +23,11 @@ export type CellValue = string | number | boolean | null | FileRef | FileRef[];
 export interface Option {
 	value: string;
 	label: string;
+	/**
+	 * Nombre de un ícono del registro (`registerIcons`): se pinta antes de la
+	 * etiqueta, en la celda y en la lista del editor (SB-39).
+	 */
+	icon?: string;
 	/** Datos extra que quiera arrastrar la fuente (no se persisten). */
 	meta?: Record<string, unknown>;
 }
@@ -170,8 +175,12 @@ export interface LookupDef {
  * nunca queda sucia. Su `field` solo la identifica.
  */
 export interface ColumnAction {
-	/** Texto del botón. Siempre va en `aria-label` y `title`, se muestre o no. */
-	label: string;
+	/**
+	 * Texto del botón. Siempre va en `aria-label` y `title`, se muestre o no.
+	 * Fijo («Ficha») o sacado de la fila (`(row) => \`#${row.folio}\``, SB-39):
+	 * la función recibe la fila de la hoja (sus columnas, también las ocultas).
+	 */
+	label: string | ((row: GridRow) => string);
 	/** Icono de `@lucide/svelte` (el componente, no su nombre). */
 	icon?: Component;
 	/** Mostrar el texto junto al icono. Default: `true`. Con `false`, solo icono. */
@@ -408,6 +417,8 @@ export interface PageResult {
 	labels?: Record<string, Record<string, string>>;
 	/** Por columna `lookup` con `avatar.image`: id → URL de su imagen (SB-29). */
 	images?: Record<string, Record<string, string>>;
+	/** Por columna `lookup` con `avatar.iconField`: id → nombre de su ícono (SB-39). */
+	icons?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -419,6 +430,11 @@ export interface PageResult {
  * paginar habría filas repetidas y perdidas.
  */
 export interface RemoteDataSource {
+	/**
+	 * Un tramo. Los `labels`, `images` e `icons` que traiga (los nombres y la
+	 * miniatura de los registros de sus `lookup`) entran a la caché del grid
+	 * antes de pintar, venga la fuente de `Sheet(url)` o escrita a mano (SB-39).
+	 */
 	loadPage: (request: PageRequest, signal: AbortSignal) => Promise<PageResult>;
 	/**
 	 * Guarda un lote (§11.13). `idempotencyKey` identifica el intento: un

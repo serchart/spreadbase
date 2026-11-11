@@ -45,6 +45,8 @@ export interface Page<R = Row> {
 	labels?: Record<string, Record<string, string>>;
 	/** Por columna `lookup` con `avatar.image`: id → URL de su imagen (SB-29). */
 	images?: Record<string, Record<string, string>>;
+	/** Por columna `lookup` con `avatar.iconField`: id → nombre de su ícono (SB-39). */
+	icons?: Record<string, Record<string, string>>;
 }
 
 /** `GET /lookup/:field?q&offset&limit` */

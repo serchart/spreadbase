@@ -130,6 +130,27 @@ omite si el ejemplo de Postgres no responde).
 | **AV-6** | Elegir otra | La celda toma la foto de la elegida | ✅ |
 | **AV-7** | Foto rota | Enlace roto → sus iniciales, sin imagen rota | ✅ |
 
+### 8.1 Íconos tomados de los datos (`iconos.test.ts`, SB-39)
+
+Sobre el ejemplo `/stages` (memoria): Casos con «Etapa» (`lookup` con
+`avatar.iconField`), «Prioridad» (`select` con `icon` por opción) y «Estado»
+(valor = etiqueta); la vista «Etapas» y la misma hoja con una fuente remota
+escrita a mano (`?view=directa`). Cada prueba empieza con `POST /api/stages/reset`.
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **IC-1** | Ícono en la celda | Cada «Etapa» con el ícono de su etapa (`data-icon`, un SVG), cuadrado; el texto es solo el nombre | ✅ |
+| **IC-2** | Respaldo | Ícono vacío o desconocido → las iniciales, sin SVG | ✅ |
+| **IC-3** | Mini tabla | El buscador abre vacío, «6 de 6», cada fila con su ícono y la actual resaltada | ✅ |
+| **IC-4** | Elegir otra | La celda toma el ícono de la elegida y queda sucia | ✅ |
+| **IC-5** | Tema oscuro | El SVG usa `currentColor`; en «Medianoche» el color es más claro que en «Jardín» | ✅ |
+| **IC-6** | Texto, misma fila | En Etapas, el nombre lleva el ícono de su campo | ✅ |
+| **IC-7** | Ícono por opción | Celda y lista de «Prioridad» con el ícono; el código a la derecha; elegir cambia el ícono | ✅ |
+| **IC-8** | Sin valor repetido | «Estado» (valor = etiqueta): la lista no pinta el valor | ✅ |
+| **IC-9** | Fuente directa | Con `RemoteDataSource` a mano: nombre e ícono del lookup; el buscador abre con la lista completa | ✅ |
+| **IC-10** | Acción con texto de la fila | El botón dice «#1001» con su ícono y abre el detalle | ✅ |
+| **IC-11** | La acción sigue a la fila | Editar el folio cambia el texto del botón | ✅ |
+
 ## 9. Archivos e imágenes subidos (`archivos.test.ts`, SB-30)
 
 «Contrato» (`file`) en `/cases`; «Foto» (`image`) en `/postgres`, que se omite
@@ -203,6 +224,7 @@ Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 d
 | `filtros.test.ts` | FC-1 a FC-6 (SB-33) |
 | `importar.test.ts` | IMP-1 a IMP-4 (SB-34; y `protocol/importar.test.ts`, IMP-A1 a IMP-A8) |
 | `avatar.test.ts` | AV-1 a AV-7 (casos y ejemplo Postgres) |
+| `iconos.test.ts` | IC-1 a IC-11 (SB-39, ejemplo de etapas) |
 | `archivos.test.ts` | AR-1 a AR-5 (casos y ejemplo Postgres) |
 | `ficha.test.ts` | FR-1 a FR-5 (ejemplo básico) |
 

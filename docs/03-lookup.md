@@ -255,6 +255,12 @@ id pelón.
 }
 ```
 
+Con `avatar` en la columna, la misma llamada da también la miniatura de cada
+id: `images` (la URL de `avatar.image`, SB-29) e `icons` (el nombre de ícono de
+`avatar.iconField`, SB-39), por ejemplo `"icons": { "stage_id": { "st_2": "hourglass" } }`.
+El cliente los guarda en su caché en un solo lugar (el controlador), así que
+una fuente escrita a mano que devuelva lo mismo se ve igual que `Sheet(url)`.
+
 **Validación al guardar.** El motor junta los ids de cada columna `lookup` del
 lote y llama **una vez** a `byIds`. Un id que no existe rechaza el lote con 400
 y `No corresponde a ningún registro`, como cualquier valor inválido.

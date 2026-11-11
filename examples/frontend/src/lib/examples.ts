@@ -15,6 +15,13 @@ export const EXAMPLES = [
 		code: 'examples/backend/src/examples/basic/'
 	},
 	{
+		href: '/stages',
+		title: 'Etapas e íconos',
+		tag: 'avatar.iconField · Option.icon · SB-39',
+		text: 'Una hoja de casos cuya «Etapa» (lookup) muestra el ícono de la etapa elegida, tomado de un campo; «Prioridad» con un ícono por opción y el folio de la fila en el botón que abre el detalle. Incluye la misma hoja con una fuente remota escrita a mano.',
+		code: 'examples/backend/src/examples/stages/'
+	},
+	{
 		href: '/postgres',
 		title: 'Postgres',
 		tag: 'postgresSource · handlers · lookup · todos los tipos',

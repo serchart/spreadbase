@@ -17,7 +17,7 @@ ejemplo de Postgres (hojas de productos y de usuarios).
 |---|---|---|---|---|
 | `TEXT` | texto | `required`, `minLength`, `maxLength`, `pattern` (+ `patternMessage`) | Texto | Nombre, SKU, correo |
 | `NUMBER` | número | `required`, `min`, `max` | `prefix`, `suffix`, `precision`, `thousands` | Precio |
-| `SELECT` | texto de `options` | `required`, que esté en `options` | La etiqueta; buscador en lista | Estado, rol |
+| `SELECT` | texto de `options` | `required`, que esté en `options` | La etiqueta, con el ícono de la opción si trae `icon` (SB-39); buscador en lista (el valor a la derecha solo si es distinto de la etiqueta) | Estado, rol |
 | `LOOKUP` | id de otro recurso | `required`, que el id exista (`lookup.byIds`) | El nombre; mini tabla paginada | Responsable ([03-lookup.md](03-lookup.md)) |
 | `DATE` | `AAAA-MM-DD` | `required`, fecha válida | `DD/MM/AAAA`; calendario | Lanzamiento |
 | `DATETIME` | `AAAA-MM-DD HH:mm` | `required`, fecha y hora válidas | `DD/MM/AAAA HH:mm`; calendario con hora | Último surtido |
@@ -47,6 +47,8 @@ y renderizadores propios. El servidor no los declara: se agregan desde
 ```ts
 new Sheet(url, {
 	actions: [{ label: 'Abrir', icon: SquareArrowOutUpRight, onclick: (row) => abrir(row.id) }],
+	// o con el texto de la fila (SB-39): «#1042»
+	// actions: [{ label: (row) => `#${row.folio}`, icon: FileText, onclick: (row) => abrir(row.id) }],
 	columns: {
 		name: { width: 260 },                                    // parche sobre la del servidor
 		status: (col) => ({ ...col, label: 'Estado del contacto' }), // función: la recibe y devuelve la final

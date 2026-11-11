@@ -76,6 +76,7 @@ propias pruebas, y que OpenCollect sea su primer consumidor.
 | **SB-22** | **Contraseña como tipo de columna; el hash lo pone el motor** (2026-09-28). La columna `PASSWORD` declara `hash(plain, ctx)` (obligatoria: sin ella no arranca). Lo guardado nunca sale: el motor lo cambia por una marca opaca (`pwd:…`, por fila) en toda fila que devuelve, sea cual sea la fuente; la concurrencia por campo funciona sobre la marca. Handlers y fuente solo ven el hash. No se filtra ni se ordena por ella. En el cliente, vacío es «no cambiarla» y nunca se guarda en el borrador local. Junto con ella entra `BOOLEAN` (casilla). Detalle: `04-tipos-de-columna.md` | ✅ |
 | **SB-23** | **Columnas del cliente sobre el esquema del servidor** (2026-09-28). El servidor define la hoja (SB-12), pero lo que es de la pantalla —qué hacer al pulsar, un ancho, un título— se decide en el cliente: `new Sheet(url, { columns, actions })`. `columns[field]` es un **parche** que se mezcla sobre la columna del servidor, o una **función** que la recibe y devuelve la final; el campo nunca se renombra. Un campo que no está en el esquema es una columna **solo del cliente** (`at: 'start' \| 'end'`), siempre de solo lectura: no hay dónde guardarla. `actions` es un **atajo**: cada acción es una columna `action` al principio (`__action_0`…), a la que después se le aplican los ajustes de `columns` como a cualquier otra. Por debajo es una sola función pura, `applyColumnOverrides` | ✅ |
 | **SB-24** | **La barra en tres secciones y extensible** (2026-09-28). De izquierda a derecha: **edición** (deshacer, portapapeles, filas, recargar, descartar; solo icono, lo que no cabe pasa a ⋮), **acciones** (Guardar y los botones propios de la página, con texto; nunca se ocultan) y **paneles** (Filtros, Grupos, Cambios; al extremo derecho). Los botones propios se pasan en `toolbar={{ actions: [{ label, icon, onclick, variant, disabled }] }}`; `variant` es `outline` por defecto, porque la acción primaria de la vista suele ser Guardar. Además, las filas invisibles con que la barra y `PanelButton` miden sus botones van dentro de una caja recortada: sueltas, desbordaban y daban scroll horizontal a la página que contiene la hoja | ✅ |
+| **SB-39** | **Íconos tomados de los datos y acciones con el texto de la fila** (2026-11-11). Cinco piezas que una app (Aggy OS) resolvía con parches propios: **(1)** `avatar.iconField`: el **nombre** de un ícono de `registerIcons` sale de un campo, con el mismo camino que `image` —en `text`, de la misma fila; en `lookup`, del registro elegido: el servidor lo manda por id en `Page.icons` junto a `labels` e `images`, y la mini tabla del buscador y `Field` lo toman igual—. Se llama `iconField` y no `icon` porque `icon` ya es el ícono **fijo** de la columna y cambiarle el sentido rompería a quien lo usa; el sufijo dice que el valor es un campo. Respaldo: foto → ícono del registro → iniciales → ícono fijo → genérico; vacío o desconocido cae a lo de siempre. Se dibuja como SVG con `currentColor` (sigue el tema). **(2)** `Option.icon`: ícono antes de la etiqueta en la celda y en la lista de un `select`. **(3)** La lista no pinta el valor a la derecha si es igual a la etiqueta. **(4)** Los `labels`/`images`/`icons` de un tramo (y los `labels` de `/values`) los guarda el controlador en un solo lugar (`rememberLabels`), así que un `RemoteDataSource` escrito a mano los entrega igual que `Sheet(url)`; antes solo los leía `Sheet` y el buscador de un `lookup` abría filtrado con el id. **(5)** `ColumnAction.label` acepta `(row) => string` («#1042»); se repinta al editar la fila. Ejemplo `/stages`; §4.4; pruebas IC-1…IC-11, `avatar.test.ts`, `remoteLabels.test.ts` y `protocol/api.read` | ✅ |
 | **SB-38** | **Archivos como valor de celda: `FILE` con `FileRef` y `FOLDER`; texto largo** (2026-10-09). El valor canónico de un archivo es `{ url, nombre, tipo, tamano }` (`FileRef`, core); una URL suelta (SB-30) sigue siendo válida y se muestra por su nombre. `FOLDER` es una lista de `FileRef`. Validan URL `http(s)`/ruta y nombre; `CellValue` los admite y `sameValue` los compara por JSON con las claves ordenadas (sin conflictos falsos). Subir en una celda `file` deja el `FileRef` (nombre limpio, tipo real y tamaño de `POST /upload/:field`); en `folder`, «Subir» agrega varios, ✕ quita, ↗ abre o descarga. `postgresSource` los guarda como JSON en `jsonb` o `text` y los lee como objeto; `mongoSource`, como subdocumento o lista. Una carpeta no se filtra. `text` con `multiline: true` se ve con su tipo (MD/JSON) y su primera línea y se edita en un visor amplio con «Formatear JSON». En el asistente (SB-36 §8), un destino `adjuntar` con `columna` lleva el archivo a esa columna de la fila que empareja por nombre (o por `destino.fila`). `04-tipos-de-columna.md` §3 | ✅ |
 | **SB-37** | **Reservada** (2026-10-08): el motor de agentes y el servidor propio viven fuera de este repo, en un proyecto privado. La librería no depende de ellos. | — |
 | **SB-34** | **Importar a través de un formato** (2026-09-30). Un **formato** (`importFormat`, server) declara columnas como una hoja —mismos tipos y reglas, `lookup` incluido— sin tabla detrás, más `aliases` (otros encabezados con que puede venir: «Razón Social» = «Nombre fiscal») y **de dónde sale cada dato**: `from: 'file'` (columna del archivo), `'form'` (un valor para todas las filas, se pide una vez) o `'either'` (del archivo si trae la columna; si no, del formulario). También su `key` (crear o actualizar; no se repite en un archivo), el encabezado que lo identifica y el pie con la **suma de control**. La app solo escribe `review` (qué haría) y `apply` (hacerlo); SpreadBase valida antes, en ambos, lo que valida una hoja. `importRoutes([...])` monta lista, esquema, lookups de la vista previa, `review` y `apply` (cuerpo JSON: `{ rows, fields, fileName, checksum, force }`). En el cliente, **`<SheetImport url>`**: a la izquierda el formato y **solo los datos que el archivo no trae**, lo leído y lo que dijo el servidor; a la derecha la **vista previa**, una hoja local donde se suelta un Excel o CSV (se lee en el navegador; `exceljs` se carga al usarlo), se pega desde una hoja de cálculo o se escribe, y se corrige. La tabla se encuentra sola (`locateTable`, core: encabezado donde esté, por etiqueta o alias sin acentos, columnas de más se ignoran) y cada valor se interpreta con el tipo de su columna, como al pegar (las fechas de Excel son días UTC). **Revisar** marca en la celda lo que encontró el servidor (`GridController.setExternalErrors`; corregir la celda quita la marca) y editar pide revisar otra vez; lo que la app frena y se puede forzar (el guardarraíl de un corte) se aplica con confirmación. Un libro con varias hojas (instrucciones primero) se lee en la hoja que más columnas del formato reconoce; una columna que el archivo no trae toma su valor por omisión. Los `lookup` pueden resolver por otros campos además del nombre (`resolveBy`: la clave «YADI» → Yadira), también al pegar en una hoja. `ImportState` es el estado sin interfaz. Ejemplo `/imports` (contactos a la hoja básica); pruebas IMP-A1…IMP-A8 y IMP-1…IMP-4 | ✅ |
@@ -297,7 +298,7 @@ las mismas cosas. `Field` y `FormState` se usan fuera de la hoja igual que
   autoridad al guardar.
 - Estilo con daisyUI (`fieldset`, `input`, `label`), como los demás componentes.
 - Un `lookup` con `avatar` muestra en el campo la foto, iniciales o ícono del
-  elegido, como la celda (SB-29). `form.set(campo, id, nombre, foto)` para uno
+  elegido, como la celda (SB-29, SB-39). `form.set(campo, id, nombre, foto, ícono)` para uno
   que llega ya elegido.
 
 Ejemplo: `/form` (alta de producto sobre la hoja de Postgres).
@@ -332,16 +333,25 @@ assigned_user_id: { type: types.LOOKUP, label: 'Asesor', lookup: users, avatar: 
 name: { type: types.TEXT, label: 'Cliente', avatar: { initials: true, shape: 'square' } },
 // Solo ícono.
 issuer: { type: types.TEXT, label: 'Emisora', avatar: { icon: 'landmark', shape: 'square' } },
+// Un ícono por fila, el de la etapa elegida (SB-39): `etapas.icono` = 'hourglass', 'calendar-check'…
+etapa: { type: types.LOOKUP, label: 'Etapa', lookup: etapas, avatar: { iconField: 'icono', initials: true, shape: 'square' } },
 ```
 
 | Opción | Qué hace |
 |---|---|
 | `image` | Campo con la URL. En `lookup`, del registro elegido (lo manda el servidor en `Page.images`; el popover lo toma de la fila elegida). En `text`, de la misma fila. Solo `http(s)://`, `/…` o `data:image/`. |
 | `initials` | Hasta dos iniciales, sin `SA`, `CV`, `SAPI`, `de`, `del`… Color estable por texto (`--dg-avatar-1…8`). |
-| `icon` | Nombre de un ícono: `user`, `user-round`, `users`, `building`, `store`, `truck`, `bot`, `landmark`, `mail`, `phone`, `file-text`. Más con `registerIcons({ tractor: Tractor })` en el cliente. |
+| `iconField` | Campo con el **nombre** de un ícono (SB-39), del mismo lugar que `image`: en `lookup`, del registro elegido (en `Page.icons`); en `text`, de la misma fila. Vacío o desconocido: lo que sigue en el respaldo. |
+| `icon` | Nombre de un ícono, el mismo en toda la columna: `user`, `user-round`, `users`, `building`, `store`, `truck`, `bot`, `landmark`, `mail`, `phone`, `file-text`. Más con `registerIcons({ tractor: Tractor })` en el cliente. |
 | `shape` | `round` (default, personas) o `square` (empresas). |
 
-- **Respaldo:** foto → iniciales → ícono → genérico (persona o edificio).
+- **Respaldo:** foto → ícono del registro (`iconField`) → iniciales → ícono
+  fijo → genérico (persona o edificio). Los íconos son SVG con `currentColor`:
+  siguen el tema claro u oscuro.
+- **También en `select`** (SB-39): `options: [{ value: 'high', label: 'Alta', icon: 'arrow-up' }]`
+  pinta el ícono antes de la etiqueta, en la celda y en la lista. La lista
+  muestra el valor a la derecha solo si es distinto de la etiqueta (un código).
+- **Acciones con el texto de la fila** (SB-39): ``actions: [{ label: (row) => `#${row.folio}`, icon: FileText, onclick }]``.
 - **Dónde va:** en las hojas que **eligen** el registro (un `lookup`: el asesor
   de un cliente, el cliente de un contrato), junto al nombre. En la hoja
   **dueña** de la imagen (Usuarios, Clientes), la imagen va en su propia
@@ -354,7 +364,9 @@ issuer: { type: types.TEXT, label: 'Emisora', avatar: { icon: 'landmark', shape:
 - **Tema:** `--dg-avatar-size`, `--dg-avatar-fg`, `--dg-avatar-icon-bg/fg` y
   `--dg-avatar-1…8`; `theme-daisyui.css` los mezcla con los colores del tema.
 
-Ejemplos: «Cliente» en `/cases` (iniciales) y «Responsable» en `/postgres` (foto).
+Ejemplos: «Cliente» en `/cases` (iniciales), «Responsable» en `/postgres` (foto)
+y «Etapa» en `/stages` (ícono de la etapa elegida, también con una fuente
+remota escrita a mano).
 
 ### 4.5 Archivos e imágenes subidos (SB-30)
 
@@ -425,7 +437,9 @@ Ejemplos: «Contrato» en `/cases`, «Foto» en `/postgres` y en `/form`.
 
 Con columnas `lookup`, cada página trae además `labels`: el nombre de cada id
 del tramo (`03-lookup.md` §4); si la columna lleva `avatar.image`, también
-`images`: la URL de la foto de cada id (SB-29).
+`images`: la URL de la foto de cada id (SB-29); con `avatar.iconField`, `icons`:
+el nombre del ícono de cada id (SB-39). El cliente los guarda en su caché venga
+la fuente de `Sheet(url)` o escrita a mano.
 
 Paginación por **offset**, no por cursor: permite saltar a una posición (ir a
 una fila desde el panel de cambios). Se revisa si el volumen crece un orden de
@@ -660,6 +674,7 @@ cada navegador tiene su copia.
 | 22 | Ordenar y filtrar desde el encabezado (SB-33): `where` en el protocolo, memoria y Postgres con la misma regla, `GET /values/:field`, menú de columna y panel Filtros; 10 pruebas contra la base y FC-1…FC-5 en navegador | ✅ |
 | 20 | Formularios con las columnas de la hoja: `Field` y `FormState` (SB-25), ejemplo `/form`, F-1…F-5 en navegador (`tests/grid/form.test.ts`) | ✅ |
 | 24 | `mongoSource` (base de SB-36; Aggy Legacy guarda en Mongo): misma interfaz que `postgresSource`, `filter` fijo para una tabla dentro de `datadocuments`, huella o `versionField`, filtros SB-33 con `$expr`, conteo estimado de SB-35, transacción con sesiones, candados y idempotencia con TTL. `mongodb` como dependencia opcional. 36 pruebas contra Mongo 7 en Docker (`tests/mongo/`), kit de contrato incluido. §5.3 y `02-fuentes…` §4.3 | ✅ |
+| 29 | Íconos tomados de los datos (SB-39): `avatar.iconField` (texto y lookup, `Page.icons`), `Option.icon`, lista sin valor repetido, nombres e íconos de un `RemoteDataSource` escrito a mano, `ColumnAction.label` como función; ejemplo `/stages`, IC-1…IC-11 en navegador | ✅ |
 | 28 | Asistente de importación v2, segunda revisión (SB-36 §8): A2 (botón «Importar archivos», retomar la corrida por `origen`, «Ver documento»/«Ver staging»), S (staging = la hoja real de la tabla destino con los cambios de toda la corrida como pendientes, `GET/PUT /runs/:run/staging`, «Importar» = guardar la hoja con confirmación de eliminaciones) y T (`FILE`/`FOLDER`/texto largo, SB-38, y emparejar archivos con filas); en vivo por `GET /events` y «Detener» | ✅ |
 | 27 | Motor de agentes (SB-37): fuera de este repo | ✅ |
 | 26 | Agente importador de SB-36, lado servidor (`packages/server/src/importAgent/`): `importAgent` con `ImportLLM.chat` (bucle con tools, neutral al proveedor), `ImportRunStore` (`memoryRunStore`, con control de versión), `ImportRunner` (`inProcessRunner`), `ImportFileStorage` (`diskStorage` ahora con `read`/`remove`); destinos formato SB-34 (`upsert`/`replace`), `adjuntar` y descartar; 13 tools base; `importAssistantRoutes` con el contrato en core (`ImportRun`…); ejemplo `/api/import-assistant` (modelo de guion; Gemini opcional). `docs/05-asistente-importacion.md`. Cliente: `<ImportAssistant>` (ventana de 4 pasos: archivos, carpetas y zips abiertos en el navegador con `jszip`; destino e instrucción por archivo; análisis con chat; importar en segundo plano; Detalle con corregir y reintentar) y `ImportAssistantState`; página `/import-assistant`; AI-1 y AI-2 en navegador | ✅ |

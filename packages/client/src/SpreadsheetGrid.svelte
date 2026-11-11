@@ -202,8 +202,11 @@ Uso:
 
 	// -- construcción de la grilla -----------------------------------------
 
+	/** Columnas de acción con el texto de la fila (`label: (row) => …`, SB-39): se repintan al editar esa fila. */
+	let rowLabelActions: { x: number; type: { updateCell: (cell: HTMLTableCellElement, value: null, x: number, y: number) => unknown } }[] = [];
+
 	function buildColumns() {
-		return config.columns.map((column) => {
+		const columns = config.columns.map((column) => {
 			const type = getCellType(column.type);
 			return {
 				// Con título vacío jspreadsheet pone la letra de columna («A»).
@@ -214,6 +217,11 @@ Uso:
 				...type.toColumn(column, cellTypeContext)
 			};
 		});
+		rowLabelActions = columns.flatMap((c, x) => {
+			const type = (c as { type?: unknown }).type;
+			return typeof config.columns[x]?.action?.label === 'function' && type && typeof type === 'object' ? [{ x, type: type as never }] : [];
+		});
+		return columns;
 	}
 
 	function destroyGrid() {
@@ -424,6 +432,15 @@ Uso:
 			no arreglaría nada y cuesta `filas × columnas` accesos al DOM.
 		*/
 		paintCell(x, y);
+		// Una acción con el texto de la fila (SB-39) puede depender de la celda editada.
+		for (const action of rowLabelActions) {
+			try {
+				const td = worksheet?.getCellFromCoords(action.x, y);
+				if (td) action.type.updateCell(td, null, action.x, y);
+			} catch {
+				// La fila ya no está en la hoja: no hay nada que repintar.
+			}
+		}
 	}
 
 	/**

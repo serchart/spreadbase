@@ -65,6 +65,11 @@ export function registerIcons(more: Record<string, Component>): void {
 	}
 }
 
+/** ¿Hay un ícono con ese nombre en el registro? */
+export function hasIcon(name: unknown): name is string {
+	return typeof name === 'string' && icons.has(name);
+}
+
 /** El SVG de un ícono del registro, por nombre (se calcula una vez). */
 export function iconSvg(name: string): string {
 	const cached = svgCache.get(name);
@@ -108,12 +113,31 @@ export function toneOf(text: string): number {
 const IMAGE_URL = /^(https?:\/\/|data:image\/|\/)/;
 
 /**
- * El nodo de la miniatura para `text` según `spec`: imagen, y si no hay o no
- * carga, iniciales o ícono. `null` si la celda está vacía (sin texto no hay a
- * quién representar).
+ * `spec` con el ícono propio de un registro (`iconField`, SB-39): si es un
+ * nombre conocido, gana a las iniciales y al ícono fijo; si no, `spec` tal
+ * cual (lo de siempre). La imagen sigue primero: esto es su respaldo.
  */
-export function avatarNode(spec: AvatarSpec, text: string, imageUrl?: string | null): HTMLElement | null {
+export function withRecordIcon(spec: AvatarSpec, iconName?: string | null): AvatarSpec {
+	return hasIcon(iconName) ? { ...spec, initials: false, icon: iconName } : spec;
+}
+
+/** La miniatura de un registro según `spec`: su imagen y su ícono, si los trae. */
+export function recordMedia(spec: AvatarSpec, record: Record<string, unknown> | undefined): { image: string | null; icon: string | null } {
+	const read = (field: string | undefined) => {
+		const value = field && record ? record[field] : null;
+		return typeof value === 'string' && value ? value : null;
+	};
+	return { image: read(spec.image), icon: read(spec.iconField) };
+}
+
+/**
+ * El nodo de la miniatura para `text` según `spec`: imagen, y si no hay o no
+ * carga, el ícono del registro, las iniciales o el ícono fijo. `null` si la
+ * celda está vacía (sin texto no hay a quién representar).
+ */
+export function avatarNode(spec: AvatarSpec, text: string, imageUrl?: string | null, iconName?: string | null): HTMLElement | null {
 	if (!text) return null;
+	spec = withRecordIcon(spec, iconName);
 	const node = document.createElement('span');
 	const shape = spec.shape ?? 'round';
 	node.className = `oc-avatar is-${shape}`;
@@ -130,8 +154,10 @@ export function avatarNode(spec: AvatarSpec, text: string, imageUrl?: string | n
 			node.classList.add('has-initials', `tone-${toneOf(text)}`);
 			node.dataset.initials = initials;
 		} else {
+			const name = hasIcon(spec.icon) ? spec.icon : shape === 'square' ? 'building' : 'user';
 			node.classList.add('has-icon');
-			node.innerHTML = iconSvg(spec.icon ?? (shape === 'square' ? 'building' : 'user'));
+			node.dataset.icon = name;
+			node.innerHTML = iconSvg(name);
 		}
 	};
 
@@ -152,3 +178,16 @@ export function avatarNode(spec: AvatarSpec, text: string, imageUrl?: string | n
 
 /** Llave, en la caché de etiquetas, de la imagen de un registro de un `lookup`. */
 export const avatarKey = (field: string, id: unknown) => `avatar␟${field}␟${String(id)}`;
+/** Llave, en la caché de etiquetas, del nombre del ícono de un registro de un `lookup` (SB-39). */
+export const avatarIconKey = (field: string, id: unknown) => `avatar-icon␟${field}␟${String(id)}`;
+
+/** La miniatura conocida del registro `id` de la columna `lookup` `field`. */
+export function cachedMedia(cache: Map<string, string>, field: string, id: unknown) {
+	return { image: cache.get(avatarKey(field, id)) ?? null, icon: cache.get(avatarIconKey(field, id)) ?? null };
+}
+
+/** Guarda en la caché la miniatura del registro `id` (el elegido en el buscador o el que llega a un formulario). */
+export function rememberMedia(cache: Map<string, string>, field: string, id: unknown, media: { image?: string | null; icon?: string | null }) {
+	if (media.image) cache.set(avatarKey(field, id), media.image);
+	if (media.icon) cache.set(avatarIconKey(field, id), media.icon);
+}

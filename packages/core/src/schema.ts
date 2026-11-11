@@ -46,6 +46,12 @@ export type ColumnType = (typeof types)[keyof typeof types];
 export interface Option {
 	value: string;
 	label: string;
+	/**
+	 * Nombre de un ícono del registro del cliente (`registerIcons`), p. ej.
+	 * `hourglass`: se pinta antes de la etiqueta, en la celda y en la lista
+	 * (SB-39). Un nombre desconocido no pinta nada.
+	 */
+	icon?: string;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -115,9 +121,10 @@ export interface LookupSchema {
  * iniciales de una empresa o un ícono. Es presentación: el valor de la celda
  * (y lo que se valida, copia, busca o guarda) sigue siendo el texto o el id.
  *
- * Orden de respaldo: la imagen; si no hay o no carga, las iniciales (si
- * `initials`); si no, el ícono; si no, uno genérico (persona si es redonda,
- * edificio si es cuadrada).
+ * Orden de respaldo: la imagen; si no hay o no carga, el ícono propio del
+ * registro (`iconField`); si no hay o no es un nombre conocido, las iniciales
+ * (si `initials`); si no, el ícono fijo (`icon`); si no, uno genérico (persona
+ * si es redonda, edificio si es cuadrada).
  */
 export interface AvatarSpec {
 	/**
@@ -126,9 +133,18 @@ export interface AvatarSpec {
 	 * fila.
 	 */
 	image?: string;
+	/**
+	 * Campo con el **nombre** de un ícono del registro del cliente
+	 * (`registerIcons`): un ícono distinto por fila (SB-39). Sale del mismo lugar
+	 * que `image`: en una columna `lookup`, del registro elegido (el servidor lo
+	 * manda con su nombre, en `icons`); en las demás, de la misma fila. Se
+	 * dibuja con `currentColor`, así sigue el tema. Vacío o desconocido: lo que
+	 * sigue en el orden de respaldo.
+	 */
+	iconField?: string;
 	/** Las iniciales del texto (hasta dos), con un color estable por texto. */
 	initials?: boolean;
-	/** Nombre de un ícono del registro del cliente (`registerIcons`), p. ej. `building`. */
+	/** Nombre de un ícono del registro del cliente (`registerIcons`), p. ej. `building`: el mismo en toda la columna. */
 	icon?: string;
 	/** Default: `round`. */
 	shape?: 'round' | 'square';

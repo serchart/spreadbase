@@ -42,3 +42,28 @@ describe('lectura por páginas', () => {
 		expect(body.error.code).toBe('not_found');
 	});
 });
+
+describe('miniatura de los registros de un lookup (SB-29, SB-39)', () => {
+	it('con `avatar.iconField`, el tramo trae el ícono de cada registro en `icons`, junto a su nombre', async () => {
+		const { status, body } = await api('/api/stages/cases?offset=0&limit=6');
+		expect(status).toBe(200);
+		expect(body.labels.stage_id).toEqual({
+			st_1: 'Recepción',
+			st_2: 'En espera',
+			st_3: 'Cita agendada',
+			st_4: 'Cerrado',
+			st_5: 'Sin ícono',
+			st_6: 'Ícono desconocido'
+		});
+		// Vacío no viaja; un nombre desconocido sí (es el cliente quien conoce los íconos).
+		expect(body.icons.stage_id).toEqual({ st_1: 'inbox', st_2: 'hourglass', st_3: 'calendar-check', st_4: 'circle-check', st_6: 'no-existe' });
+		// Sin `avatar.image` no hay `images`.
+		expect(body.images).toBeUndefined();
+	});
+
+	it('el esquema anuncia `iconField` y los íconos de las opciones', async () => {
+		const { body } = await api('/api/stages/cases/schema');
+		expect(body.columns.stage_id.avatar).toEqual({ iconField: 'icon', initials: true, shape: 'square' });
+		expect(body.columns.priority.options[0]).toEqual({ value: 'high', label: 'Alta', icon: 'arrow-up' });
+	});
+});
