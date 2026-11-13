@@ -28,7 +28,7 @@ Uso:
 	import { grow, swap } from './internal/motion';
 	import Toolbar from './Toolbar.svelte';
 	import { GridController } from './GridController.svelte';
-	import { getCellType, lookupKey, normalizeForSearch, resolveLookupText } from './cellTypes';
+	import { getCellType, liveEditorValue, lookupKey, normalizeForSearch, resolveLookupText } from './cellTypes';
 	import { fromTsv, toTsv } from './clipboard';
 	import { destroySheet } from './jss';
 	import type {
@@ -224,6 +224,37 @@ Uso:
 		return columns;
 	}
 
+	/**
+	 * Lee lo que el editor abierto tiene escrito y se lo pasa al controlador.
+	 * Editor nativo (texto, número): el `input` de la celda. Editores propios:
+	 * su `read` (texto con avatar, panel de texto, contraseña, fecha tecleada).
+	 */
+	function updateLiveEdit() {
+		const edition = (worksheet as any)?.edition as [HTMLTableCellElement, string, number, number] | null | undefined;
+		if (!edition) return controller.clearLiveEdit();
+		const [td, , x, y] = edition;
+		const column = config.columns[Number(x)];
+		if (!column) return;
+		const custom = liveEditorValue(td);
+		const native = td.querySelector<HTMLInputElement | HTMLTextAreaElement>(':scope > input, :scope > textarea');
+		if (custom) controller.setLiveEdit(Number(y), column.field, custom.value);
+		else if (native) controller.setLiveEdit(Number(y), column.field, native.value);
+	}
+
+	/**
+	 * Cada tecla en un editor de esta hoja. En la fase de captura y un turno
+	 * después: así el editor ya actualizó lo suyo (la fecha interpreta lo
+	 * tecleado en su propio `input`).
+	 */
+	function handleLiveInput(event: Event) {
+		const edition = (worksheet as any)?.edition as [HTMLTableCellElement] | null | undefined;
+		if (!edition) return;
+		// Solo el editor de esta hoja: su celda o el panel flotante de un editor propio.
+		const target = event.target as Element | null;
+		if (!target || !(edition[0].contains(target) || target.closest?.('.oc-cell-editor'))) return;
+		setTimeout(updateLiveEdit, 0);
+	}
+
 	function destroyGrid() {
 		detachWindowScroll();
 		if (!worksheet || !container) return;
@@ -264,6 +295,9 @@ Uso:
 			about: false,
 			contextMenu: buildContextMenu,
 			onchange: handleChange,
+			// «Guardar» en vivo: lo escrito en el editor abierto cuenta si difiere de la referencia.
+			oneditionstart: () => queueMicrotask(updateLiveEdit),
+			oneditionend: () => controller.clearLiveEdit(),
 			// Los desplazamientos de las columnas fijas dependen de sus anchos.
 			onresizecolumn: () => applyFrozenColumns(),
 			onselection: (_i: any, x1: number, y1: number, x2: number, y2: number) => {
@@ -1369,6 +1403,7 @@ Uso:
 		for (const column of config.columns) {
 			column.preloadLabels?.forEach(([value, label]) => controller.labelCache.set(value, label));
 		}
+		document.addEventListener('input', handleLiveInput, true);
 		const restored = controller.tryRestore();
 		if (!restored) await controller.load();
 		createGrid();
@@ -1415,6 +1450,8 @@ Uso:
 	});
 
 	onDestroy(() => {
+		if (typeof document !== 'undefined') document.removeEventListener('input', handleLiveInput, true);
+		controller.clearLiveEdit();
 		detachSheet?.();
 		controller.dispose();
 		destroyGrid();

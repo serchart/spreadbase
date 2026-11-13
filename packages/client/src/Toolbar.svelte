@@ -167,7 +167,8 @@
 				icon: Save,
 				label: controller.saving ? 'Guardando…' : 'Guardar',
 				hint: 'Guardar los cambios pendientes',
-				disabled: off || !controller.hasPendingChanges || controller.saving,
+				// Cuenta lo escrito en la celda abierta: un clic la confirma y guarda.
+				disabled: off || !controller.canSave || controller.saving,
 				run: cmd.save,
 				primary: true
 			}

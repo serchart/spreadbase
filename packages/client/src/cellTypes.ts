@@ -135,6 +135,14 @@ interface ActiveEditor {
 	/** Valor que se devolverá si el cierre es con guardado. */
 	value: CellValue;
 	original: CellValue;
+	/**
+	 * Lo que confirmaría Enter en este momento (lo tecleado), si el editor lo
+	 * tiene. jspreadsheet cierra con guardado al clicar fuera o en otra celda
+	 * llamando directo a `closeEditor`, sin pasar por el Enter del editor: sin
+	 * esto, ese cierre devolvía `value` —aún el original— y lo escrito se
+	 * perdía. Salir de la celda confirma, como en una hoja de cálculo.
+	 */
+	read?: () => CellValue;
 	dispose: () => void;
 }
 
@@ -193,6 +201,22 @@ function mountOverlay(cell: HTMLTableCellElement, width = 280): HTMLDivElement {
  */
 function placeOverlay(overlay: HTMLElement, cell: HTMLTableCellElement): void {
 	positionFloating(overlay, cell, { gap: 2 });
+}
+
+/** El valor de un cierre con guardado: lo tecleado si el editor lo expone; si no, `value`. */
+function committedValue(): CellValue {
+	if (!activeEditor) return null;
+	return activeEditor.read ? activeEditor.read() : activeEditor.value;
+}
+
+/**
+ * Lo que el editor propio abierto en `cell` confirmaría ahora (su `read`), o
+ * `undefined` si no hay uno o no lo expone (listas y paneles con Aceptar, que
+ * cuentan al elegir). Para encender «Guardar» en vivo.
+ */
+export function liveEditorValue(cell: HTMLElement): { value: CellValue } | undefined {
+	if (!activeEditor?.read || activeEditor.cell !== cell) return undefined;
+	return { value: activeEditor.read() };
 }
 
 function disposeActiveEditor() {
@@ -1112,6 +1136,7 @@ function buildDateEditor(withTime: boolean) {
 				overlay,
 				value: draft,
 				original: value,
+				read: () => draft,
 				dispose: () => document.removeEventListener('mousedown', onDocMouseDown)
 			};
 
@@ -1120,7 +1145,7 @@ function buildDateEditor(withTime: boolean) {
 			typed.select();
 		},
 		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
-			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			const result = save ? committedValue() : (activeEditor?.original ?? null);
 			disposeActiveEditor();
 			paint(cell, result);
 			return result;
@@ -1551,13 +1576,14 @@ function buildPasswordEditor() {
 				overlay,
 				value,
 				original: value,
+				read: typed,
 				dispose: () => document.removeEventListener('mousedown', onDocMouseDown)
 			};
 			input.focus();
 			input.select();
 		},
 		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
-			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			const result = save ? committedValue() : (activeEditor?.original ?? null);
 			disposeActiveEditor();
 			paint(cell, result);
 			return result;
@@ -1619,13 +1645,14 @@ function buildTextEditor(paint: (cell: HTMLTableCellElement, value: CellValue) =
 				overlay,
 				value,
 				original: value,
+				read: () => (input.value === '' ? null : input.value),
 				dispose: () => document.removeEventListener('mousedown', onDocMouseDown)
 			};
 			input.focus();
 			input.select();
 		},
 		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
-			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			const result = save ? committedValue() : (activeEditor?.original ?? null);
 			disposeActiveEditor();
 			paint(cell, result);
 			return result;
@@ -1707,13 +1734,20 @@ function buildAvatarTextEditor(column: ColumnDef, ctx: CellTypeContext) {
 			});
 			input.addEventListener('blur', () => close(true));
 
-			activeEditor = { cell, overlay: holder, value, original: value, dispose: () => (closed = true) };
+			activeEditor = {
+				cell,
+				overlay: holder,
+				value,
+				original: value,
+				read: () => (input.value === '' ? null : input.value),
+				dispose: () => (closed = true)
+			};
 			input.focus();
 			// Lo tecleado sobre la celda la reemplaza, como en el editor nativo.
 			input.select();
 		},
 		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
-			const result = save ? (activeEditor?.value ?? null) : (activeEditor?.original ?? null);
+			const result = save ? committedValue() : (activeEditor?.original ?? null);
 			disposeActiveEditor();
 			cell.classList.remove('editor');
 			paint(cell, result, Number(cell.dataset.y));

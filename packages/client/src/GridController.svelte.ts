@@ -239,6 +239,13 @@ export class GridController {
 
 	/** Contador para disparar reactividad tras mutaciones imperativas. */
 	version = $state(0);
+	/**
+	 * La celda con el editor abierto y si lo que tiene escrito **ahora** difiere
+	 * de su valor de referencia (el del servidor). Lo escrito aún no es un
+	 * cambio —no entra al historial ni al lote hasta confirmarse—, pero sí
+	 * enciende «Guardar» (`canSave`): un solo clic confirma y guarda.
+	 */
+	private liveEdit = $state<{ rowKey: string; field: string; dirty: boolean } | null>(null);
 	loading = $state(false);
 	saving = $state(false);
 	loadError = $state<string | null>(null);
@@ -859,6 +866,49 @@ export class GridController {
 	get rowCount(): number {
 		this.version;
 		return this.rows.length;
+	}
+
+	/**
+	 * Lo que el editor abierto tiene escrito, en vivo (`raw`, como lo teclea una
+	 * persona). Solo cuenta si difiere del valor de referencia de esa celda; en
+	 * una fila nueva no hay referencia: la fila ya es un cambio.
+	 */
+	setLiveEdit(rowIndex: number, field: string, raw: unknown): void {
+		const row = this.rows[rowIndex];
+		const at = this.columnIndex.get(field);
+		const column = at === undefined ? undefined : this.columns[at];
+		if (!row || !column) return void (this.liveEdit = null);
+		const base = this.baseline.get(row.__key);
+		let dirty = false;
+		if (base && !this.createdKeys.has(row.__key) && !this.deletedKeys.has(row.__key)) {
+			const type = getCellType(column.type);
+			const equals = type.equals ?? ((a, b) => a === b);
+			dirty = !equals(type.parse(raw, column) as never, (base[field] ?? null) as never);
+		}
+		const prev = this.liveEdit;
+		if (prev?.rowKey === row.__key && prev.field === field && prev.dirty === dirty) return;
+		this.liveEdit = { rowKey: row.__key, field, dirty };
+	}
+
+	/** El editor se cerró (confirmado o descartado): lo escrito ya no cuenta en vivo. */
+	clearLiveEdit(): void {
+		if (this.liveEdit) this.liveEdit = null;
+	}
+
+	/**
+	 * «Guardar» encendido: hay cambios reales respecto del valor de referencia,
+	 * contando lo que el editor abierto tiene escrito en vivo. La celda en
+	 * edición se juzga por lo escrito, no por su último valor confirmado:
+	 * regresarla a su valor previo apaga el botón aunque siga abierta.
+	 */
+	get canSave(): boolean {
+		this.version;
+		const live = this.liveEdit;
+		if (!live) return this.hasPendingChanges;
+		if (live.dirty || this.createdKeys.size > 0 || this.deletedRows.length > 0 || this.deletedKeys.size > 0) return true;
+		const editing = cellId(live.rowKey, live.field);
+		for (const id of this.dirtyCells) if (id !== editing) return true;
+		return false;
 	}
 
 	get hasPendingChanges(): boolean {
