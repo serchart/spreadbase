@@ -204,6 +204,12 @@ Uso:
 
 	/** Columnas de acción con el texto de la fila (`label: (row) => …`, SB-39): se repintan al editar esa fila. */
 	let rowLabelActions: { x: number; type: { updateCell: (cell: HTMLTableCellElement, value: null, x: number, y: number) => unknown } }[] = [];
+	/**
+	 * Celdas de texto con miniatura (SB-29) cuya imagen o ícono sale de otro
+	 * campo de la misma fila: al editar ese campo (subir una foto, cambiar el
+	 * principal de una carpeta) se repintan.
+	 */
+	let avatarFollowers: { x: number; field: string; from: string[]; type: { updateCell: (cell: HTMLTableCellElement, value: unknown, x: number, y: number) => unknown } }[] = [];
 
 	function buildColumns() {
 		const columns = config.columns.map((column) => {
@@ -220,6 +226,14 @@ Uso:
 		rowLabelActions = columns.flatMap((c, x) => {
 			const type = (c as { type?: unknown }).type;
 			return typeof config.columns[x]?.action?.label === 'function' && type && typeof type === 'object' ? [{ x, type: type as never }] : [];
+		});
+		avatarFollowers = columns.flatMap((c, x) => {
+			const column = config.columns[x];
+			const type = (c as { type?: unknown }).type;
+			const from = [column?.avatar?.image, column?.avatar?.iconField].filter((f): f is string => !!f);
+			return column && column.type !== 'lookup' && from.length && type && typeof type === 'object'
+				? [{ x, field: column.field, from, type: type as never }]
+				: [];
 		});
 		return columns;
 	}
@@ -473,6 +487,15 @@ Uso:
 				if (td) action.type.updateCell(td, null, action.x, y);
 			} catch {
 				// La fila ya no está en la hoja: no hay nada que repintar.
+			}
+		}
+		for (const follower of avatarFollowers) {
+			if (!follower.from.includes(column.field)) continue;
+			try {
+				const td = worksheet?.getCellFromCoords(follower.x, y);
+				if (td) follower.type.updateCell(td, controller.rows[y]?.[follower.field] ?? null, follower.x, y);
+			} catch {
+				// La fila ya no está en la hoja.
 			}
 		}
 	}

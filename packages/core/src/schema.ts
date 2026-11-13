@@ -430,3 +430,35 @@ export function fileRefsOf(value: unknown): FileRef[] {
 	const one = toFileRef(value);
 	return one ? [one] : [];
 }
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
+
+/** ¿El archivo es una imagen? Por su tipo real o, si no lo trae (una URL suelta), por la extensión. */
+export function isImageFile(ref: FileRef): boolean {
+	if (ref.type) return ref.type.startsWith('image/') && ref.type !== 'image/svg+xml';
+	return IMAGE_EXT.test(ref.name || ref.url.split(/[?#]/)[0]!);
+}
+
+/**
+ * La imagen que representa un valor como miniatura (`avatar.image`, SB-29):
+ * una URL tal cual; en una carpeta (`folder`, SB-38), su **principal** —el
+ * primero de la lista— si es imagen; si no, la primera imagen de la carpeta;
+ * si no hay ninguna, `null`. Una carpeta que llega como texto JSON (una
+ * columna `text` de la base) se lee igual.
+ */
+export function thumbnailOf(value: unknown): string | null {
+	if (typeof value === 'string') {
+		const text = value.trim();
+		if (!text) return null;
+		if (!text.startsWith('[') && !text.startsWith('{')) return text;
+		try {
+			value = JSON.parse(text);
+		} catch {
+			return null;
+		}
+	}
+	if (!value || typeof value !== 'object') return null;
+	// `fileRefsOf` normaliza: también lee la forma obsoleta `{ url, nombre, tipo, tamano }`.
+	const refs = Array.isArray(value) || isFileRef(value) ? fileRefsOf(value) : [];
+	return refs.find(isImageFile)?.url ?? null;
+}

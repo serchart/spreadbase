@@ -147,12 +147,19 @@ interface FileRef { url: string; nombre: string; tipo: string; tamano: number } 
 
 | | `FILE` | `FOLDER` |
 |---|---|---|
-| Celda | Ícono por tipo, nombre, tamaño (si se conoce) y ↗ (abre; lo que no es imagen, PDF o texto se descarga, `serve()` de SB-30) | Ícono de carpeta, «N archivos» y los nombres (todos en el tooltip) |
-| Panel (doble clic) | Pegar una URL, **Subir**, arrastrar o pegar el archivo; al subir queda el `FileRef` | La lista: cada archivo con nombre, tamaño, ↗ y ✕ (quitar); **Subir** agrega varios (o soltarlos en el panel); «Vaciar» y «Aceptar» |
+| Celda | Ícono por tipo, nombre, tamaño (si se conoce) y ↗ (abre; lo que no es imagen, PDF o texto se descarga, `serve()` de SB-30) | El **principal** (el primero de la lista) según su tipo —miniatura si es imagen, ícono de su tipo si no—, «N archivos» y los nombres (todos en el tooltip) |
+| Panel (doble clic) | Pegar una URL, **Subir**, arrastrar o pegar el archivo; al subir queda el `FileRef` | La lista: cada archivo con nombre, tamaño, ↗, ☆ **Hacer principal** (lo pasa al primer lugar; el primero lleva «Principal») y ✕ (quitar); **Subir** agrega varios (o soltarlos en el panel); «Vaciar» y «Aceptar» |
 | Copiar / pegar | La URL | Una URL por línea |
 
 Todo cambio queda pendiente y se guarda con el lote, como cualquier celda (deshacer, borrador y
 conflictos no cambian).
+
+**Miniatura desde una carpeta.** `avatar.image` (SB-29) puede nombrar una columna `FOLDER`: la
+miniatura es su principal si es imagen; si no, la primera imagen de la carpeta; si no hay ninguna, el
+respaldo de siempre (iniciales o ícono). Vale en la misma fila (`text`) y en un `lookup`: el servidor
+manda en `Page.images` la URL de esa imagen, no la carpeta (`thumbnailOf`, core). Una carpeta que la
+base devuelve como texto JSON se lee igual. Ejemplo: `/catalog` («Modelo y año» toma la foto principal
+de «Fotos»; en «Unidades», el modelo elegido).
 
 ### 3.4 Texto largo (`multiline`)
 
@@ -176,6 +183,7 @@ derivado del agente (ficha.md) o el documento en markdown (método P). Queda com
 | `tests/postgres/password.test.ts` (11) | La marca en lista, fila, respuesta y conflicto; distinta por fila; filtro ignorado y orden rechazado; sin `hash` no arranca; el hash con su contexto, el handler solo ve el hash; alta obligatoria; longitud, vaciar y marca rechazadas; conflicto y aviso sobre la marca; booleano de ida y vuelta y su filtro |
 | `tests/postgres/archivos.test.ts` (4) | `FILE`/`FOLDER` en `jsonb` y `text`: leer el JSON como objeto y la URL suelta como texto, escribir objetos y listas sin conflicto falso, validación, esquema y sin filtro de carpeta |
 | `tests/mongo/archivos.test.ts` (2) | Lo mismo sobre MongoDB (subdocumento, lista, `Int32` → número) |
+| `tests/grid/carpeta.test.ts` (CP-1 a CP-5) | El principal en la celda según su tipo, el conteo y los nombres; «Hacer principal» y el orden guardado; `avatar.image` sobre la carpeta en la misma fila y en un `lookup` (`images` del servidor) |
 | `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7) | Subir un `FILE` deja `{ url, nombre, tipo, tamano }` con su tamaño en la celda; carpeta con conteo y nombres, panel que lista, abre, quita y sube varios; texto largo con su tipo, visor amplio y «Formatear JSON» |
 | `tests/protocol/asistente.test.ts` (T-1 a T-3) | La hoja Planes GMF con imagen, carpeta y ficha; emparejar por nombre (unidad completa, carpeta, ficha en markdown, sin emparejar y ambiguo) y por `destino.fila` |
 | `tests/grid/tipos.test.ts` (T-1 a T-5) | Puntos y casilla al cargar, sin rastro del hash en la página; editor vacío que no cambia nada; contraseña nueva que no llega al borrador y se guarda; contraseña corta marcada; casilla con clic, deshacer, rehacer y guardado; copiar una contraseña da vacío |

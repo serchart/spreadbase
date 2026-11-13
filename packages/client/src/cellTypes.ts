@@ -11,7 +11,7 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
-import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isPasswordMark, normalizeFileRef, normalizeFileValue, toFileRef } from '@spreadbase/core';
+import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isImageFile, isPasswordMark, normalizeFileRef, normalizeFileValue, toFileRef } from '@spreadbase/core';
 import type { FileRef } from '@spreadbase/core';
 import { avatarNode, cachedMedia, hasIcon, iconSvg, recordMedia, rememberMedia } from './avatar';
 import { positionFloating } from './internal/floating';
@@ -2179,9 +2179,34 @@ const folderType: CellTypeDef = {
 };
 
 /**
- * La celda de una carpeta y su panel. Celda: ícono, «3 archivos» y los
- * nombres. Panel: cada archivo con ↗ (abrir o descargar) y ✕ (quitar); con
- * `upload`, «Subir» agrega uno o varios; «Aceptar» deja la lista en la celda.
+ * La miniatura del **principal** de una carpeta (el primero de la lista): su
+ * imagen si es una; si no, o si no carga, el ícono de su tipo.
+ */
+function folderLead(ref: FileRef): HTMLElement {
+	const icon = () => {
+		const node = document.createElement('span');
+		node.className = 'oc-file__icon';
+		node.innerHTML = iconSvg(fileIcon(ref.name || ref.url));
+		return node;
+	};
+	if (!isImageFile(ref) || !IMAGE_URL.test(ref.url)) return icon();
+	const thumb = document.createElement('span');
+	thumb.className = 'oc-folder__thumb';
+	const img = document.createElement('img');
+	img.alt = '';
+	img.loading = 'lazy';
+	img.onerror = () => thumb.replaceWith(icon());
+	img.src = ref.url;
+	thumb.appendChild(img);
+	return thumb;
+}
+
+/**
+ * La celda de una carpeta y su panel. Celda: el principal (miniatura si es
+ * imagen, ícono de su tipo si no), «3 archivos» y los nombres (todos al pasar
+ * el cursor). Panel: cada archivo con ↗ (abrir o descargar), «Hacer principal»
+ * (lo pasa al primer lugar) y ✕ (quitar); con `upload`, «Subir» agrega uno o
+ * varios; «Aceptar» deja la lista en la celda.
  */
 function buildFolderEditor(column: ColumnDef) {
 	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
@@ -2198,9 +2223,7 @@ function buildFolderEditor(column: ColumnDef) {
 		const wrap = document.createElement('div');
 		wrap.className = 'oc-file oc-folder';
 		wrap.title = refs.map((r) => r.name).join('\n');
-		const icon = document.createElement('span');
-		icon.className = 'oc-file__icon';
-		icon.innerHTML = iconSvg('folder');
+		const icon = folderLead(refs[0]!);
 		const count = document.createElement('span');
 		count.className = 'oc-folder__count';
 		count.textContent = `${refs.length} ${refs.length === 1 ? 'archivo' : 'archivos'}`;
@@ -2251,6 +2274,22 @@ function buildFolderEditor(column: ColumnDef) {
 					const li = document.createElement('li');
 					li.className = 'oc-folder-editor__item';
 					li.appendChild(fileNode(ref));
+					if (i === 0) {
+						li.classList.add('is-primary');
+						const badge = document.createElement('span');
+						badge.className = 'oc-folder-editor__badge';
+						badge.textContent = 'Principal';
+						li.appendChild(badge);
+					} else {
+						const primary = document.createElement('button');
+						primary.type = 'button';
+						primary.className = 'oc-folder-editor__primary';
+						primary.dataset.primary = String(i);
+						primary.title = 'Hacer principal';
+						primary.setAttribute('aria-label', `Hacer principal ${ref.name}`);
+						primary.innerHTML = iconSvg('star');
+						li.appendChild(primary);
+					}
 					const remove = document.createElement('button');
 					remove.type = 'button';
 					remove.className = 'oc-folder-editor__remove';
@@ -2326,6 +2365,15 @@ function buildFolderEditor(column: ColumnDef) {
 				const target = e.target as HTMLElement;
 				// Los enlaces (abrir o descargar) siguen su curso.
 				if (target.closest('a')) return;
+				// «Hacer principal»: el archivo pasa al primer lugar; el resto conserva su orden.
+				const primaryAt = target.closest<HTMLElement>('[data-primary]')?.dataset.primary;
+				if (primaryAt !== undefined) {
+					e.preventDefault();
+					const at = Number(primaryAt);
+					refs = [refs[at]!, ...refs.filter((_, i) => i !== at)];
+					render();
+					return;
+				}
 				const removeAt = target.closest<HTMLElement>('[data-remove]')?.dataset.remove;
 				if (removeAt !== undefined) {
 					e.preventDefault();

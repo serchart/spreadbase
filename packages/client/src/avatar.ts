@@ -6,6 +6,7 @@
  * componentes de lucide convertidos a SVG una sola vez y guardados.
  */
 import { flushSync, mount, unmount, type Component } from 'svelte';
+import { thumbnailOf } from '@spreadbase/core';
 import User from '@lucide/svelte/icons/user';
 import UserRound from '@lucide/svelte/icons/user-round';
 import Users from '@lucide/svelte/icons/users';
@@ -25,6 +26,7 @@ import FileArchive from '@lucide/svelte/icons/file-archive';
 import ExternalLink from '@lucide/svelte/icons/external-link';
 import Folder from '@lucide/svelte/icons/folder';
 import X from '@lucide/svelte/icons/x';
+import Star from '@lucide/svelte/icons/star';
 import type { AvatarSpec } from '@spreadbase/core';
 
 /** Los íconos que SpreadBase trae; la app agrega los suyos con `registerIcons`. */
@@ -49,6 +51,8 @@ const icons = new Map<string, Component>([
 	['external-link', ExternalLink],
 	// Carpeta de archivos (SB-38).
 	['folder', Folder],
+	// «Hacer principal» en una carpeta.
+	['star', Star],
 	['x', X]
 ]);
 const svgCache = new Map<string, string>();
@@ -127,7 +131,8 @@ export function recordMedia(spec: AvatarSpec, record: Record<string, unknown> | 
 		const value = field && record ? record[field] : null;
 		return typeof value === 'string' && value ? value : null;
 	};
-	return { image: read(spec.image), icon: read(spec.iconField) };
+	// La imagen puede salir de una carpeta (SB-38): su principal, si es imagen.
+	return { image: spec.image && record ? thumbnailOf(record[spec.image]) : null, icon: read(spec.iconField) };
 }
 
 /**
