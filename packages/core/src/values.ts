@@ -31,7 +31,7 @@ export interface LegacyFileRef {
  * Valor de una celda tal como viaja por el protocolo. Los archivos (`FILE`,
  * `FOLDER`, SB-38) viajan como `FileRef` o lista de `FileRef`.
  */
-export type CellValue = string | number | boolean | null | FileRef | FileRef[];
+export type CellValue = string | number | boolean | null | FileRef | FileRef[] | string[];
 
 export const isBlank = (v: unknown): boolean => v === null || v === undefined || v === '';
 

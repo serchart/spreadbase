@@ -24,8 +24,8 @@ export const EXAMPLES = [
 	{
 		href: '/catalog',
 		title: 'Catálogo con fotos',
-		tag: 'folder · principal · avatar.image · SB-38',
-		text: 'Modelos con una carpeta de fotos: la celda muestra el archivo principal (miniatura si es imagen, ícono si no) y el número de archivos, y «Hacer principal» lo cambia. El modelo toma su miniatura de la carpeta, también en las unidades que lo eligen (lookup).',
+		tag: 'folder · principal · avatar.image · multiselect · SB-38, SB-41',
+		text: 'Modelos con una carpeta de fotos: la celda muestra el archivo principal (miniatura si es imagen, ícono si no) y el número de archivos, y «Hacer principal» lo cambia. El modelo toma su miniatura de la carpeta, también en las unidades que lo eligen (lookup). Las agencias eligen varias marcas (selección múltiple).',
 		code: 'examples/backend/src/examples/catalog/'
 	},
 	{

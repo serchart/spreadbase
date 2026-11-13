@@ -7,6 +7,7 @@
  * `?<campo>=a,b` (SB-28), que siguen igual y se suman.
  */
 import type { ColumnType } from './schema.ts';
+import { multiValuesOf } from './schema.ts';
 import { fold, isBlank } from './values.ts';
 
 /** Operadores. `in` es la lista de valores; los demás, condiciones. */
@@ -72,6 +73,7 @@ export function filterKind(type: ColumnType): FilterKind | null {
 		case 'datetime':
 			return 'date';
 		case 'select':
+		case 'multiselect':
 		case 'lookup':
 		case 'boolean':
 			return 'list';
@@ -182,6 +184,11 @@ export function parseWhere(raw: string): ColumnFilter[] {
  */
 export function filterValueOf(value: unknown, type: ColumnType): string | number | boolean | null {
 	if (isBlank(value)) return null;
+	// Selección múltiple (SB-41): vacía si no tiene ninguna; cada opción se cuenta y filtra por separado (`multiValuesOf`).
+	if (type === 'multiselect') {
+		const list = multiValuesOf(value);
+		return list.length ? JSON.stringify(list) : null;
+	}
 	if (type === 'number') return Number(value);
 	if (type === 'datetime') return String(value).slice(0, 10);
 	if (type === 'boolean') return value === true || value === 'true';
@@ -199,6 +206,14 @@ export function filterValueOf(value: unknown, type: ColumnType): string | number
  * - Fecha-hora: se compara por día.
  */
 export function matchesFilter(value: unknown, filter: ColumnFilter, type: ColumnType): boolean {
+	// Selección múltiple (SB-41): «contiene alguna de» las elegidas; `null` = sin ninguna.
+	if (type === 'multiselect') {
+		const list = multiValuesOf(value);
+		if (filter.op === 'empty') return list.length === 0;
+		if (filter.op === 'not_empty') return list.length > 0;
+		if (filter.op === 'in') return (filter.values ?? []).some((w) => (w === null ? list.length === 0 : list.includes(String(w))));
+		return false;
+	}
 	const v = filterValueOf(value, type);
 	switch (filter.op) {
 		case 'empty':

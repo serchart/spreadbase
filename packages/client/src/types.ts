@@ -18,7 +18,7 @@ export interface SortSpec {
 }
 
 /** El valor de una celda; los archivos (`file`, `folder`, SB-38) son `FileRef` o lista de `FileRef`. */
-export type CellValue = string | number | boolean | null | FileRef | FileRef[];
+export type CellValue = string | number | boolean | null | FileRef | FileRef[] | string[];
 
 export interface Option {
 	value: string;

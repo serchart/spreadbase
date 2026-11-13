@@ -1,4 +1,4 @@
-import { filterValueOf, fold, matchesFilter } from '@spreadbase/core';
+import { filterValueOf, fold, matchesFilter, multiValuesOf } from '@spreadbase/core';
 import type { CellValue, DistinctValue, ListQuery, Page, Row, SheetDefinition } from '@spreadbase/core';
 import type { SheetSource } from './source.ts';
 
@@ -78,13 +78,14 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 		const cached = views.get(key);
 		if (cached?.version === version) return { rows: cached.rows, key };
 
-		const filters = Object.entries(query.filters).map(([field, values]) => [field, new Set(values)] as const);
+		const filters = Object.entries(query.filters).map(([field, values]) => [field, new Set(values), definition?.columns[field]?.type === 'multiselect'] as const);
 		const needle = fold(query.search.trim());
 		const searchable = searchFields();
 		const where = (query.where ?? []).map((f) => [f, definition?.columns[f.field]?.type ?? 'text'] as const);
 		let result = rows.filter(
 			(r) =>
-				filters.every(([field, values]) => values.has(String(r[field] ?? ''))) &&
+				// Selección múltiple (SB-41): la fila pasa si tiene alguno de los valores.
+				filters.every(([field, values, multi]) => (multi ? multiValuesOf(r[field]).some((v) => values.has(v)) : values.has(String(r[field] ?? '')))) &&
 				where.every(([f, type]) => matchesFilter(r[f.field], f, type)) &&
 				(needle === '' ||
 					idOf(r).includes(needle) ||
@@ -166,6 +167,17 @@ export function memorySource(options: MemorySourceOptions): MemorySource {
 			const type = definition?.columns[field]?.type ?? 'text';
 			const counts = new Map<string, DistinctValue>();
 			for (const r of result) {
+				// Selección múltiple (SB-41): cada opción cuenta las filas que la contienen; sin ninguna, vacía.
+				if (type === 'multiselect') {
+					const list = multiValuesOf(r[field]);
+					for (const value of list.length ? list : [null]) {
+						const key = value === null ? '\u0000' : value;
+						const hit = counts.get(key);
+						if (hit) hit.count++;
+						else counts.set(key, { value, count: 1 });
+					}
+					continue;
+				}
 				const value = filterValueOf(r[field], type);
 				const key = value === null ? '\u0000' : String(value);
 				const hit = counts.get(key);

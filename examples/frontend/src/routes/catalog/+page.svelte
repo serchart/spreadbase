@@ -8,6 +8,7 @@ Catálogo con fotos (SB-38, SB-29). Dos vistas:
   miniatura de la carpeta (`avatar: { image: 'fotos' }`).
 - **Unidades**: «Modelo» es un `lookup` con el mismo `avatar.image`: la foto
   principal del modelo elegido.
+- **Agencias**: «Marcas» es una selección múltiple (`multiselect`, SB-41).
 
 Backend: examples/backend/src/examples/catalog/
 -->
@@ -19,12 +20,15 @@ Backend: examples/backend/src/examples/catalog/
 	const BASE = `${API_URL}/api/catalog`;
 	const VIEWS = [
 		{ id: 'modelos', label: 'Modelos' },
-		{ id: 'unidades', label: 'Unidades' }
+		{ id: 'unidades', label: 'Unidades' },
+		{ id: 'agencias', label: 'Agencias' }
 	] as const;
 	const view = $derived(VIEWS.find((v) => v.id === page.url.searchParams.get('view'))?.id ?? 'modelos');
 
 	const models = new Sheet(`${BASE}/models`);
 	const units = new Sheet(`${BASE}/units`);
+	// «Marcas» es una selección múltiple (SB-41).
+	const agencies = new Sheet(`${BASE}/agencies`);
 </script>
 
 <div data-fill class="flex min-h-0 flex-1 flex-col gap-2 p-6">
@@ -45,7 +49,7 @@ Backend: examples/backend/src/examples/catalog/
 
 	<div class="bg-base-100 border-base-300 rounded-box min-h-0 flex-1 border p-3">
 		{#key view}
-			<SpreadBase sheet={view === 'unidades' ? units : models} fill />
+			<SpreadBase sheet={view === 'unidades' ? units : view === 'agencias' ? agencies : models} fill />
 		{/key}
 	</div>
 </div>

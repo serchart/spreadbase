@@ -127,6 +127,9 @@ const dayOf = (e: unknown) => ({
 	$cond: [{ $eq: [{ $type: e }, 'date'] }, { $dateToString: { format: '%Y-%m-%d', date: e, timezone: 'UTC' } }, { $substrCP: [{ $ifNull: [toStr(e), ''] }, 0, 10] }]
 });
 
+/** Selección múltiple (SB-41): el arreglo guardado, o `[]` si no hay uno. */
+const listOf = (e: unknown) => ({ $cond: [{ $isArray: e }, e, []] });
+
 /** Valor con que se agrupa y compara una columna (`filterValueOf` de core). */
 function filterValueExpr(e: unknown, type: ColumnType | undefined): unknown {
 	const value = (() => {
@@ -309,6 +312,19 @@ export function mongoSource(options: MongoSourceOptions): SheetSource {
 		const e = ref(filter.field);
 		const type = def().columns[filter.field]!.type;
 		const kind = filterKind(type);
+		// Selección múltiple (SB-41): «contiene alguna de» las elegidas; vacía = sin ninguna.
+		if (type === 'multiselect') {
+			const none = { $eq: [{ $size: listOf(e) }, 0] };
+			if (filter.op === 'empty') return none;
+			if (filter.op === 'not_empty') return { $not: [none] };
+			if (filter.op !== 'in') return false;
+			const values = filter.values ?? [];
+			const present = values.filter((v) => v !== null).map(String);
+			const parts: unknown[] = [];
+			if (present.length) parts.push({ $gt: [{ $size: { $setIntersection: [listOf(e), present] } }, 0] });
+			if (values.some((v) => v === null)) parts.push(none);
+			return parts.length ? { $or: parts } : false;
+		}
 		switch (filter.op) {
 			case 'empty':
 				return isBlank(e);
@@ -383,7 +399,9 @@ export function mongoSource(options: MongoSourceOptions): SheetSource {
 		const exprs: unknown[] = [];
 		for (const [field, values] of Object.entries(query.filters)) {
 			if (!isColumn(field) || values.length === 0) continue;
-			exprs.push({ $in: [{ $ifNull: [toStr(ref(field)), ''] }, values] });
+			// Selección múltiple (SB-41): la fila pasa si tiene alguno de los valores.
+			if (def().columns[field]?.type === 'multiselect') exprs.push({ $gt: [{ $size: { $setIntersection: [listOf(ref(field)), values] } }, 0] });
+			else exprs.push({ $in: [{ $ifNull: [toStr(ref(field)), ''] }, values] });
 		}
 		for (const filter of query.where ?? []) {
 			const expr = filterExpr(filter);
@@ -505,6 +523,23 @@ export function mongoSource(options: MongoSourceOptions): SheetSource {
 
 			async values(field, query, limit) {
 				const type = def().columns[field]?.type;
+				// Selección múltiple (SB-41): cada opción con las filas que la contienen; las que no tienen ninguna, vacías.
+				if (type === 'multiselect') {
+					const docs = await collection
+						.aggregate(
+							[
+								{ $match: match(query) },
+								{ $project: { v: listOf(ref(field)) } },
+								{ $unwind: { path: '$v', preserveNullAndEmptyArrays: true } },
+								{ $group: { _id: { $ifNull: ['$v', null] }, count: { $sum: 1 } } },
+								{ $sort: { _id: 1 } },
+								{ $limit: limit }
+							],
+							{ ...opts, ...collation }
+						)
+						.toArray();
+					return docs.map((d) => ({ value: d._id === null || d._id === undefined ? null : String(d._id), count: Number(d.count) })) as DistinctValue[];
+				}
 				const docs = await collection
 					.aggregate(
 						[

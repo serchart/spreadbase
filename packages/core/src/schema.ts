@@ -12,6 +12,12 @@ export const types = {
 	TEXT: 'text',
 	NUMBER: 'number',
 	SELECT: 'select',
+	/**
+	 * Varias opciones de `options` (SB-41): una lista de sus `value`, sin
+	 * repetidos y en el orden de `options`. Vacía es `null` (como `folder`; `[]`
+	 * se lee igual). Se pega y se copia como «BYD, Honda».
+	 */
+	MULTISELECT: 'multiselect',
 	DATE: 'date',
 	DATETIME: 'datetime',
 	/** URL de una imagen (`https://…`, `/ruta`, `data:image/…`). Con `upload`, también se sube (SB-30). */
@@ -364,6 +370,12 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 			return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? null : 'Fecha y hora inválida';
 		case 'select':
 			return spec.options?.some((o) => o.value === value) ? null : 'Valor fuera del catálogo';
+		case 'multiselect': {
+			if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) return 'Debe ser una lista de opciones';
+			if (!value.length) return spec.required ? 'No admite vacío' : null;
+			if (new Set(value).size !== value.length) return 'Opción repetida';
+			return value.every((v) => spec.options?.some((o) => o.value === v)) ? null : 'Valor fuera del catálogo';
+		}
 		case 'boolean':
 			return typeof value === 'boolean' ? null : 'Debe ser verdadero o falso';
 		// Lo que se escribe es la contraseña nueva, en claro. La marca que viaja al
@@ -461,4 +473,59 @@ export function thumbnailOf(value: unknown): string | null {
 	// `fileRefsOf` normaliza: también lee la forma obsoleta `{ url, nombre, tipo, tamano }`.
 	const refs = Array.isArray(value) || isFileRef(value) ? fileRefsOf(value) : [];
 	return refs.find(isImageFile)?.url ?? null;
+}
+
+// -- selección múltiple (SB-41) ---------------------------------------------
+
+/**
+ * Los valores de una celda `multiselect` como lista: la lista guardada, o el
+ * JSON de una lista (una columna de texto en la base). Vacía, `null` o
+ * cualquier otra cosa: `[]`.
+ */
+export function multiValuesOf(value: unknown): string[] {
+	if (typeof value === 'string' && value.trim().startsWith('[')) {
+		try {
+			value = JSON.parse(value);
+		} catch {
+			return [];
+		}
+	}
+	return Array.isArray(value) ? value.filter((v) => v !== null && v !== undefined && v !== '').map(String) : [];
+}
+
+const foldText = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+
+/**
+ * Lo escrito, pegado o importado → el valor canónico de una `multiselect`:
+ * una lista (o su JSON) o un texto separado por comas, punto y coma o saltos
+ * de línea («BYD, Honda»). Cada parte se busca por etiqueta o por valor, sin
+ * acentos ni mayúsculas; lo que no está en `options` se conserva tal cual
+ * para que la validación lo marque. Sin repetidos, en el orden de `options`
+ * (lo desconocido al final). Vacío → `null`.
+ */
+export function parseMultiSelect(raw: unknown, options: Option[] = []): string[] | null {
+	let parts: string[];
+	if (Array.isArray(raw)) parts = raw.filter((v) => v !== null && v !== undefined).map(String);
+	else if (raw === null || raw === undefined) parts = [];
+	else {
+		const text = String(raw).trim();
+		parts = text.startsWith('[') ? multiValuesOf(text) : text.split(/[,;\n]/);
+	}
+	const chosen = new Set<string>();
+	const unknown: string[] = [];
+	for (const part of parts.map((p) => p.trim()).filter(Boolean)) {
+		const needle = foldText(part);
+		const match = options.find((o) => o.value === part) ?? options.find((o) => foldText(o.label) === needle) ?? options.find((o) => foldText(o.value) === needle);
+		if (match) chosen.add(match.value);
+		else if (!unknown.includes(part)) unknown.push(part);
+	}
+	const ordered = [...options.filter((o) => chosen.has(o.value)).map((o) => o.value), ...unknown];
+	return ordered.length ? ordered : null;
+}
+
+/** Las etiquetas de una `multiselect` como se copian y se leen: «BYD, Honda». */
+export function formatMultiSelect(value: unknown, options: Option[] = []): string {
+	return multiValuesOf(value)
+		.map((v) => options.find((o) => o.value === v)?.label ?? v)
+		.join(', ');
 }

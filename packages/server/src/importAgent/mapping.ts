@@ -4,7 +4,7 @@
  * con `locateTable` y cada valor con el tipo de su columna— y el agente lo usa
  * como tool (`mapearTabla`), corrigiendo lo que haga falta.
  */
-import { fold, locateTable, normalizeHeader } from '@spreadbase/core';
+import { fold, locateTable, normalizeHeader, parseMultiSelect } from '@spreadbase/core';
 import type { CellValue, ImportSchema, ImportSchemaColumn } from '@spreadbase/core';
 import type { BloqueExtraido } from '../extraction/types.ts';
 
@@ -60,6 +60,8 @@ export function parseDate(text: string): string | null {
  */
 export function coerceCell(raw: unknown, column: Pick<ImportSchemaColumn, 'type' | 'options'>): CellValue {
 	if (raw === null || raw === undefined) return null;
+	// Selección múltiple (SB-41): «BYD, Honda» o una lista → los valores de `options`, como al pegar.
+	if (column.type === 'multiselect') return parseMultiSelect(raw, column.options ?? []);
 	if (typeof raw === 'number' || typeof raw === 'boolean') return column.type === 'text' ? String(raw) : raw;
 	const text = String(raw).trim();
 	if (text === '') return null;

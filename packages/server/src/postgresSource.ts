@@ -79,6 +79,15 @@ const likeLiteral = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
  * `filterValueOf` de core: número como número, fecha-hora por su día, texto
  * vacío como NULL.
  */
+/**
+ * Selección múltiple (SB-41), guardada como JSON en `jsonb` (recomendado) o en
+ * texto: la lista como `jsonb`, o `[]` si está vacía o no es una lista.
+ */
+function multiExpr(col: string): string {
+	const json = `NULLIF(${col}::text, '')::jsonb`;
+	return `(CASE WHEN jsonb_typeof(${json}) = 'array' THEN ${json} ELSE '[]'::jsonb END)`;
+}
+
 function filterExpr(col: string, type: ColumnType | undefined): string {
 	switch (type) {
 		case 'number':
@@ -156,12 +165,13 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 	 */
 	const isFileColumn = (field: string) => {
 		const type = def().columns[field]?.type;
-		return type === 'file' || type === 'folder';
+		// La selección múltiple (SB-41) también va como JSON: una lista de valores.
+		return type === 'file' || type === 'folder' || type === 'multiselect';
 	};
 	function fromDb<T extends Record<string, unknown> | undefined>(row: T): T {
 		if (!row) return row;
 		for (const [field, c] of columns()) {
-			if (c.type !== 'file' && c.type !== 'folder') continue;
+			if (c.type !== 'file' && c.type !== 'folder' && c.type !== 'multiselect') continue;
 			const v = row[field];
 			if (typeof v === 'string' && /^\s*[[{]/.test(v)) {
 				try {
@@ -193,6 +203,20 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		const col = ident(filter.field);
 		const type = def().columns[filter.field]!.type;
 		const kind = filterKind(type);
+		// Selección múltiple (SB-41): «contiene alguna de» las elegidas (`?|`); vacía = sin ninguna.
+		if (type === 'multiselect') {
+			const list = multiExpr(col);
+			const none = `${list} = '[]'::jsonb`;
+			if (filter.op === 'empty') return none;
+			if (filter.op === 'not_empty') return `NOT (${none})`;
+			if (filter.op !== 'in') return 'false';
+			const values = filter.values ?? [];
+			const present = values.filter((v) => v !== null).map(String);
+			const parts: string[] = [];
+			if (present.length) parts.push(`${list} ?| ${param(present)}::text[]`);
+			if (values.some((v) => v === null)) parts.push(none);
+			return parts.length ? `(${parts.join(' OR ')})` : 'false';
+		}
 		const expr = filterExpr(col, type);
 		const blank = `${expr} IS NULL`;
 		switch (filter.op) {
@@ -265,7 +289,9 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 		for (const [field, values] of Object.entries(query.filters)) {
 			if (!isColumn(field) || values.length === 0) continue;
 			params.push(values);
-			clauses.push(`${ident(field)}::text = ANY($${start + params.length - 1})`);
+			// Selección múltiple (SB-41): la fila pasa si tiene alguno de los valores.
+			if (def().columns[field]?.type === 'multiselect') clauses.push(`${multiExpr(ident(field))} ?| $${start + params.length - 1}::text[]`);
+			else clauses.push(`${ident(field)}::text = ANY($${start + params.length - 1})`);
 		}
 		for (const filter of query.where ?? []) {
 			const clause = filterClause(filter, param);
@@ -395,6 +421,18 @@ export function postgresSource(options: PostgresSourceOptions): SheetSource {
 			async values(field, query, limit) {
 				const w = where(query);
 				const type = def().columns[field]?.type;
+				// Selección múltiple (SB-41): cada opción con las filas que la contienen; las que no tienen ninguna, vacías.
+				if (type === 'multiselect') {
+					const { rows } = await db.query(
+						`SELECT value, count FROM (
+							SELECT e.value AS value, count(*)::int AS count
+							FROM ${view} LEFT JOIN LATERAL jsonb_array_elements_text(${multiExpr(`${view}.${ident(field)}`)}) AS e(value) ON true
+							${w.sql} GROUP BY 1
+						) v ORDER BY v.value NULLS FIRST LIMIT $${w.params.length + 1}`,
+						[...w.params, limit]
+					);
+					return rows.map((r) => ({ value: r.value === null ? null : String(r.value), count: Number(r.count) })) as DistinctValue[];
+				}
 				const textual = type === 'text' || type === 'select' || type === 'lookup';
 				const collate = options.collation && textual ? ` COLLATE ${ident(options.collation)}` : '';
 				const { rows } = await db.query(

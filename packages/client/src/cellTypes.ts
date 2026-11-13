@@ -11,7 +11,7 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
-import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isImageFile, isPasswordMark, normalizeFileRef, normalizeFileValue, toFileRef } from '@spreadbase/core';
+import { canonicalJson, fileNameOf, fileRefsOf, formatMultiSelect, isFileRef, isImageFile, isPasswordMark, multiValuesOf, normalizeFileRef, normalizeFileValue, parseMultiSelect, toFileRef } from '@spreadbase/core';
 import type { FileRef } from '@spreadbase/core';
 import { avatarNode, cachedMedia, hasIcon, iconSvg, recordMedia, rememberMedia } from './avatar';
 import { positionFloating } from './internal/floating';
@@ -1989,6 +1989,211 @@ const selectType: CellTypeDef = {
 	})
 };
 
+// ---------------------------------------------------------------------------
+// Selección múltiple (SB-41)
+// ---------------------------------------------------------------------------
+
+/** Los valores de una celda `multiselect`; un valor suelto (el de la lista del filtro) cuenta como uno. */
+function multiOf(value: unknown): string[] {
+	if (typeof value === 'string' && value !== '' && !value.trim().startsWith('[')) return [value];
+	return multiValuesOf(value);
+}
+
+/**
+ * La celda: cada opción elegida como etiqueta (con su ícono), en el orden de
+ * `options`; las que no caben se resumen en «+N». El editor: la lista de
+ * opciones con casillas, con buscador si son muchas.
+ */
+function buildMultiSelectEditor(column: ColumnDef) {
+	const options = column.options ?? [];
+	const optionOf = (v: string) => options.find((o) => o.value === v);
+
+	/** Deja ver solo las etiquetas que caben y resume las demás en «+N». */
+	const fit = (chips: HTMLElement) => {
+		const all = [...chips.querySelectorAll<HTMLElement>('.oc-chip:not(.oc-chip--more)')];
+		chips.querySelector('.oc-chip--more')?.remove();
+		all.forEach((c) => (c.hidden = false));
+		if (!chips.isConnected || chips.scrollWidth <= chips.clientWidth) return;
+		const more = document.createElement('span');
+		more.className = 'oc-chip oc-chip--more';
+		chips.appendChild(more);
+		let shown = all.length;
+		while (shown > 1 && chips.scrollWidth > chips.clientWidth) {
+			all[--shown]!.hidden = true;
+			more.textContent = `+${all.length - shown}`;
+		}
+		if (shown === all.length) more.remove();
+	};
+
+	const paint = (cell: HTMLTableCellElement, value: CellValue) => {
+		cell.classList.add('oc-picker-cell', 'oc-multi-cell');
+		cell.innerHTML = '';
+		const values = multiOf(value);
+		const wrap = document.createElement('div');
+		wrap.className = 'oc-picker';
+		const chips = document.createElement('span');
+		chips.className = 'oc-multi';
+		for (const v of values) {
+			const chip = document.createElement('span');
+			chip.className = 'oc-chip';
+			chip.innerHTML = `${optionIconHtml(optionOf(v)?.icon)}<span class="oc-chip__text">${escapeHtml(optionOf(v)?.label ?? v)}</span>`;
+			chips.appendChild(chip);
+		}
+		wrap.title = values.map((v) => optionOf(v)?.label ?? v).join(', ');
+		const chevron = document.createElement('span');
+		chevron.className = 'oc-picker__chevron';
+		chevron.setAttribute('role', 'button');
+		chevron.setAttribute('aria-label', 'Abrir selector');
+		chevron.innerHTML = CHEVRON_SVG;
+		wrap.append(chips, chevron);
+		cell.appendChild(wrap);
+		// El ancho real se conoce ya en el documento.
+		if (values.length > 1) requestAnimationFrame(() => fit(chips));
+	};
+
+	return {
+		createCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return cell;
+		},
+		updateCell(cell: HTMLTableCellElement, value: CellValue) {
+			paint(cell, value);
+			return value;
+		},
+		openEditor(cell: HTMLTableCellElement, value: CellValue, _x: number, _y: number, instance: any) {
+			disposeActiveEditor();
+			const overlay = mountOverlay(cell, 280);
+			overlay.classList.add('oc-multi-editor');
+			const searchable = options.length > 8;
+			overlay.innerHTML = `
+				${searchable ? '<input class="oc-cell-editor__input" type="text" placeholder="Escribe para filtrar…" aria-label="Buscar opción" />' : ''}
+				<div class="oc-cell-editor__list" role="listbox" aria-multiselectable="true" tabindex="0" aria-label="${escapeHtml(column.label || column.field)}"></div>
+				<div class="oc-cell-editor__actions">
+					<button type="button" data-action="clear">Limpiar</button>
+					<span class="oc-cell-editor__spacer"></span>
+					<button type="button" data-action="save" class="is-primary">Aceptar</button>
+				</div>
+			`;
+			const input = overlay.querySelector<HTMLInputElement>('input.oc-cell-editor__input');
+			const list = overlay.querySelector('.oc-cell-editor__list') as HTMLDivElement;
+			const chosen = new Set(multiOf(value));
+			let shown: Option[] = options;
+			let highlighted = 0;
+			/** Lo elegido, en el orden de `options` (lo que no está en el catálogo, al final). */
+			const current = (): CellValue => {
+				const ordered = [...options.filter((o) => chosen.has(o.value)).map((o) => o.value), ...[...chosen].filter((v) => !optionOf(v))];
+				return ordered.length ? ordered : null;
+			};
+
+			const render = () => {
+				list.innerHTML = shown.length
+					? shown
+							.map((o, i) => {
+								const on = chosen.has(o.value);
+								return `<div class="oc-cell-editor__option oc-multi-option${i === highlighted ? ' is-active' : ''}" role="option" aria-selected="${on}" data-index="${i}">
+									<input type="checkbox" tabindex="-1" ${on ? 'checked' : ''} aria-hidden="true" />
+									${optionIconHtml(o.icon)}<span class="oc-cell-editor__label">${escapeHtml(o.label)}</span>
+								</div>`;
+							})
+							.join('')
+					: '<div class="oc-cell-editor__hint">Sin resultados</div>';
+				placeOverlay(overlay, cell);
+			};
+			const toggle = (i: number) => {
+				const opt = shown[i];
+				if (!opt) return;
+				if (chosen.has(opt.value)) chosen.delete(opt.value);
+				else chosen.add(opt.value);
+				highlighted = i;
+				render();
+				changed();
+			};
+			/** Avisa que lo marcado cambió: la hoja enciende o apaga «Guardar» en vivo. */
+			const changed = () => list.dispatchEvent(new Event('input', { bubbles: true }));
+			const commit = () => {
+				if (activeEditor) activeEditor.value = current();
+				closeThroughInstance(instance, cell, true);
+			};
+			render();
+
+			input?.addEventListener('input', () => {
+				shown = filterOptions(options, input.value);
+				highlighted = 0;
+				render();
+			});
+			overlay.addEventListener('keydown', (e: KeyboardEvent) => {
+				e.stopPropagation();
+				if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+					e.preventDefault();
+					if (shown.length) highlighted = (highlighted + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length;
+					render();
+				} else if (e.key === ' ' && e.target !== input) {
+					e.preventDefault();
+					toggle(highlighted);
+				} else if (e.key === ' ' && input && input.value === '') {
+					// Sin texto en el buscador, la barra marca la resaltada.
+					e.preventDefault();
+					toggle(highlighted);
+				} else if (e.key === 'Enter') {
+					e.preventDefault();
+					commit();
+				} else if (e.key === 'Escape') {
+					e.preventDefault();
+					closeThroughInstance(instance, cell, false);
+				}
+			});
+			overlay.addEventListener('mousedown', (e: MouseEvent) => {
+				const target = e.target as HTMLElement;
+				if (target === input) return;
+				e.preventDefault();
+				const option = target.closest<HTMLElement>('.oc-multi-option');
+				if (option) return toggle(Number(option.dataset.index));
+				const action = target.closest('[data-action]')?.getAttribute('data-action');
+				if (action === 'clear') {
+					chosen.clear();
+					render();
+					changed();
+				} else if (action === 'save') commit();
+			});
+
+			activeEditor = {
+				cell,
+				overlay,
+				value,
+				original: value,
+				// Salir de la celda confirma lo marcado, como Enter (y enciende «Guardar» en vivo).
+				read: current,
+				dispose: () => {}
+			};
+			(input ?? list).focus();
+		},
+		closeEditor(cell: HTMLTableCellElement, save: boolean): CellValue {
+			const result = save ? committedValue() : (activeEditor?.original ?? null);
+			disposeActiveEditor();
+			paint(cell, result);
+			return result;
+		}
+	};
+}
+
+const multiSelectType: CellTypeDef = {
+	name: 'multiselect',
+	align: 'left',
+	parse: (raw, column) => parseMultiSelect(raw, column.options ?? []),
+	format: (value, column) => formatMultiSelect(multiOf(value), column.options ?? []),
+	// Por su lista: el orden ya es el de `options`.
+	equals: (a, b) => JSON.stringify(multiOf(a)) === JSON.stringify(multiOf(b)),
+	toClipboard: (value, column) => formatMultiSelect(multiOf(value), column.options ?? []),
+	fromClipboard: (raw, column) => parseMultiSelect(raw, column.options ?? []),
+	validate: (value, column) => {
+		const values = multiOf(value);
+		if (!values.length) return column.required ? `"${column.label}" es obligatorio` : null;
+		if (new Set(values).size !== values.length) return 'Opción repetida';
+		return values.every((v) => column.options?.some((o) => o.value === v)) ? null : 'Valor fuera del catálogo';
+	},
+	toColumn: (column) => ({ type: buildMultiSelectEditor(column), align: column.align ?? 'left' })
+};
+
 const remoteSelectType: CellTypeDef = {
 	name: 'remote-select',
 	align: 'left',
@@ -2754,6 +2959,7 @@ export function listCellTypes(): string[] {
 	dateType,
 	dateTimeType,
 	selectType,
+	multiSelectType,
 	remoteSelectType,
 	lookupType,
 	booleanType,

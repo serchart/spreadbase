@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Multiple-choice column, `types.MULTISELECT`** (SB-41). The value is a list of `options`
+  values, without duplicates and in the order of `options`; empty is `null` (`[]` reads as
+  empty). The cell shows one chip per option (with its icon) and «+N» when they do not fit; the
+  editor is a checkbox list with search and keyboard. Copy and paste as «BYD, Honda» (the import
+  assistant and `importFormat` parse it the same way). Filtering by values means «contains any
+  of», and the header's values list counts the rows that contain each option. Works with
+  `memorySource`, `postgresSource` (JSON in `jsonb` or `text`) and `mongoSource` (array). New
+  core helpers: `parseMultiSelect`, `formatMultiSelect`, `multiValuesOf`.
+- Example «Agencias» in `/catalog`.
+
 ## 0.1.4
 
 ### Fixed

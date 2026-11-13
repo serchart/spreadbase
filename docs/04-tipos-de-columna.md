@@ -4,7 +4,7 @@
 > with them. The password has its own section (§2): it is the only type whose
 > stored value never leaves the server.
 
-**Created:** 2026-09-28 · **Status:** 🟢 current (SB-21, SB-22, SB-38)
+**Created:** 2026-09-28 · **Status:** 🟢 current (SB-21, SB-22, SB-38, SB-41)
 
 ---
 
@@ -18,6 +18,7 @@ Postgres example (products and users sheets).
 | `TEXT` | text | `required`, `minLength`, `maxLength`, `pattern` (+ `patternMessage`) | Text | Name, SKU, email |
 | `NUMBER` | number | `required`, `min`, `max` | `prefix`, `suffix`, `precision`, `thousands` | Price |
 | `SELECT` | text from `options` | `required`, that it is in `options` | The label, with the option's icon if it has `icon` (SB-39); searchable list (the value on the right only if it differs from the label) | Status, role |
+| `MULTISELECT` | list of `options` values, or `null` (§4) | `required` (at least one), each value in `options`, no duplicates | One chip per chosen option (with its icon), «+N» when they do not fit; checkbox list | Brands of an agency |
 | `LOOKUP` | id of another resource | `required`, that the id exists (`lookup.byIds`) | The name; paginated mini table | Owner ([03-lookup.md](03-lookup.md)) |
 | `DATE` | `YYYY-MM-DD` | `required`, valid date | `DD/MM/YYYY`; calendar | Launch |
 | `DATETIME` | `YYYY-MM-DD HH:mm` | `required`, valid date and time | `DD/MM/YYYY HH:mm`; calendar with time | Last restock |
@@ -176,7 +177,65 @@ row it **matches**: by `destino.fila` (the exact key, set by the brain or by the
 from the column's type: `IMAGE` the URL, `FILE` the `FileRef`, `FOLDER` is appended to the list, text the
 agent's derived output (ficha.md) or the document in markdown (method P). It stays as an `update` in staging.
 
-## 4. Tests
+## 4. Multiple choice: `MULTISELECT` (SB-41)
+
+### 4.1 Declaring it
+
+```ts
+brands: {
+	type: types.MULTISELECT,
+	label: 'Marcas',
+	options: [
+		{ value: 'byd', label: 'BYD' },
+		{ value: 'honda', label: 'Honda' },
+		{ value: 'toyota', label: 'Toyota', icon: 'car' }
+	]
+}
+```
+
+The same `options` as `SELECT` (`value`, `label`, optional `icon`, SB-39).
+
+### 4.2 The value
+
+- A **list of option values**, without duplicates and **in the order of `options`**
+  (`['byd', 'honda']`), whatever order they were picked in.
+- **Empty is `null`**, as in `FOLDER`. An empty list `[]` coming from the database is read the
+  same way (empty), and filters treat both as empty.
+- Validation (server and client): it must be a list; each value must be in `options` (there is
+  no `allowOther` yet); no duplicates; `required` means at least one.
+- Storage: `postgresSource` writes the list as JSON, in a **`jsonb`** column (recommended) or a
+  `text` column, and reads it back as a list. `text[]` columns are not supported yet.
+  `mongoSource` stores an array; `memorySource`, the list as is.
+
+### 4.3 In the cell
+
+| | `MULTISELECT` |
+|---|---|
+| Cell | One chip per chosen option, with its icon; the ones that do not fit are summarized as «+N»; all labels on hover |
+| Editor (double click or ⌄) | The option list with checkboxes; a search box when there are more than 8 options. Keyboard: ↑/↓ move, Space toggles, Enter accepts, Escape cancels. «Limpiar» (clear) and «Aceptar» (accept) |
+| Leaving the cell | Commits what is checked, like Enter (as every editor since 0.1.4); checking already turns «Guardar» on live |
+| Copy | The labels separated by commas: «BYD, Honda» |
+| Paste and import | «BYD, Honda» (also `;` or one per line, a list or its JSON) → `['byd', 'honda']`. Each part is matched by label or value, ignoring accents and case; an unknown part is kept so validation marks it as out of catalog. The import assistant and `importFormat` (SB-34, SB-36) use the same parsing (`parseMultiSelect`, core) |
+
+### 4.4 Filters and groups (SB-33)
+
+- **By values** means **«contains any of»** the checked options: a row with `['byd', 'honda']`
+  passes a filter on Honda. «(Vacías)» are the rows without any option.
+- The header's values list shows **each option with the number of rows that contain it**, so
+  the counts may add up to more than the number of rows. Fixed filters (`?brands=byd,honda`,
+  SB-28) also pass a row that has any of the values.
+- No condition operators (only values, empty and not empty).
+- **Groups** (when they exist; today the panel is a placeholder): a row falls into **every
+  group of its options**, like the values list, and the rows without options into «(Vacías)».
+  So group counts may add up to more than the total.
+- In Postgres: `jsonb ?| text[]` for «contains any of» and `jsonb_array_elements_text` for the
+  values list, over the `jsonb` or `text` column.
+
+Example: «Agencias» in `/catalog` (`examples/backend/src/examples/catalog/`).
+
+---
+
+## 5. Tests
 
 | File | What it covers |
 |---|---|
@@ -185,5 +244,6 @@ agent's derived output (ficha.md) or the document in markdown (method P). It sta
 | `tests/mongo/archivos.test.ts` (2) | The same on MongoDB (subdocument, list, `Int32` → number) |
 | `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7) | Uploading a `FILE` leaves `{ url, name, type, size }` with its size in the cell; folder with count and names, panel that lists, opens, removes and uploads several; long text with its type, wide viewer and «Formatear JSON» |
 | `tests/grid/carpeta.test.ts` (CP-1 to CP-5) | Primary file in the cell by type, count and names; «Hacer principal» and the saved order; `avatar.image` over a folder in the same row and in a `lookup` (`images` from the server) |
+| `tests/grid/multiselect.test.ts` (MS-1 to MS-5), `tests/protocol/multiselect.test.ts`, `tests/postgres/multiselect.test.ts` | `MULTISELECT`: chips and «+N», checkbox editor with keyboard, leaving the cell commits, paste «BYD, Honda» and copy, out-of-catalog marked invalid; header filter with per-option counts; «contains any of», empty and fixed filters, values and validation over HTTP and in Postgres (`jsonb` and `text`) |
 | `tests/protocol/asistente.test.ts` (T-1 to T-3) | The Planes GMF sheet with image, folder and spec sheet; matching by name (full unit, folder, markdown spec sheet, unmatched and ambiguous) and by `destino.fila` |
 | `tests/grid/tipos.test.ts` (T-1 to T-5) | Dots and checkbox on load, no trace of the hash in the page; empty editor that changes nothing; new password that does not reach the draft and is saved; short password flagged; checkbox with click, undo, redo and save; copying a password gives empty |

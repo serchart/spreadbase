@@ -656,6 +656,59 @@
 	margin-right: -6px;
 }
 
+/* Selección múltiple (SB-41): las elegidas como etiquetas; las que no caben, «+N». */
+.oc-multi {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.oc-chip {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	padding: 0 6px;
+	border-radius: 999px;
+	font-size: 0.85em;
+	line-height: 1.6;
+	background-color: color-mix(in oklab, var(--dg-accent) 12%, transparent);
+	color: var(--dg-fg, inherit);
+}
+
+.oc-chip[hidden] {
+	display: none;
+}
+
+.oc-chip .oc-option-icon {
+	margin-right: 3px;
+}
+
+.oc-chip__text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oc-chip--more {
+	background-color: var(--dg-hover-bg);
+	color: var(--dg-fg-muted);
+}
+
+.oc-multi-option input[type='checkbox'] {
+	margin: 0 6px 0 0;
+	pointer-events: none;
+	accent-color: var(--dg-accent);
+}
+
+.oc-multi-editor .oc-cell-editor__list:focus-visible {
+	outline: 2px solid var(--dg-accent);
+	outline-offset: 1px;
+}
+
 .oc-cell-editor__label {
 	flex: 1 1 auto;
 	min-width: 0;

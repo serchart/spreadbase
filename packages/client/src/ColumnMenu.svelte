@@ -64,7 +64,7 @@
 	const items = $derived.by(() => {
 		const list = (values?.values ?? []).map((v) => ({ key: keyOf(v.value), value: v.value, count: v.count, label: controller.describeValue(column, v.value) }));
 		// Un catálogo o un lookup se ordena por lo que se ve, no por el código; las vacías, primero.
-		if (column.type === 'select' || column.type === 'lookup') {
+		if (column.type === 'select' || column.type === 'multiselect' || column.type === 'lookup') {
 			list.sort((a, b) => (a.value === null ? -1 : b.value === null ? 1 : a.label.localeCompare(b.label, 'es', { sensitivity: 'base' })));
 		}
 		return list;

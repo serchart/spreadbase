@@ -131,12 +131,52 @@ const units = new SpreadBase({
 	source: unitsSource
 });
 
+/**
+ * Agencias con varias marcas (SB-41): «Marcas» es una selección múltiple. La
+ * celda muestra cada marca como etiqueta; el filtro del encabezado, «contiene
+ * alguna de» las elegidas, con cuántas agencias tiene cada una.
+ */
+export const BRANDS = [
+	{ value: 'byd', label: 'BYD' },
+	{ value: 'chevrolet', label: 'Chevrolet' },
+	{ value: 'honda', label: 'Honda' },
+	{ value: 'kia', label: 'Kia' },
+	{ value: 'mazda', label: 'Mazda' },
+	{ value: 'nissan', label: 'Nissan' },
+	{ value: 'toyota', label: 'Toyota' },
+	{ value: 'volkswagen', label: 'Volkswagen' },
+	{ value: 'mg', label: 'MG' },
+	{ value: 'jac', label: 'JAC' }
+];
+
+const seedAgencies = () => [
+	{ id: 'ag_1', name: 'Agencia Centro', brands: ['byd', 'honda'] },
+	{ id: 'ag_2', name: 'Agencia Norte', brands: ['chevrolet'] },
+	{ id: 'ag_3', name: 'Agencia Sur', brands: ['byd', 'chevrolet', 'kia', 'mazda', 'nissan', 'toyota'] },
+	{ id: 'ag_4', name: 'Agencia Poniente', brands: null },
+	{ id: 'ag_5', name: 'Agencia Oriente', brands: ['honda', 'toyota'] }
+];
+
+const agenciesSource = memorySource({ rows: seedAgencies(), createId: (n) => `ag_${n}` });
+
+const agencies = new SpreadBase({
+	id: 'catalog-agencies',
+	allowInsert: true,
+	columns: {
+		id: { type: types.TEXT, label: 'ID', readOnly: true, width: 80 },
+		name: { type: types.TEXT, label: 'Agencia', required: true, width: 180 },
+		brands: { type: types.MULTISELECT, label: 'Marcas', width: 220, options: BRANDS }
+	},
+	source: agenciesSource
+});
+
 export function createCatalogExample({ devRoutes = false } = {}): Router {
 	const router = Router();
 	if (devRoutes) {
 		router.post('/reset', (_req, res) => {
 			modelsSource.reset(seedModels());
 			unitsSource.reset(seedUnits());
+			agenciesSource.reset(seedAgencies());
 			res.json({ ok: true });
 		});
 	}
@@ -147,5 +187,6 @@ export function createCatalogExample({ devRoutes = false } = {}): Router {
 	});
 	router.use('/models', sheetRouter(models));
 	router.use('/units', sheetRouter(units));
+	router.use('/agencies', sheetRouter(agencies));
 	return router;
 }
