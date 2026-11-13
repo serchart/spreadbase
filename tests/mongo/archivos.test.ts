@@ -28,8 +28,8 @@ beforeEach(async () => {
 	]);
 });
 
-const PDF: FileRef = { url: '/uploads/docs/c3/manual.pdf', nombre: 'manual.pdf', tipo: 'application/pdf', tamano: 10_240 };
-const PNG: FileRef = { url: '/uploads/docs/d4/frente.png', nombre: 'frente.png', tipo: 'image/png', tamano: 512 };
+const PDF: FileRef = { url: '/uploads/docs/c3/manual.pdf', name: 'manual.pdf', type: 'application/pdf', size: 10_240 };
+const PNG: FileRef = { url: '/uploads/docs/d4/frente.png', name: 'frente.png', type: 'image/png', size: 512 };
 const change = (row: Row, field: string, to: unknown) => ({ id: String(row.id), rowVersion: row.rowVersion, changes: { [field]: { from: row[field] as never, to: to as never } } });
 
 const sheet = () =>

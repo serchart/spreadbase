@@ -6,7 +6,7 @@
  * es una función, solo corre en el servidor.
  */
 import type { CellValue, FileRef } from './values.ts';
-import { isFileRef } from './values.ts';
+import { fileNameOf, isFileRef, normalizeFileRef } from './values.ts';
 
 export const types = {
 	TEXT: 'text',
@@ -333,20 +333,6 @@ export function uploadLimits(type: ColumnType, upload: UploadSpec): UploadSchema
 }
 
 /**
- * El nombre visible de un archivo: el último tramo de su URL, sin la consulta
- * (`/uploads/docs/8f3k2a/contrato.pdf` → `contrato.pdf`).
- */
-export function fileNameOf(url: string): string {
-	const path = url.split(/[?#]/)[0] ?? '';
-	const last = path.slice(path.lastIndexOf('/') + 1);
-	try {
-		return decodeURIComponent(last) || url;
-	} catch {
-		return last || url;
-	}
-}
-
-/**
  * Mensaje de error si `value` no es válido para la columna; `null` si lo es.
  * Solo las reglas declarativas: `readOnly` y `validate` los decide quien llama.
  */
@@ -398,7 +384,7 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 			if (!Array.isArray(value)) return 'Debe ser una lista de archivos';
 			if (!value.length && spec.required) return 'No admite vacío';
 			for (const item of value) {
-				const problem = isFileRef(item) ? fileProblem(item) : 'Cada archivo debe ser { url, nombre, tipo, tamano }';
+				const problem = isFileRef(item) ? fileProblem(item) : 'Cada archivo debe ser { url, name, type, size }';
 				if (problem) return problem;
 			}
 			return null;
@@ -411,23 +397,30 @@ export function validateValue(spec: ColumnSpec, value: unknown): string | null {
 	}
 }
 
-/** Un archivo válido: su URL (como en SB-30) o `{ url, nombre, tipo, tamano }` con una URL válida. */
+/**
+ * Un archivo válido: su URL (como en SB-30) o `{ url, name, type, size }` con
+ * una URL válida. La forma obsoleta `{ url, nombre, tipo, tamano }` también vale.
+ */
 function fileProblem(value: unknown): string | null {
 	if (typeof value === 'string') return FILE_URL.test(value) ? null : 'URL de archivo inválida';
 	if (!isFileRef(value)) return 'URL de archivo inválida';
 	if (!FILE_URL.test(value.url)) return 'URL de archivo inválida';
-	if (typeof value.nombre !== 'string' || !value.nombre.trim()) return 'El archivo necesita nombre';
-	if (value.tamano !== undefined && (typeof value.tamano !== 'number' || value.tamano < 0)) return 'Tamaño inválido';
+	const raw = value as { name?: unknown; nombre?: unknown; size?: unknown; tamano?: unknown };
+	const name = raw.name ?? raw.nombre;
+	if (typeof name !== 'string' || !name.trim()) return 'El archivo necesita nombre';
+	const size = raw.size ?? raw.tamano;
+	if (size !== undefined && (typeof size !== 'number' || size < 0)) return 'Tamaño inválido';
 	return null;
 }
 
 /**
- * Un valor de archivo como `FileRef` (SB-38): un objeto se queda igual; una URL
- * suelta (SB-30) toma su nombre del final de la URL, sin tipo ni tamaño.
+ * Un valor de archivo como `FileRef` (SB-38), siempre en la forma actual: un
+ * objeto (también en la forma obsoleta) se normaliza; una URL suelta (SB-30)
+ * toma su nombre del final de la URL, sin tipo ni tamaño.
  */
 export function toFileRef(value: unknown): FileRef | null {
-	if (isFileRef(value)) return value;
-	if (typeof value === 'string' && value.trim()) return { url: value.trim(), nombre: fileNameOf(value.trim()), tipo: '', tamano: 0 };
+	if (isFileRef(value)) return normalizeFileRef(value);
+	if (typeof value === 'string' && value.trim()) return { url: value.trim(), name: fileNameOf(value.trim()), type: '', size: 0 };
 	return null;
 }
 
