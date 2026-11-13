@@ -296,7 +296,7 @@ describe('ejemplo /api/import-assistant', () => {
 		}
 		// La ficha (su texto, en markdown) y el PDF a la carpeta, en ONIX 2026.
 		expect(por.pl_00003.campos.fichaTecnica.despues).toBe('Ficha técnica ONIX 2026\nMotor 1.0 turbo\nTransmisión automática');
-		expect(por.pl_00003.campos.archivos.despues).toEqual([{ url: manual.url, nombre: 'ONIX 2026 manual.pdf', tipo: 'application/pdf', tamano: manual.tamano }]);
+		expect(por.pl_00003.campos.archivos.despues).toEqual([{ url: manual.url, name: 'ONIX 2026 manual.pdf', type: 'application/pdf', size: manual.tamano }]);
 		expect(por.pl_00003.campos.fichaTecnica.origen).toEqual([{ archivo: ficha.id, nota: 'emparejado por nombre: ONIX 2026 · LS' }]);
 		expect(s.sinEmparejar).toEqual([
 			{ archivo: suelta.id, motivo: '«catalogo.png»: su nombre no coincide con ninguna fila (Modelo, Versión, Paquete)' },
@@ -314,7 +314,7 @@ describe('ejemplo /api/import-assistant', () => {
 		const fin = await esperarCon({ run: run.id, user }, 'terminada');
 		expect(fin.archivos.find((f: any) => f.id === foto.id).resultado).toMatchObject({ status: 'ok', mensaje: 'En la columna «imagen»' });
 		const onix = (await api(`${BASE}/planes/pl_00003`)).body;
-		expect(onix.archivos).toEqual([{ url: manual.url, nombre: 'ONIX 2026 manual.pdf', tipo: 'application/pdf', tamano: manual.tamano }]);
+		expect(onix.archivos).toEqual([{ url: manual.url, name: 'ONIX 2026 manual.pdf', type: 'application/pdf', size: manual.tamano }]);
 		expect(onix.fichaTecnica).toContain('Motor 1.0 turbo');
 		expect((await api(`${BASE}/planes/pl_00001`)).body.imagen).toBe(foto.url);
 	});

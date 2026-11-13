@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { browserHarness } from '../support/browser.ts';
 import { API_URL, FRONT_URL } from '../support/env.ts';
 import { GridPage } from '../support/grid.ts';
-import { getCase, reset } from '../protocol/support.ts';
+import { batch, getCase, reset } from '../protocol/support.ts';
 
 const { user } = browserHarness();
 
@@ -37,7 +37,7 @@ describe('columna de archivo', () => {
 		await reset();
 	});
 
-	it('AR-1 · subir desde el panel: la celda muestra el nombre y el tamaño, queda editada y se guarda { url, nombre, tipo, tamano } (SB-38)', async () => {
+	it('AR-1 · subir desde el panel: la celda muestra el nombre y el tamaño, queda editada y se guarda { url, name, type, size } (SB-38)', async () => {
 		const { grid, page } = await open('/cases');
 		const cell = grid.cell(grid.rowById('case_000001'), 'Contrato');
 		expect((await cell.innerText()).trim()).toBe('—');
@@ -53,7 +53,7 @@ describe('columna de archivo', () => {
 		expect(href).toMatch(new RegExp(`^${API_URL}/uploads/cases/[^/]+/Contrato-Nunez\\.pdf$`));
 
 		expect(await grid.save()).toContain('Cambios guardados');
-		expect((await getCase('case_000001')).contract_file).toEqual({ url: href, nombre: 'Contrato-Nunez.pdf', tipo: 'application/pdf', tamano: PDF.length });
+		expect((await getCase('case_000001')).contract_file).toEqual({ url: href, name: 'Contrato-Nunez.pdf', type: 'application/pdf', size: PDF.length });
 	});
 
 	it('AR-2 · ↗ abre el archivo en otra pestaña', async () => {
@@ -112,6 +112,35 @@ describe('columna de archivo', () => {
 			return data.getData('text/plain');
 		});
 		expect(copied).toBe('https://ejemplo.mx/docs/poliza%20seguro.pdf');
+	});
+
+	it('AR-8 · un archivo guardado en la forma obsoleta { url, nombre, tipo, tamano } se lee y se pinta; al reemplazarlo se guarda la forma nueva', async () => {
+		const legacy = { url: `${API_URL}/uploads/cases/x9/poliza.pdf`, nombre: 'poliza.pdf', tipo: 'application/pdf', tamano: 2048 };
+		const before = await getCase('case_000005');
+		const res = await batch({ creates: [], deletes: [], updates: [{ id: 'case_000005', rowVersion: before.rowVersion, changes: { contract_file: { from: null, to: legacy } } }] });
+		expect(res.status).toBe(200);
+		expect((await getCase('case_000005')).contract_file).toEqual(legacy);
+
+		const { grid, page } = await open('/cases');
+		const row = grid.rowById('case_000005');
+		const cell = grid.cell(row, 'Contrato');
+		await cell.scrollIntoViewIfNeeded();
+		expect(await cell.locator('.oc-file__name').innerText()).toBe('poliza.pdf');
+		expect(await cell.locator('.oc-file__size').innerText()).toBe('2 KB');
+		expect(await cell.locator('a.oc-file__open').getAttribute('href')).toBe(legacy.url);
+		// Leerla no la marca como editada.
+		expect(await grid.state(row, 'Contrato')).not.toContain('oc-cell-dirty');
+
+		await openEditor(cell);
+		await page.locator('.oc-cell-editor__file').setInputFiles({ name: 'poliza-2.pdf', mimeType: 'application/pdf', buffer: PDF });
+		await panel(page).waitFor({ state: 'detached' });
+		expect(await grid.save()).toContain('Cambios guardados');
+		expect((await getCase('case_000005')).contract_file).toEqual({
+			url: expect.stringMatching(/\/poliza-2\.pdf$/),
+			name: 'poliza-2.pdf',
+			type: 'application/pdf',
+			size: PDF.length
+		});
 	});
 });
 
@@ -172,6 +201,7 @@ describe('carpeta y texto largo (SB-38)', () => {
 						id: 'pl_00003',
 						rowVersion: row.rowVersion,
 						changes: {
+							// En la forma obsoleta a propósito: AR-6 comprueba que se lee y que lo que se guarda es la nueva.
 							archivos: { from: null, to: [{ url: `${API_URL}/uploads/planes/x1/manual.pdf`, nombre: 'manual.pdf', tipo: 'application/pdf', tamano: 2_097_152 }] },
 							fichaTecnica: { from: null, to: '# Ficha técnica ONIX 2026\n\n- Motor 1.0 turbo\n- Transmisión automática' }
 						}
@@ -218,8 +248,8 @@ describe('carpeta y texto largo (SB-38)', () => {
 		expect(await grid.save()).toContain('Cambios guardados');
 		const saved = (await (await fetch(`${PLANES}/pl_00003`)).json()).archivos;
 		expect(saved).toEqual([
-			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/frente\\.png$`)), nombre: 'frente.png', tipo: 'image/png', tamano: PNG.length },
-			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/garantia\\.pdf$`)), nombre: 'garantia.pdf', tipo: 'application/pdf', tamano: PDF.length }
+			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/frente\\.png$`)), name: 'frente.png', type: 'image/png', size: PNG.length },
+			{ url: expect.stringMatching(new RegExp(`^${API_URL}/uploads/planes/[^/]+/garantia\\.pdf$`)), name: 'garantia.pdf', type: 'application/pdf', size: PDF.length }
 		]);
 	});
 

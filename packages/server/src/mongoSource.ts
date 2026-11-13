@@ -287,7 +287,7 @@ export function mongoSource(options: MongoSourceOptions): SheetSource {
 		return row;
 	}
 
-	/** Un archivo guardado en un documento, con sus números de BSON como número (`tamano` puede llegar como Int32 o Long). */
+	/** Un archivo guardado en un documento, con sus números de BSON como número (`size`, o `tamano` en la forma obsoleta, puede llegar como Int32 o Long). */
 	function fileFromDoc(value: unknown): unknown {
 		if (typeof value !== 'object' || value === null) return value;
 		return Object.fromEntries(Object.entries(value as Doc).filter(([k]) => k !== '_id').map(([k, v]) => [k, plain(v)]));

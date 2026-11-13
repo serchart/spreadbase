@@ -13,7 +13,7 @@
  *   cambien (`firma`), y se le avisan al cerebro (`staging_editado`, agrupadas: §10).
  */
 import { createHash } from 'node:crypto';
-import { fold } from '@spreadbase/core';
+import { fileRefsOf, fold } from '@spreadbase/core';
 import type { FileRef, ImportChange, ImportChangeSet, ImportRun, ImportRunFile, ImportStagingEdit } from '@spreadbase/core';
 import { NotFoundError, ValidationError } from '../errors.ts';
 import { SpreadBase } from '../SpreadBase.ts';
@@ -251,8 +251,8 @@ export function parseStagingEdit(body: unknown): ImportStagingEdit {
  *   «A», solo cuentan junto a uno largo). Todas las filas de esa unidad reciben el archivo (los
  *   planes de una versión comparten su foto).
  * - Dos unidades distintas con el mismo puntaje: ambiguo, a `sinEmparejar` con las candidatas.
- * - Valor según el tipo de la columna: `image` la URL; `file` `{ url, nombre, tipo, tamano }`;
- *   `folder` se agrega a la lista (sin repetir nombre); texto, el derivado del agente (ficha.md).
+ * - Valor según el tipo de la columna: `image` la URL; `file` `{ url, name, type, size }`;
+ *   `folder` se agrega a la lista (sin repetir nombre; lo guardado en la forma obsoleta se reescribe en la actual); texto, el derivado del agente (ficha.md).
  */
 async function emparejar(
 	adjuntos: ReturnType<typeof adjuntosDe>,
@@ -305,14 +305,15 @@ async function emparejar(
 			sinEmparejar.push({ archivo: archivo.id, motivo: `«${archivo.nombre}» puede ser de varias filas (${candidatas}): renómbralo o elige la fila` });
 			continue;
 		}
-		const ref: FileRef = { url: archivo.url, nombre: archivo.nombre, tipo: archivo.tipo, tamano: archivo.tamano };
+		// Siempre en la forma actual de `FileRef` (la obsoleta solo se lee).
+		const ref: FileRef = { url: archivo.url, name: archivo.nombre, type: archivo.tipo, size: archivo.tamano };
 		let valor: (fila: Record<string, unknown>) => unknown;
 		if (motivoTipo === 'image') valor = () => archivo.url;
 		else if (motivoTipo === 'file') valor = () => ref;
 		else if (motivoTipo === 'folder') {
 			valor = (fila) => {
-				const lista = Array.isArray(fila[campo]) ? (fila[campo] as FileRef[]) : [];
-				return [...lista.filter((f) => f?.nombre !== ref.nombre), ref];
+				const lista = fileRefsOf(fila[campo]);
+				return [...lista.filter((f) => f.name !== ref.name), ref];
 			};
 		} else {
 			// La ficha que escribió el agente (ficha.md) o, si no, el documento completo en markdown (método P).

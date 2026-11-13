@@ -11,7 +11,7 @@
  */
 
 import { flushSync, mount, unmount, type Component } from 'svelte';
-import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isPasswordMark, toFileRef } from '@spreadbase/core';
+import { canonicalJson, fileNameOf, fileRefsOf, isFileRef, isPasswordMark, normalizeFileRef, normalizeFileValue, toFileRef } from '@spreadbase/core';
 import type { FileRef } from '@spreadbase/core';
 import { avatarNode, cachedMedia, hasIcon, iconSvg, recordMedia, rememberMedia } from './avatar';
 import { positionFloating } from './internal/floating';
@@ -1234,15 +1234,15 @@ function fileNode(ref: FileRef): HTMLElement {
 	wrap.className = 'oc-file';
 	const icon = document.createElement('span');
 	icon.className = 'oc-file__icon';
-	icon.innerHTML = iconSvg(fileIcon(ref.nombre || ref.url));
+	icon.innerHTML = iconSvg(fileIcon(ref.name || ref.url));
 	const name = document.createElement('span');
 	name.className = 'oc-file__name';
-	name.textContent = ref.nombre || fileNameOf(ref.url);
+	name.textContent = ref.name || fileNameOf(ref.url);
 	wrap.append(icon, name);
-	if (ref.tamano > 0) {
+	if (ref.size > 0) {
 		const size = document.createElement('span');
 		size.className = 'oc-file__size';
-		size.textContent = formatBytes(ref.tamano);
+		size.textContent = formatBytes(ref.size);
 		wrap.append(size);
 	}
 	const open = document.createElement('a');
@@ -1280,7 +1280,7 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 		cell.classList.add(kind === 'image' ? 'oc-image-cell' : 'oc-file-cell');
 		if (kind === 'image') cell.classList.toggle('is-round', column.shape === 'round');
 
-		// Un archivo puede venir como `{ url, nombre, tipo, tamano }` (SB-38) o como su URL (SB-30).
+		// Un archivo puede venir como `{ url, name, type, size }` (SB-38; también la forma obsoleta) o como su URL (SB-30).
 		const ref = kind === 'file' ? toFileRef(value) : null;
 		const raw = ref ? ref.url : value;
 		// Sin esta guarda, cualquier texto suelto en la celda acabaría en `src`
@@ -1306,7 +1306,7 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 			return;
 		}
 
-		cell.appendChild(fileNode(ref ?? { url, nombre: fileNameOf(url), tipo: '', tamano: 0 }));
+		cell.appendChild(fileNode(ref ?? { url, name: fileNameOf(url), type: '', size: 0 }));
 	};
 
 	return {
@@ -1406,7 +1406,7 @@ function buildMediaEditor(column: ColumnDef, kind: 'image' | 'file') {
 					const result = await upload.send(file);
 					if (activeEditor?.overlay !== overlay) return;
 					// Un archivo queda con su nombre, tipo y tamaño (SB-38); una imagen, con su URL.
-					commit(kind === 'file' ? { url: result.url, nombre: result.name || fileNameOf(result.url), tipo: result.type, tamano: result.size } : result.url);
+					commit(kind === 'file' ? { url: result.url, name: result.name || fileNameOf(result.url), type: result.type, size: result.size } : result.url);
 				} catch (err) {
 					if (activeEditor?.overlay !== overlay) return;
 					setStatus(err instanceof Error ? err.message : 'No se pudo subir el archivo', true);
@@ -2103,7 +2103,7 @@ const fileType: CellTypeDef = {
 	name: 'file',
 	align: 'left',
 	parse: (raw) => parseFileValue(raw),
-	format: (value) => (isBlank(value) ? '' : (toFileRef(value)?.nombre ?? String(value))),
+	format: (value) => (isBlank(value) ? '' : (toFileRef(value)?.name ?? String(value))),
 	toClipboard: (value) => (isBlank(value) ? '' : (toFileRef(value)?.url ?? '')),
 	fromClipboard: (raw) => (raw.trim() === '' ? null : raw.trim()),
 	equals: (a, b) => fileEquals(a, b),
@@ -2120,7 +2120,8 @@ const fileType: CellTypeDef = {
 /** Un valor de archivo como llega (objeto, URL o el JSON de un objeto, al pegar): `FileRef`, URL o `null`. */
 function parseFileValue(raw: unknown): CellValue {
 	if (isBlank(raw)) return null;
-	if (isFileRef(raw)) return { url: raw.url, nombre: raw.nombre ?? fileNameOf(raw.url), tipo: raw.tipo ?? '', tamano: Number(raw.tamano) || 0 };
+	// Siempre en la forma actual: lo pegado en la forma obsoleta se reescribe.
+	if (isFileRef(raw)) return normalizeFileRef(raw);
 	const text = String(raw).trim();
 	if (text.startsWith('{')) {
 		try {
@@ -2133,7 +2134,7 @@ function parseFileValue(raw: unknown): CellValue {
 }
 
 function fileEquals(a: CellValue, b: CellValue): boolean {
-	return isBlank(a) || isBlank(b) ? isBlank(a) && isBlank(b) : canonicalJson(a) === canonicalJson(b);
+	return isBlank(a) || isBlank(b) ? isBlank(a) && isBlank(b) : canonicalJson(normalizeFileValue(a)) === canonicalJson(normalizeFileValue(b));
 }
 
 /**
@@ -2196,7 +2197,7 @@ function buildFolderEditor(column: ColumnDef) {
 		}
 		const wrap = document.createElement('div');
 		wrap.className = 'oc-file oc-folder';
-		wrap.title = refs.map((r) => r.nombre).join('\n');
+		wrap.title = refs.map((r) => r.name).join('\n');
 		const icon = document.createElement('span');
 		icon.className = 'oc-file__icon';
 		icon.innerHTML = iconSvg('folder');
@@ -2205,7 +2206,7 @@ function buildFolderEditor(column: ColumnDef) {
 		count.textContent = `${refs.length} ${refs.length === 1 ? 'archivo' : 'archivos'}`;
 		const names = document.createElement('span');
 		names.className = 'oc-file__name oc-folder__names';
-		names.textContent = refs.map((r) => r.nombre).join(', ');
+		names.textContent = refs.map((r) => r.name).join(', ');
 		wrap.append(icon, count, names);
 		cell.appendChild(wrap);
 	};
@@ -2255,7 +2256,7 @@ function buildFolderEditor(column: ColumnDef) {
 					remove.className = 'oc-folder-editor__remove';
 					remove.dataset.remove = String(i);
 					remove.title = 'Quitar';
-					remove.setAttribute('aria-label', `Quitar ${ref.nombre}`);
+					remove.setAttribute('aria-label', `Quitar ${ref.name}`);
 					remove.innerHTML = iconSvg('x');
 					li.appendChild(remove);
 					list.appendChild(li);
@@ -2293,8 +2294,8 @@ function buildFolderEditor(column: ColumnDef) {
 					try {
 						const result = await upload.send(file);
 						if (activeEditor?.overlay !== overlay) return;
-						const ref: FileRef = { url: result.url, nombre: result.name || file.name, tipo: result.type, tamano: result.size };
-						refs = [...refs.filter((r) => r.nombre !== ref.nombre), ref];
+						const ref: FileRef = { url: result.url, name: result.name || file.name, type: result.type, size: result.size };
+						refs = [...refs.filter((r) => r.name !== ref.name), ref];
 						render();
 					} catch (err) {
 						errors.push(`${file.name}: ${err instanceof Error ? err.message : 'no se pudo subir'}`);
