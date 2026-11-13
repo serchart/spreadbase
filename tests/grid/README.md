@@ -207,6 +207,20 @@ Sobre `/imports`: el formato «Contactos» escribe en la hoja del ejemplo básic
 
 ---
 
+## 13. Carpeta con principal (`carpeta.test.ts`, SB-38 y SB-29)
+
+Sobre `/catalog`: «Fotos» (`folder`) y «Modelo y año» con `avatar.image: 'fotos'`; en «Unidades», un `lookup` al modelo con la misma miniatura.
+
+| # | Escenario | Se comprueba | Estado |
+|---|---|---|---|
+| **CP-1** | El principal en la celda | Miniatura si el primero es imagen; ícono de su tipo (PDF, Excel) si no; «N archivos» siempre; los nombres en el tooltip; vacía «—» | ✅ |
+| **CP-2** | Miniatura del modelo (misma fila) | El principal si es imagen; si no, la primera imagen; si no hay, el respaldo | ✅ |
+| **CP-3** | «Hacer principal» | Lo pasa al primer lugar con la marca «Principal»; la celda y el avatar del modelo lo siguen; se guarda en ese orden | ✅ |
+| **CP-4** | Principal que no es imagen | Un PDF como principal: su ícono; el avatar cae a la primera imagen | ✅ |
+| **CP-5** | En un `lookup` | El servidor manda en `images` la URL del principal; al cambiarlo, las unidades lo siguen | ✅ |
+
+---
+
 ## Estado
 
 Los 32 escenarios están automatizados, más los 5 de la columna lookup, los 5 de contraseña y casilla los 7 de miniaturas y los 5 de archivos:

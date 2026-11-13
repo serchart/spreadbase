@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { MAX_DISTINCT_VALUES, PASSWORD_MARK, checkFilter, filterKind, fold, isBlank, isPasswordMark, sameValue, toSchema, uploadLimits, validateValue } from '@spreadbase/core';
+import { MAX_DISTINCT_VALUES, PASSWORD_MARK, checkFilter, filterKind, fold, isBlank, isPasswordMark, sameValue, thumbnailOf, toSchema, uploadLimits, validateValue } from '@spreadbase/core';
 import { EXTENSION, safeFileName, sniffType } from './storage.ts';
 import type {
 	BatchInput,
@@ -186,16 +186,20 @@ export class SpreadBase {
 			const ids = unique(page.rows.map((row) => row[field]));
 			labels[field] = {};
 			const avatar = this.definition.columns[field]?.avatar;
+			// La imagen puede venir de una URL o de una carpeta (SB-38): de esta, su principal si es imagen.
 			const media = [
-				[avatar?.image, images],
-				[avatar?.iconField, icons]
-			].filter((m): m is [string, Record<string, Record<string, string>>] => !!m[0]);
+				[avatar?.image, images, thumbnailOf],
+				[avatar?.iconField, icons, (v: unknown) => (typeof v === 'string' && v ? v : null)]
+			].filter((m): m is [string, Record<string, Record<string, string>>, (v: unknown) => string | null] => !!m[0]);
 			for (const [, into] of media) into[field] = {};
 			if (ids.length === 0) continue;
 			for (const row of await lookup.byIds(ids, context)) {
 				const id = String(row[lookup.value]);
 				labels[field][id] = String(row[lookup.display] ?? '');
-				for (const [key, into] of media) if (typeof row[key] === 'string' && row[key]) into[field]![id] = row[key] as string;
+				for (const [key, into, read] of media) {
+					const value = read(row[key]);
+					if (value) into[field]![id] = value;
+				}
 			}
 		}
 		return {

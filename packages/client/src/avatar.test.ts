@@ -74,3 +74,22 @@ describe('ícono tomado de un campo (SB-39)', () => {
 		expect(cache.get('lookup␟stage␟st_2')).toBe('En espera');
 	});
 });
+
+describe('miniatura tomada de una carpeta (SB-38)', () => {
+	const f = (nombre: string, tipo = '') => ({ url: `https://x/${nombre}`, nombre, tipo, tamano: 1 });
+	const spec = { image: 'fotos' };
+
+	it('el principal si es imagen; si no, la primera imagen; si no hay, nada', () => {
+		expect(recordMedia(spec, { fotos: [f('a.png', 'image/png'), f('b.jpg', 'image/jpeg')] }).image).toBe('https://x/a.png');
+		expect(recordMedia(spec, { fotos: [f('ficha.pdf', 'application/pdf'), f('b.jpg', 'image/jpeg')] }).image).toBe('https://x/b.jpg');
+		expect(recordMedia(spec, { fotos: [f('ficha.pdf', 'application/pdf')] }).image).toBeNull();
+		expect(recordMedia(spec, { fotos: [] }).image).toBeNull();
+	});
+
+	it('sin tipo, por la extensión; SVG nunca; una carpeta en texto JSON se lee igual', () => {
+		expect(recordMedia(spec, { fotos: [f('a.webp')] }).image).toBe('https://x/a.webp');
+		expect(recordMedia(spec, { fotos: [f('logo.svg', 'image/svg+xml')] }).image).toBeNull();
+		expect(recordMedia(spec, { fotos: JSON.stringify([f('a.png', 'image/png')]) }).image).toBe('https://x/a.png');
+		expect(recordMedia(spec, { fotos: 'https://x/suelta.png' }).image).toBe('https://x/suelta.png');
+	});
+});

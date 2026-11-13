@@ -22,6 +22,13 @@ export const EXAMPLES = [
 		code: 'examples/backend/src/examples/stages/'
 	},
 	{
+		href: '/catalog',
+		title: 'Catálogo con fotos',
+		tag: 'folder · principal · avatar.image · SB-38',
+		text: 'Modelos con una carpeta de fotos: la celda muestra el archivo principal (miniatura si es imagen, ícono si no) y el número de archivos, y «Hacer principal» lo cambia. El modelo toma su miniatura de la carpeta, también en las unidades que lo eligen (lookup).',
+		code: 'examples/backend/src/examples/catalog/'
+	},
+	{
 		href: '/postgres',
 		title: 'Postgres',
 		tag: 'postgresSource · handlers · lookup · todos los tipos',
