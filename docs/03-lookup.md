@@ -1,94 +1,94 @@
-# 03 — Columnas `lookup`: elegir un registro de otra tabla
+# 03 — `lookup` columns: picking a record from another table
 
-> El select cuyas opciones vienen de un recurso externo: usuarios, clientes,
-> proveedores… Se configura **en el servidor**, en la columna; el front no
-> escribe nada.
+> The select whose options come from an external resource: users, customers,
+> suppliers… It is configured **on the server**, in the column; the front end
+> writes nothing.
 
-**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-21). Corriendo en el ejemplo de Postgres, columna «Responsable»
+**Created:** 2026-09-28 · **Status:** 🟢 current (SB-21). Running in the Postgres example, «Responsable» column
 
 ---
 
-## 1. Qué es
+## 1. What it is
 
-Una columna cuyo valor es la llave de un registro de otro recurso —casi
-siempre una llave foránea (`owner_id`)—. La celda **guarda el id y muestra un
-nombre**; al editarla se abre un popover con una **mini tabla** de ese recurso,
-con buscador, para elegir una fila.
+A column whose value is the key of a record in another resource —almost
+always a foreign key (`owner_id`)—. The cell **stores the id and shows a
+name**; editing it opens a popover with a **mini table** of that resource,
+with a search box, to pick a row.
 
 ```
 ┌───────────────────────┬──┐
-│ Ana López             │🔽│      ← la celda: muestra `display`, guarda `value`
+│ Ana López             │🔽│      ← the cell: shows `display`, stores `value`
 └───────────────────────┴──┘
 ┌──────────────────────────────────────────┐
 │ 🔍 ana_                                  │
 ├──────┬────────────────┬──────────────────┤
-│      │ Nombre         │ Correo           │ ← encabezado fijo (sin él si hay una sola columna)
+│      │ Name           │ Email            │ ← sticky header (none if there is a single column)
 ├──────┼────────────────┼──────────────────┤
-│ (AL) │ Ana López      │ ana@…            │ ← fila resaltada
+│ (AL) │ Ana López      │ ana@…            │ ← highlighted row
 │ (AM) │ Ana Martínez   │ amartinez@…      │
-│  …   │ …              │ …                │ ↕ ↔  scroll en ambas direcciones
+│  …   │ …              │ …                │ ↕ ↔  scrolls in both directions
 ├──────┴────────────────┴──────────────────┤
-│ 50 de 132                                │ ← carga más al llegar al fondo
+│ 50 de 132                                │ ← loads more on reaching the bottom
 └──────────────────────────────────────────┘
 ```
 
-Diferencia con `select`: en `select` las opciones son una lista fija que viaja
-en el esquema. En `lookup` son un recurso que puede tener miles de filas: se
-busca en el servidor, por tramos.
+Difference from `select`: in `select` the options are a fixed list that travels
+in the schema. In `lookup` they are a resource that may have thousands of rows:
+it is searched on the server, in chunks.
 
 ---
 
-## 2. El contrato: lo único que exige SpreadBase
+## 2. The contract: the only thing SpreadBase requires
 
-Una columna `types.LOOKUP` con un objeto `lookup`:
+A `types.LOOKUP` column with a `lookup` object:
 
 ```js
 owner_id: {
   type: types.LOOKUP,
-  label: 'Responsable',
+  label: 'Owner',
   required: true,
   lookup: {
-    value: 'id',                                 // obligatorio: el campo que se guarda en la celda
-    display: 'name',                             // obligatorio: el campo que se ve en la celda
-    columns: {                                   // opcional: las columnas del popover
+    value: 'id',                                 // required: the field stored in the cell
+    display: 'name',                             // required: the field shown in the cell
+    columns: {                                   // optional: the popover's columns
       avatar: { type: types.IMAGE, label: '', width: 36, shape: 'round' },
-      name:   { type: types.TEXT,  label: 'Nombre', width: 200 },
-      email:  { type: types.TEXT,  label: 'Correo', width: 220 }
+      name:   { type: types.TEXT,  label: 'Name', width: 200 },
+      email:  { type: types.TEXT,  label: 'Email', width: 220 }
     },
-    search:  (q, { offset, limit }, ctx) => …,   // obligatorio → { rows, total }
-    byIds:   (ids, ctx)   => …,                  // obligatorio → rows
-    resolve: (texts, ctx) => …                   // opcional   → rows
+    search:  (q, { offset, limit }, ctx) => …,   // required → { rows, total }
+    byIds:   (ids, ctx)   => …,                  // required → rows
+    resolve: (texts, ctx) => …                   // optional → rows
   }
 }
 ```
 
-| Clave | Para qué | Cuándo la llama SpreadBase |
+| Key | What for | When SpreadBase calls it |
 |---|---|---|
-| `value` | Qué se guarda. Casi siempre el id | — |
-| `display` | Qué se ve en la celda, en el panel de cambios y en los conflictos | — |
-| `columns` | Las columnas de la mini tabla, con los mismos tipos que la hoja (solo para mostrar). Sin `columns`: una sola columna, `display`, **sin encabezado** | — |
-| `search(q, page, ctx)` | Llenar el popover. **Paginado desde el principio**: recibe `{ offset, limit }` y devuelve `{ rows, total }`, igual que la lista de la hoja | Al abrir el popover, al escribir en el buscador y al llegar al fondo del scroll |
-| `byIds(ids, ctx)` | Las filas de ids concretos: para **pintar** los nombres y para **validar** que existen | Una vez por tramo de la hoja cargado y una vez por lote guardado |
-| `resolve(texts, ctx)` | Pegar texto: filas cuyo `display` **o** `value` coincide con cada texto | Solo con los textos pegados que el cliente no pudo resolver, sin duplicados |
+| `value` | What is stored. Almost always the id | — |
+| `display` | What is shown in the cell, in the changes panel and in conflicts | — |
+| `columns` | The mini table's columns, with the same types as the sheet (display only). Without `columns`: a single column, `display`, **with no header** | — |
+| `search(q, page, ctx)` | Fill the popover. **Paginated from the start**: receives `{ offset, limit }` and returns `{ rows, total }`, just like the sheet's list | When the popover opens, when typing in the search box and when the scroll reaches the bottom |
+| `byIds(ids, ctx)` | The rows for specific ids: to **paint** the names and to **validate** that they exist | Once per loaded chunk of the sheet and once per saved batch |
+| `resolve(texts, ctx)` | Pasting text: rows whose `display` **or** `value` matches each text | Only with the pasted texts the client could not resolve, without duplicates |
 
-- Cada fila que devuelven `search`, `byIds` y `resolve` trae al menos `value`,
-  `display` y los campos de `columns`.
-- `ctx` es el contexto de la petición (el usuario, el tenant…), el mismo que
-  reciben los handlers. Sirve para filtrar por permisos.
-- Guardar el texto en lugar del id también vale: `value: 'name', display: 'name'`.
-  Se desaconseja para personas (nombres repetidos, nombres que cambian).
-- Si falta `search` o `byIds`, `new SpreadBase` falla al arrancar con el nombre
-  del campo, no en el primer uso.
-- Lo que viaja en `GET /schema` es `value`, `display` y `columns`. Las funciones
-  se quedan en el servidor, igual que `validate`.
+- Every row returned by `search`, `byIds` and `resolve` carries at least `value`,
+  `display` and the fields in `columns`.
+- `ctx` is the request context (the user, the tenant…), the same one the
+  handlers receive. It is used to filter by permissions.
+- Storing the text instead of the id also works: `value: 'name', display: 'name'`.
+  It is discouraged for people (repeated names, names that change).
+- If `search` or `byIds` is missing, `new SpreadBase` fails at startup with the
+  field name, not on first use.
+- What travels in `GET /schema` is `value`, `display` and `columns`. The functions
+  stay on the server, just like `validate`.
 
-**De dónde salga ese objeto no le importa a SpreadBase.** Puede escribirse ahí
-mismo, con su SQL, o venir de otro módulo. Eso es organización del código de
-la app: el §3 es la forma recomendada.
+**SpreadBase does not care where that object comes from.** It can be written
+right there, with its SQL, or come from another module. That is a matter of how
+the app's code is organized: §3 is the recommended way.
 
-### 2.1 Forma base: todo en la columna
+### 2.1 Base form: everything in the column
 
-La más directa. Sirve para una hoja suelta o un quickstart:
+The most direct one. Good for a standalone sheet or a quickstart:
 
 ```js
 import { SpreadBase, postgresSource, types } from '@spreadbase/server';
@@ -96,10 +96,10 @@ import { SpreadBase, postgresSource, types } from '@spreadbase/server';
 const sheet = new SpreadBase({
   id: 'products',
   columns: {
-    name: { type: types.TEXT, label: 'Nombre', required: true },
+    name: { type: types.TEXT, label: 'Name', required: true },
     owner_id: {
       type: types.LOOKUP,
-      label: 'Responsable',
+      label: 'Owner',
       lookup: {
         value: 'id',
         display: 'name',
@@ -119,37 +119,37 @@ const sheet = new SpreadBase({
 });
 ```
 
-Funciona, pero en un proyecto real tiene dos problemas: la hoja de productos
-escribe SQL de la tabla de usuarios, y la siguiente hoja con una columna de
-usuario repite todo.
+It works, but in a real project it has two problems: the products sheet
+writes SQL for the users table, and the next sheet with a user column repeats
+all of it.
 
 ---
 
-## 3. Forma recomendada: el recurso define su lookup; la hoja es una función
+## 3. Recommended form: the resource defines its lookup; the sheet is a function
 
-Es cómo lo organiza el ejemplo de Postgres, con la estructura de Aggy. **No es
-parte de SpreadBase**: es una convención de la app que simplifica usarla.
+This is how the Postgres example organizes it, with Aggy's structure. **It is
+not part of SpreadBase**: it is an app convention that makes it simpler to use.
 
-Dos ideas:
+Two ideas:
 
-1. **El módulo dueño del recurso define una vez cómo se elige uno de sus
-   registros**: qué se guarda, qué se ve, sus columnas y cómo se busca. Es una
-   propiedad de su servicio (`users.lookup`), con su SQL dentro.
-2. **La definición de la hoja es una función que recibe sus dependencias**
-   (`productsSheet({ users })`). Así la columna queda completa en un solo
-   lugar, y la hoja no importa el servicio de usuarios: lo recibe, y la
-   dependencia sigue entrando por el constructor, como en Aggy.
+1. **The module that owns the resource defines once how one of its records is
+   picked**: what is stored, what is shown, its columns and how it is searched.
+   It is a property of its service (`users.lookup`), with its SQL inside.
+2. **The sheet definition is a function that receives its dependencies**
+   (`productsSheet({ users })`). That way the column is complete in a single
+   place, and the sheet does not import the users service: it receives it, and
+   the dependency still comes in through the constructor, as in Aggy.
 
 ```
 core/api/
 ├── users/
-│   └── users.service.js       ← SQL + `this.lookup`: cómo se elige un usuario
+│   └── users.service.js       ← SQL + `this.lookup`: how a user is picked
 └── products/
-    ├── products.sheet.js      ← productsSheet({ users }): las columnas; `lookup: users.lookup`
+    ├── products.sheet.js      ← productsSheet({ users }): the columns; `lookup: users.lookup`
     └── products.service.js    ← new SpreadBase({ ...productsSheet({ users }), source, handlers })
 ```
 
-**El recurso: `users.service.js`**
+**The resource: `users.service.js`**
 
 ```js
 import { types } from '@spreadbase/server';
@@ -158,14 +158,14 @@ class UsersService {
   constructor(orchestrator) {
     this.pool = orchestrator.pool;
 
-    /** Cómo se elige un usuario desde cualquier hoja. */
+    /** How a user is picked from any sheet. */
     this.lookup = {
       value: 'id',
       display: 'name',
       columns: {
         avatar: { type: types.IMAGE, label: '', width: 36, shape: 'round' },
-        name:   { type: types.TEXT,  label: 'Nombre', width: 200 },
-        email:  { type: types.TEXT,  label: 'Correo', width: 220 }
+        name:   { type: types.TEXT,  label: 'Name', width: 200 },
+        email:  { type: types.TEXT,  label: 'Email', width: 220 }
       },
       search:  (q, page, ctx) => this.search(q, page, ctx),
       byIds:   (ids, ctx)     => this.byIds(ids, ctx),
@@ -173,34 +173,34 @@ class UsersService {
     };
   }
 
-  /** Búsqueda paginada, sin distinguir acentos ni mayúsculas. */
+  /** Paginated search, ignoring accents and case. */
   async search(q, { offset, limit }) { /* SELECT … LIMIT/OFFSET + count */ }
 
   async byIds(ids) { /* SELECT … WHERE id = ANY($1) */ }
 
-  /** Para pegar: por nombre o por id. */
+  /** For pasting: by name or by id. */
   async byNames(texts) { /* SELECT … WHERE translate(lower(name), …) = ANY($1) OR id = ANY($2) */ }
 }
 ```
 
-**La hoja: `products.sheet.js`**
+**The sheet: `products.sheet.js`**
 
 ```js
 import { types } from '@spreadbase/server';
 
-/** Definición de la hoja. Recibe los servicios de los que dependen sus columnas. */
+/** Sheet definition. Receives the services its columns depend on. */
 export const productsSheet = ({ users }) => ({
   id: 'products',
   allowInsert: true,
   allowDelete: true,
   columns: {
-    name:     { type: types.TEXT,   label: 'Nombre', required: true },
-    owner_id: { type: types.LOOKUP, label: 'Responsable', required: true, lookup: users.lookup }
+    name:     { type: types.TEXT,   label: 'Name', required: true },
+    owner_id: { type: types.LOOKUP, label: 'Owner', required: true, lookup: users.lookup }
   }
 });
 ```
 
-**El servicio de la hoja: `products.service.js`**
+**The sheet's service: `products.service.js`**
 
 ```js
 constructor(orchestrator) {
@@ -212,40 +212,40 @@ constructor(orchestrator) {
 }
 ```
 
-El orquestador crea `usersService` antes que `productsService`.
+The orchestrator creates `usersService` before `productsService`.
 
-**Ventajas**
+**Advantages**
 
-- La columna está entera en la hoja, como `validate`.
-- El SQL de usuarios vive en el módulo de usuarios.
-- **Se reutiliza:** cualquier otra hoja con una columna de usuario usa
-  `lookup: users.lookup` y queda igual: mismo popover, misma búsqueda, mismo
-  pegado.
-- **Se ajusta por columna** sin tocar el recurso:
+- The column is entirely in the sheet, like `validate`.
+- The users SQL lives in the users module.
+- **It is reused:** any other sheet with a user column uses
+  `lookup: users.lookup` and behaves the same: same popover, same search, same
+  pasting.
+- **It can be tuned per column** without touching the resource:
 
   ```js
   reviewer_id: {
     type: types.LOOKUP,
-    label: 'Revisa',
+    label: 'Reviewer',
     lookup: { ...users.lookup, search: (q, page, ctx) => users.search(q, page, { ...ctx, onlyActive: true }) }
   }
   ```
 
 ---
 
-## 4. Protocolo
+## 4. Protocol
 
-Dos rutas más bajo la base de la hoja, y un campo más en cada página:
+Two more routes under the sheet's base, and one more field on each page:
 
-| Método | Ruta | Respuesta |
+| Method | Route | Response |
 |---|---|---|
 | `GET` | `/lookup/:field?q=&offset=&limit=` | `{ rows, total, offset, limit }`. `limit` ≤ 100, default 50 |
-| `POST` | `/lookup/:field/resolve` · `{ "texts": [...] }` | `{ matches: { "<texto>": [fila, …] } }`. Hasta 500 textos por petición |
+| `POST` | `/lookup/:field/resolve` · `{ "texts": [...] }` | `{ matches: { "<text>": [row, …] } }`. Up to 500 texts per request |
 
-**Nombres en cada página de la hoja.** `GET /?offset&limit` agrega `labels`:
-el `display` de cada id de las columnas `lookup` presentes en ese tramo,
-obtenido con **una** llamada a `byIds` por columna. La celda nunca muestra un
-id pelón.
+**Names on every page of the sheet.** `GET /?offset&limit` adds `labels`:
+the `display` of each id of the `lookup` columns present in that chunk,
+obtained with **one** call to `byIds` per column. The cell never shows a
+bare id.
 
 ```jsonc
 {
@@ -255,18 +255,19 @@ id pelón.
 }
 ```
 
-Con `avatar` en la columna, la misma llamada da también la miniatura de cada
-id: `images` (la URL de `avatar.image`, SB-29) e `icons` (el nombre de ícono de
-`avatar.iconField`, SB-39), por ejemplo `"icons": { "stage_id": { "st_2": "hourglass" } }`.
-El cliente los guarda en su caché en un solo lugar (el controlador), así que
-una fuente escrita a mano que devuelva lo mismo se ve igual que `Sheet(url)`.
+With `avatar` on the column, the same call also returns each id's
+thumbnail: `images` (the URL from `avatar.image`, SB-29) and `icons` (the icon
+name from `avatar.iconField`, SB-39), for example `"icons": { "stage_id": { "st_2": "hourglass" } }`.
+The client stores them in its cache in a single place (the controller), so
+a hand-written source that returns the same thing looks the same as `Sheet(url)`.
 
-**Validación al guardar.** El motor junta los ids de cada columna `lookup` del
-lote y llama **una vez** a `byIds`. Un id que no existe rechaza el lote con 400
-y `No corresponde a ningún registro`, como cualquier valor inválido.
+**Validation on save.** The engine collects the ids of each `lookup` column in
+the batch and calls `byIds` **once**. An id that does not exist rejects the batch
+with 400 and `No corresponde a ningún registro`, like any invalid value.
 
-`sheetRouter` monta las dos rutas. Con controlador a mano son dos métodos más,
-con los helpers de parseo, y la lista recibe el contexto para los nombres:
+`sheetRouter` mounts both routes. With a hand-written controller they are two
+more methods, with the parsing helpers, and the list receives the context for
+the names:
 
 ```js
 list:    sheet.list(parseListQuery(req.query), { user: req.user })
@@ -276,79 +277,80 @@ resolve: sheet.resolve(req.params.field, parseResolve(req.body), { user: req.use
 
 ---
 
-## 5. En el cliente
+## 5. On the client
 
-`new Sheet(url)` lee `lookup` del esquema y arma solo el buscador contra
-`/lookup/:field`. No hay nada que escribir en el front.
+`new Sheet(url)` reads `lookup` from the schema and builds the search against
+`/lookup/:field` on its own. There is nothing to write in the front end.
 
-**El popover** es una tabla HTML —no otra instancia de jspreadsheet: su estado
-global de foco y teclado se pelearía con la hoja que la contiene—, con el
-estilo del tema de la hoja (variables `--dg-*`):
+**The popover** is an HTML table —not another jspreadsheet instance: its global
+focus and keyboard state would fight with the sheet that contains it—, styled
+with the sheet's theme (`--dg-*` variables):
 
-- encabezado fijo (`position: sticky`); **sin encabezado** si hay una sola columna;
-- scroll en ambas direcciones; el ancho es la suma de sus columnas, con tope
-  en la pantalla;
-- **carga por tramos**: 50 filas al abrir; al acercarse al fondo pide las
-  siguientes, con `offset`. Una respuesta vieja (el usuario siguió
-  escribiendo) se descarta;
-- teclado: ↑↓ mueven la fila resaltada, Enter la elige, Esc cancela; ←→ se
-  quedan en el buscador;
-- las celdas de la mini tabla usan el formato de su tipo: una imagen se ve
-  como imagen (avatar si `shape: 'round'`), un número con su formato.
-
----
-
-## 6. Pegar
-
-Pegar 1 000 celdas **no** hace 1 000 búsquedas. Cada texto pegado pasa por tres
-filtros, de lo más barato a lo más caro, y solo lo que no se resuelve en uno
-llega al siguiente:
-
-1. **Copiado de la misma hoja — cero consultas.** El portapapeles lleva lo que
-   se ve (nombres), para que en Excel salga legible; la hoja además recuerda
-   en memoria los valores reales de lo último que copió. Si lo pegado es ese
-   mismo texto, usa esos valores.
-2. **Nombres ya conocidos — cero consultas.** Los de las páginas cargadas y los
-   elegidos en el popover, sin distinguir mayúsculas ni acentos.
-3. **Lo que falta — una petición**, con los textos **únicos** (1 000 celdas
-   suelen ser pocos nombres distintos): `POST /lookup/:field/resolve`, en
-   tramos de 500.
-
-Resultado por celda:
-
-| Coincidencias | La celda |
-|---|---|
-| Una | Guarda el id y muestra el nombre |
-| Ninguna | Conserva el texto pegado, en rojo: «No corresponde a ningún registro» |
-| Varias | Conserva el texto, en rojo: «Ambiguo: N coincidencias». El popover abre ya filtrado con ese texto |
-
-Si hay que ir al servidor, **se espera la respuesta y luego se aplica el pegado
-completo**, como un solo paso del historial («Resolviendo 12 nombres…»). Pegar
-al instante y corregir después rompería el deshacer. Si la red falla, se pega
-el texto tal cual, en rojo: no se pierde nada. Sin `resolve` en el servidor, el
-paso 3 no existe y lo no resuelto queda en rojo para elegirlo a mano.
+- sticky header (`position: sticky`); **no header** if there is a single column;
+- scrolls in both directions; the width is the sum of its columns, capped
+  at the screen;
+- **chunked loading**: 50 rows on open; when nearing the bottom it requests the
+  next ones, with `offset`. A stale response (the user kept typing) is
+  discarded;
+- keyboard: ↑↓ move the highlighted row, Enter picks it, Esc cancels; ←→ stay
+  in the search box;
+- the mini table's cells use their type's format: an image shows as an image
+  (avatar if `shape: 'round'`), a number with its format.
 
 ---
 
-## 7. Pruebas
+## 6. Pasting
 
-- `tests/postgres/lookup.test.ts` (15): esquema sin funciones, arranque con un
-  lookup a medias, nombres por tramo con una sola consulta, búsqueda paginada
-  sin acentos, `resolve` (único, ambiguo, ninguno, por id, sin duplicados),
-  validación al guardar con una sola consulta por lote, contexto.
-- `tests/grid/lookup.test.ts` (L-1 a L-5): la mini tabla, la carga por tramos,
-  elegir con el teclado, pegar de fuera con una sola petición y copiar y pegar
-  dentro de la hoja sin ninguna.
+Pasting 1,000 cells does **not** make 1,000 searches. Each pasted text goes
+through three filters, from cheapest to most expensive, and only what is not
+resolved in one reaches the next:
 
-## 8. Pendiente
+1. **Copied from the same sheet — zero queries.** The clipboard carries what
+   is shown (names), so it reads well in Excel; the sheet also remembers in
+   memory the real values of the last thing it copied. If what is pasted is
+   that same text, it uses those values.
+2. **Already known names — zero queries.** Those from the loaded pages and
+   those picked in the popover, ignoring case and accents.
+3. **What is left — one request**, with the **unique** texts (1,000 cells
+   usually hold few distinct names): `POST /lookup/:field/resolve`, in
+   chunks of 500.
 
-- Las filas de un **conflicto** (`remote`) no traen `labels`: si el otro usuario
-  eligió un registro que la hoja no conoce, el panel muestra su id.
-- El tipo `remote-select` heredado de OpenCollect sigue en el cliente (buscador
-  escrito en el front). `lookup` lo sustituye; se retira cuando OpenCollect migre.
+Result per cell:
 
-## 9. Decisiones
-
-| # | Decisión |
+| Matches | The cell |
 |---|---|
-| **SB-21** | Columna `lookup` configurada en el servidor: se guarda `value` (el id) y se ve `display`; el popover es una mini tabla HTML con el tema de la hoja, paginada desde el principio; los nombres viajan en cada página; el servidor valida con `byIds`; pegar resuelve en tres pasos, con una sola petición para los textos únicos. SpreadBase exige solo la forma del objeto `lookup`; de dónde sale (§3) es organización de la app |
+| One | Stores the id and shows the name |
+| None | Keeps the pasted text, in red: «No corresponde a ningún registro» |
+| Several | Keeps the text, in red: «Ambiguo: N coincidencias». The popover opens already filtered by that text |
+
+If the server is needed, **it waits for the response and then applies the whole
+paste**, as a single history step («Resolviendo 12 nombres…»). Pasting
+instantly and correcting afterwards would break undo. If the network fails, the
+text is pasted as is, in red: nothing is lost. Without `resolve` on the server,
+step 3 does not exist and whatever is unresolved stays red to be picked by hand.
+
+---
+
+## 7. Tests
+
+- `tests/postgres/lookup.test.ts` (15): schema without functions, startup with a
+  half-defined lookup, names per chunk with a single query, paginated search
+  ignoring accents, `resolve` (unique, ambiguous, none, by id, no duplicates),
+  validation on save with a single query per batch, context.
+- `tests/grid/lookup.test.ts` (L-1 to L-5): the mini table, chunked loading,
+  picking with the keyboard, pasting from outside with a single request, and
+  copying and pasting within the sheet with none.
+
+## 8. Pending
+
+- The rows of a **conflict** (`remote`) do not carry `labels`: if the other user
+  picked a record the sheet does not know, the panel shows its id.
+- The `remote-select` type inherited from OpenCollect is still in the client
+  (search written in the front end). `lookup` replaces it; it will be removed
+  when OpenCollect migrates.
+
+## 9. Decisions
+
+| # | Decision |
+|---|---|
+| **SB-21** | `lookup` column configured on the server: `value` (the id) is stored and `display` is shown; the popover is an HTML mini table with the sheet's theme, paginated from the start; names travel on every page; the server validates with `byIds`; pasting resolves in three steps, with a single request for the unique texts. SpreadBase only requires the shape of the `lookup` object; where it comes from (§3) is a matter of the app's organization |

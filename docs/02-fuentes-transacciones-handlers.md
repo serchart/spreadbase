@@ -1,59 +1,59 @@
-# 02 — Fuente, transacción y handlers
+# 02 — Source, transaction and handlers
 
-> Cómo conviven, en el backend, las tres piezas que deciden **de dónde se lee,
-> cómo se escribe de forma segura y qué se escribe**. Con un ejemplo completo
-> en un proyecto anfitrión en JavaScript con la estructura de Aggy.
+> How the three pieces that decide **where data is read from, how it is
+> written safely, and what is written** live together in the backend. With a
+> complete example in a JavaScript host project with Aggy's structure.
 
-**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-4, SB-16 a SB-20)
+**Created:** 2026-09-28 · **Status:** 🟢 current (SB-4, SB-16 to SB-20)
 
-El ejemplo completo corre en [`examples/backend/src/examples/postgres`](../examples/backend/src/examples/postgres), servido por el servidor común de ejemplos.
+The complete example runs in [`examples/backend/src/examples/postgres`](../examples/backend/src/examples/postgres), served by the shared examples server.
 
 ---
 
-## 1. Las tres piezas
+## 1. The three pieces
 
-| Pieza | Responde | La escribe | ¿Obligatoria? |
+| Piece | Answers | Written by | Required? |
 |---|---|---|---|
-| **Fuente** | *De dónde* se lee y dónde se escribe por defecto | La librería (`memorySource`, `postgresSource`, `mongoSource`…) | Sí |
-| **Transacción** | *Cómo* se escribe seguro: todo o nada, y sin que otro usuario se cuele entre leer y escribir | La trae la fuente | La trae la fuente si la base la soporta |
-| **Handlers** | *Qué* se escribe: tus reglas de negocio | Tu app | No: solo si escribir no es un `UPDATE` directo |
+| **Source** | *Where* data is read from and where it is written by default | The library (`memorySource`, `postgresSource`, `mongoSource`…) | Yes |
+| **Transaction** | *How* to write safely: all or nothing, and without another user slipping in between the read and the write | Comes with the source | Comes with the source if the database supports it |
+| **Handlers** | *What* is written: your business rules | Your app | No: only if writing is not a direct `UPDATE` |
 
-Y el **motor** (`SpreadBase`) pone las reglas del lote: valida, compara
-versiones, decide conflictos y avisos, y arma la respuesta.
+And the **engine** (`SpreadBase`) sets the batch rules: it validates, compares
+versions, decides conflicts and notices, and builds the response.
 
-**La transacción no sustituye a los handlers.** Es el envoltorio. Dentro,
-alguien tiene que escribir:
+**The transaction does not replace the handlers.** It is the wrapper. Inside,
+someone has to do the writing:
 
-- **Sin handler**, escribe la fuente con un `UPDATE` genérico, columna a
-  columna. Sirve si la hoja es un reflejo 1:1 de una tabla sin reglas.
-- **Con handler**, escribe tu servicio, con la conexión de la transacción.
-  Hace falta cuando:
-  - la hoja se lee de una vista y se escribe en otra tabla;
-  - un cambio tiene reglas o efectos (validar, dejar historial, avisar a otro servicio);
-  - «eliminar» no es un `DELETE` (borrado lógico, archivar).
+- **Without a handler**, the source writes with a generic `UPDATE`, column by
+  column. This works if the sheet is a 1:1 mirror of a table with no rules.
+- **With a handler**, your service writes, using the transaction's connection.
+  You need one when:
+  - the sheet is read from a view and written to another table;
+  - a change has rules or side effects (validate, keep a history, notify another service);
+  - "delete" is not a `DELETE` (soft delete, archive).
 
-**Quien usa la librería no configura la transacción:** elige la fuente, y la
-fuente ya sabe abrirla sobre la conexión que le das.
+**Whoever uses the library does not configure the transaction:** they pick the
+source, and the source already knows how to open it on the connection you give it.
 
 ---
 
-## 2. El proyecto de ejemplo
+## 2. The example project
 
-Una tienda con estructura de Aggy: Express, ESM, módulos
-`api/<módulo>/*.routes.js → *.controller.js → *.service.js`, servicios
-instanciados en un orquestador. Postgres con `pg`.
+A store with Aggy's structure: Express, ESM, modules
+`api/<module>/*.routes.js → *.controller.js → *.service.js`, services
+instantiated in an orchestrator. Postgres with `pg`.
 
-La hoja es el **catálogo de productos**, editable por el equipo comercial:
+The sheet is the **product catalog**, editable by the sales team:
 
-- nombre, SKU, precio, existencias, estado (`draft` · `active` · `paused`);
-- **cambiar el precio** deja registro en `price_history`;
-- **no se puede activar** un producto sin existencias;
-- **eliminar** es borrado lógico (`deleted_at`), no `DELETE`.
+- name, SKU, price, stock, status (`draft` · `active` · `paused`);
+- **changing the price** leaves a record in `price_history`;
+- a product **cannot be activated** without stock;
+- **deleting** is a soft delete (`deleted_at`), not a `DELETE`.
 
-Esas tres reglas son las que obligan a tener handlers.
+Those three rules are what make handlers necessary.
 
 ```
-tienda-backend/
+store-backend/
 ├── db/
 │   ├── pool.js
 │   └── migrations/001_products.sql
@@ -65,24 +65,24 @@ tienda-backend/
 │   └── api/
 │       ├── index.js
 │       ├── users/
-│       │   └── users.service.js         ← SQL de usuarios + `lookup` (03-lookup.md)
+│       │   └── users.service.js         ← users SQL + `lookup` (03-lookup.md)
 │       └── products/
-│           ├── products.sheet.js        ← columnas de la hoja: productsSheet({ users })
-│           ├── products.service.js      ← SpreadBase + handlers (dominio)
+│           ├── products.sheet.js        ← sheet columns: productsSheet({ users })
+│           ├── products.service.js      ← SpreadBase + handlers (domain)
 │           ├── products.controller.js
 │           └── products.routes.js
 └── package.json                         ← "@spreadbase/server"
 ```
 
-### 2.1 La tabla: la del usuario, sin nada especial
+### 2.1 The table: the user's own, nothing special
 
-La concurrencia **no pide nada** a la tabla (SB-4): ni columna de versión, ni
-trigger, ni tabla de cambios. `postgresSource` calcula una huella de las
-columnas escribibles de cada fila al leerla; si alguien la cambia —la hoja, un
-worker, un script—, la huella cambia. Los avisos de `merge` salen de comparar
-lo que el cliente leyó (`base`) con lo que hay ahora (SB-16).
+Concurrency **asks nothing** of the table (SB-4): no version column, no
+trigger, no changes table. `postgresSource` computes a fingerprint of each
+row's writable columns when reading it; if anyone changes it —the sheet, a
+worker, a script—, the fingerprint changes. The `merge` notices come from
+comparing what the client read (`base`) with what is there now (SB-16).
 
-Lo único que se ve abajo son las tablas **del dominio**:
+The only thing shown below are the **domain** tables:
 
 ```sql
 -- db/migrations/001_products.sql
@@ -97,13 +97,13 @@ CREATE TABLE products (
 	deleted_at  timestamptz
 );
 
--- Lo que ve la hoja: sin los eliminados. Opcional: también se puede leer la tabla.
+-- What the sheet sees: without the deleted ones. Optional: the table can also be read directly.
 CREATE VIEW v_products AS
 	SELECT id, name, sku, price, stock, status
 	FROM products
 	WHERE deleted_at IS NULL;
 
--- Regla de negocio del ejemplo: historial de precios.
+-- The example's business rule: price history.
 CREATE TABLE price_history (
 	product_id text NOT NULL,
 	old_price  numeric(12, 2),
@@ -113,24 +113,24 @@ CREATE TABLE price_history (
 );
 ```
 
-El ejemplo corriendo agrega, en `002_catalog.sql`, la tabla `users` (el
-recurso de la columna «Responsable») y las columnas de foto, responsable,
-lanzamiento y último surtido: un campo de cada tipo.
+The running example adds, in `002_catalog.sql`, the `users` table (the
+resource behind the "Responsable" column) and the photo, owner, launch and
+last restock columns: one field of each type.
 
-**Lo que sí crea SpreadBase, sola:** la tabla `spreadbase_idempotency` (SB-18),
-con `CREATE TABLE IF NOT EXISTS` la primera vez que la fuente se usa. Es de la
-librería, no toca las tablas del usuario, y su esquema se puede elegir
+**What SpreadBase does create, on its own:** the `spreadbase_idempotency` table (SB-18),
+with `CREATE TABLE IF NOT EXISTS` the first time the source is used. It belongs
+to the library, does not touch the user's tables, and its schema can be chosen
 (`idempotencyTable: 'app.spreadbase_idempotency'`).
 
-### 2.2 Las columnas
+### 2.2 The columns
 
 ```js
 // core/api/products/products.sheet.js
 import { types } from '@spreadbase/server';
 
 /**
- * Definición de la hoja: lo que valida el servidor y lo que pinta el cliente.
- * Es una función porque «Responsable» depende del módulo de usuarios (03-lookup.md §3).
+ * Sheet definition: what the server validates and what the client renders.
+ * It is a function because "Responsable" depends on the users module (03-lookup.md §3).
  */
 export const productsSheet = ({ users }) => ({
 	id: 'products',
@@ -162,13 +162,13 @@ export const productsSheet = ({ users }) => ({
 });
 ```
 
-> **Columnas que eligen un registro de otro módulo** (un responsable, un
-> proveedor): la hoja pasa a ser una función que recibe sus dependencias,
-> `productsSheet({ users })`, y la columna usa `lookup: users.lookup`, que
-> define el módulo de usuarios. El contrato y esa forma de organizarlo están
-> en [`03-lookup.md`](03-lookup.md).
+> **Columns that pick a record from another module** (an owner, a
+> supplier): the sheet becomes a function that receives its dependencies,
+> `productsSheet({ users })`, and the column uses `lookup: users.lookup`, which
+> the users module defines. The contract and that way of organizing it are
+> in [`03-lookup.md`](03-lookup.md).
 
-### 2.3 El servicio: donde conviven las tres piezas
+### 2.3 The service: where the three pieces live together
 
 ```js
 // core/api/products/products.service.js
@@ -179,7 +179,7 @@ import { productsSheet } from './products.sheet.js';
 const RETURNING = 'id, name, sku, price, stock, status';
 
 /**
- * Servicio de productos.
+ * Products service.
  * @typedef {import('../../orchestrator/orchestrator.js').default} Orchestrator
  */
 class ProductsService {
@@ -191,20 +191,20 @@ class ProductsService {
 		this.pool = orchestrator.pool;
 
 		/**
-		 * La hoja. Tres piezas:
-		 * - FUENTE: lee de la vista, bloquea sobre la tabla, calcula la huella de
-		 *   cada fila y guarda la idempotencia. Trae su transacción: nadie la
-		 *   configura aquí.
-		 * - HANDLERS: la escritura de dominio. Se ejecutan DENTRO de la
-		 *   transacción de la fuente, con su conexión (`ctx.tx.db`).
-		 * - MOTOR: SpreadBase, con las reglas del lote.
+		 * The sheet. Three pieces:
+		 * - SOURCE: reads from the view, locks on the table, computes each row's
+		 *   fingerprint and stores idempotency. It brings its own transaction:
+		 *   nobody configures it here.
+		 * - HANDLERS: the domain write. They run INSIDE the source's
+		 *   transaction, with its connection (`ctx.tx.db`).
+		 * - ENGINE: SpreadBase, with the batch rules.
 		 */
 		this.sheet = new SpreadBase({
 			...productsSheet({ users: orchestrator.usersService }),
 			source: postgresSource({
 				pool: this.pool,
-				view: 'v_products', // de aquí lee la hoja
-				table: 'products' // aquí bloquea (FOR UPDATE) y escribe si no hay handlers
+				view: 'v_products', // the sheet reads from here
+				table: 'products' // locks here (FOR UPDATE) and writes here if there are no handlers
 			}),
 			handlers: {
 				insertMany: (items, ctx) => this.insertMany(items, ctx),
@@ -215,15 +215,15 @@ class ProductsService {
 	}
 
 	// ========================================
-	// ESCRITURA DE DOMINIO (handlers de la hoja)
+	// DOMAIN WRITES (sheet handlers)
 	// ========================================
 	//
-	// Reciben SOLO lo que ya pasó la validación de columnas y la concurrencia:
-	// no hay conflictos que revisar aquí. Escriben con `ctx.tx.db`, la conexión
-	// de la transacción: si lanzan, el lote entero se deshace.
+	// They receive ONLY what already passed column validation and concurrency:
+	// there are no conflicts to check here. They write with `ctx.tx.db`, the
+	// transaction's connection: if they throw, the whole batch is rolled back.
 
 	/**
-	 * Altas desde la hoja.
+	 * Inserts from the sheet.
 	 * @param {{ values: Record<string, unknown> }[]} items
 	 * @param {{ tx: { db: import('pg').PoolClient }, user?: { id: string } }} ctx
 	 */
@@ -251,8 +251,8 @@ class ProductsService {
 	}
 
 	/**
-	 * Ediciones desde la hoja. `row` es la fila tal como está ahora (ya
-	 * bloqueada); `values`, solo los campos que cambian.
+	 * Edits from the sheet. `row` is the row as it is now (already
+	 * locked); `values`, only the fields that change.
 	 * @param {{ id: string, values: Record<string, unknown>, row: Record<string, unknown> }[]} items
 	 */
 	async updateMany(items, { tx, user }) {
@@ -260,7 +260,7 @@ class ProductsService {
 		for (const { id, values, row } of items) {
 			this.#checkActivation({ ...row, ...values });
 
-			// Efecto de dominio: el historial de precios, en la misma transacción.
+			// Domain side effect: the price history, in the same transaction.
 			if ('price' in values) {
 				await tx.db.query(
 					`INSERT INTO price_history (product_id, old_price, new_price, changed_by) VALUES ($1, $2, $3, $4)`,
@@ -275,14 +275,14 @@ class ProductsService {
 				 WHERE id = $1 RETURNING ${RETURNING}`,
 				[id, ...fields.map((f) => values[f]), user?.id ?? null]
 			);
-			// Sin rowVersion: SpreadBase relee la fila y la fuente calcula su huella nueva.
+			// No rowVersion: SpreadBase re-reads the row and the source computes its new fingerprint.
 			updated.push(rows[0]);
 		}
 		return updated;
 	}
 
 	/**
-	 * «Eliminar» en la hoja es borrado lógico: la fila sale de la vista.
+	 * "Delete" in the sheet is a soft delete: the row leaves the view.
 	 * @param {{ id: string }[]} items
 	 */
 	async deleteMany(items, { tx, user }) {
@@ -292,7 +292,7 @@ class ProductsService {
 		);
 	}
 
-	/** Regla de negocio: no se activa un producto sin existencias. */
+	/** Business rule: a product cannot be activated without stock. */
 	#checkActivation(product) {
 		if (product.status === 'active' && !(Number(product.stock) > 0)) {
 			throw new ValidationError(`«${product.name}» no se puede activar sin existencias`);
@@ -300,19 +300,19 @@ class ProductsService {
 	}
 
 	// ========================================
-	// USO NORMAL DEL SERVICIO (fuera de la hoja)
+	// NORMAL USE OF THE SERVICE (outside the sheet)
 	// ========================================
 	//
-	// Los mismos datos, usados por otras partes de la app (un worker, otro
-	// servicio). `db` por defecto es el pool; dentro de una transacción ajena,
-	// quien llama pasa la suya. La hoja se entera igual: cambia la huella.
+	// The same data, used by other parts of the app (a worker, another
+	// service). `db` defaults to the pool; inside someone else's transaction,
+	// the caller passes its own. The sheet notices anyway: the fingerprint changes.
 
 	async findById(id, { db = this.pool } = {}) {
 		const { rows } = await db.query(`SELECT ${RETURNING} FROM products WHERE id = $1`, [id]);
 		return rows[0] ?? null;
 	}
 
-	/** Lo llama el worker de inventario cuando llega mercancía. */
+	/** Called by the inventory worker when goods arrive. */
 	async addStock(id, quantity, { db = this.pool } = {}) {
 		await db.query(`UPDATE products SET stock = stock + $2 WHERE id = $1`, [id, quantity]);
 	}
@@ -321,21 +321,21 @@ class ProductsService {
 export default ProductsService;
 ```
 
-### 2.4 El controlador
+### 2.4 The controller
 
-Como en Aggy: traduce HTTP ↔ servicio. Dos diferencias con un controlador
-normal de Aggy:
+As in Aggy: it translates HTTP ↔ service. Two differences from a normal Aggy
+controller:
 
-- **Las rutas de la hoja responden la forma del protocolo**, no el envoltorio
-  `{ success, data }`: es lo que espera `new Sheet(url)` en el cliente.
-- **Los errores van como `{ error: { code, message, details } }`**, por lo mismo.
+- **The sheet routes respond with the protocol's shape**, not the
+  `{ success, data }` wrapper: that is what `new Sheet(url)` expects on the client.
+- **Errors go as `{ error: { code, message, details } }`**, for the same reason.
 
 ```js
 // core/api/products/products.controller.js
 import { parseBatch, parseListQuery, SpreadBaseError } from '@spreadbase/server';
 
 /**
- * Controlador de la hoja de productos.
+ * Controller for the products sheet.
  * @typedef {import('./products.service.js').default} ProductsService
  */
 class ProductsController {
@@ -344,7 +344,7 @@ class ProductsController {
 		this.service = productsService;
 	}
 
-	/** Errores con la forma que entiende el cliente de SpreadBase. */
+	/** Errors in the shape the SpreadBase client understands. */
 	#fail(res, error) {
 		const status = error instanceof SpreadBaseError ? error.status : error.statusCode || 500;
 		const code = error instanceof SpreadBaseError ? error.code : error.name || 'internal_error';
@@ -385,8 +385,8 @@ class ProductsController {
 
 	/**
 	 * POST /products/sheet/batch
-	 * La llave de idempotencia va al motor, que la guarda en la misma
-	 * transacción que el lote. El usuario viaja en el contexto hasta los handlers.
+	 * The idempotency key goes to the engine, which stores it in the same
+	 * transaction as the batch. The user travels in the context down to the handlers.
 	 */
 	async batch(req, res) {
 		try {
@@ -405,7 +405,7 @@ class ProductsController {
 export default ProductsController;
 ```
 
-### 2.5 Las rutas y el montaje
+### 2.5 The routes and the mounting
 
 ```js
 // core/api/products/products.routes.js
@@ -414,8 +414,8 @@ import ProductsController from './products.controller.js';
 import { productsService } from '../../orchestrator/index.js';
 
 /**
- * Rutas de productos. Base: /api/products
- * Bajo /sheet, las cinco del protocolo de SpreadBase: `new Sheet('/api/products/sheet')`.
+ * Products routes. Base: /api/products
+ * Under /sheet, the five routes of the SpreadBase protocol: `new Sheet('/api/products/sheet')`.
  */
 export default function createProductsRoutes() {
 	const router = Router();
@@ -427,20 +427,20 @@ export default function createProductsRoutes() {
 	router.get('/sheet/:id', (req, res) => controller.get(req, res));
 	router.post('/sheet/batch', (req, res) => controller.batch(req, res));
 
-	// …las demás rutas del módulo (REST normal, con { success, data }).
+	// …the module's other routes (normal REST, with { success, data }).
 	return router;
 }
 ```
 
 ```js
-// core/orchestrator/orchestrator.js (fragmento)
+// core/orchestrator/orchestrator.js (excerpt)
 import { pool } from '../../db/pool.js';
 import ProductsService from '../api/products/products.service.js';
 
 class Orchestrator {
 	constructor() {
 		this.pool = pool;
-		// …primero los que otros usan: la hoja de productos recibe el lookup de usuarios.
+		// …first the ones others use: the products sheet receives the users lookup.
 		this.usersService = new UsersService(this);
 		this.productsService = new ProductsService(this);
 	}
@@ -453,8 +453,8 @@ export const productsService = orchestrator.productsService;
 app.use('/products', authenticateAPI, ProductsRouter());
 ```
 
-**Atajo:** si el módulo no necesita nada distinto por ruta, controlador y rutas
-se reducen a una línea, y el servicio queda igual:
+**Shortcut:** if the module needs nothing different per route, the controller
+and routes shrink to one line, and the service stays the same:
 
 ```js
 router.use('/sheet', sheetRouter(productsService.sheet, { context: (req) => ({ user: req.user }) }));
@@ -462,84 +462,84 @@ router.use('/sheet', sheetRouter(productsService.sheet, { context: (req) => ({ u
 
 ---
 
-## 3. Qué pasa en un guardado
+## 3. What happens on a save
 
-Un vendedor edita el precio de `prd_01`, activa `prd_02` y elimina `prd_03`, y
-pulsa Guardar.
+A salesperson edits the price of `prd_01`, activates `prd_02` and deletes `prd_03`, and
+clicks Save.
 
 ```
 POST /api/products/sheet/batch            Idempotency-Key: 7f3a…
 │
-├─ controller.batch → parseBatch (forma del cuerpo)
-└─ sheet.batch(input, { idempotencyKey, context: { user } })       MOTOR
+├─ controller.batch → parseBatch (body shape)
+└─ sheet.batch(input, { idempotencyKey, context: { user } })       ENGINE
    │
-   ├─ 1. valida valores contra las columnas (tipo, requerido, patrón…)
-   │     inválido → 400, nada se toca
+   ├─ 1. validates values against the columns (type, required, pattern…)
+   │     invalid → 400, nothing is touched
    │
-   └─ 2. source.transaction(async (tx) => { … })                   FUENTE
+   └─ 2. source.transaction(async (tx) => { … })                   SOURCE
          │
          BEGIN
-         ├─ ¿la llave 7f3a ya se usó?  sí → devuelve la respuesta guardada
-         ├─ tx.lock([prd_01, prd_02, prd_03])        SELECT … FOR UPDATE, en orden
-         ├─ tx.get(id) de cada una                   lo último confirmado + su huella
-         ├─ compara huella, `from` y `base`                          MOTOR
-         │     prd_02: otro cambió `stock` (base ≠ actual) → merge → se aplica + aviso
-         ├─ handlers.updateMany(items, { tx, user })               TU DOMINIO
+         ├─ was key 7f3a already used?  yes → returns the stored response
+         ├─ tx.lock([prd_01, prd_02, prd_03])        SELECT … FOR UPDATE, in order
+         ├─ tx.get(id) for each one                  latest committed + its fingerprint
+         ├─ compares fingerprint, `from` and `base`                  ENGINE
+         │     prd_02: someone else changed `stock` (base ≠ current) → merge → applied + notice
+         ├─ handlers.updateMany(items, { tx, user })               YOUR DOMAIN
          │     price_history ← prd_01
          │     UPDATE products …
          │     #checkActivation(prd_02) → stock > 0 → ok
          ├─ handlers.deleteMany(items, { tx, user })
          │     UPDATE products SET deleted_at = now()
-         ├─ guarda la respuesta con la llave 7f3a    spreadbase_idempotency
+         ├─ stores the response with key 7f3a        spreadbase_idempotency
          COMMIT
    │
-   └─ 3. emite eventos { sheet, op, id, fields, rowVersion }       (SB-8)
+   └─ 3. emits events { sheet, op, id, fields, rowVersion }        (SB-8)
 │
-← 200 { created, updated, deleted, notices, conflicts }       (+ Idempotent-Replayed si se repitió)
+← 200 { created, updated, deleted, notices, conflicts }       (+ Idempotent-Replayed if it was repeated)
 ```
 
-### 3.1 Si un handler lanza (SB-20)
+### 3.1 If a handler throws (SB-20)
 
-Si `#checkActivation` falla para `prd_02` (sin existencias), el error sube,
-la fuente hace `ROLLBACK` y **nada** del lote queda escrito: ni el precio de
-`prd_01` ni su historial, ni la llave de idempotencia. El cliente recibe 400
-con el mensaje de dominio y el usuario conserva todos sus cambios pendientes
-para corregir y reintentar.
+If `#checkActivation` fails for `prd_02` (no stock), the error bubbles up,
+the source does a `ROLLBACK` and **nothing** from the batch is written: not the
+price of `prd_01`, nor its history, nor the idempotency key. The client gets a 400
+with the domain message, and the user keeps all their pending changes
+to fix and retry.
 
-Tratar un error de dominio por fila, como un conflicto, queda para cuando un
-caso real lo pida: exige que el handler reporte errores por fila.
+Treating a domain error per row, like a conflict, is left for when a real
+case calls for it: it requires the handler to report errors per row.
 
-### 3.2 Un conflicto no aborta
+### 3.2 A conflict does not abort
 
-Si otro usuario cambió el precio de `prd_01` a otro valor, `prd_01` va a
-`conflicts` y **no** llega al handler; `prd_02` y `prd_03` se aplican y se
-confirman. Los conflictos son una respuesta normal, no un error.
+If another user changed the price of `prd_01` to a different value, `prd_01` goes to
+`conflicts` and does **not** reach the handler; `prd_02` and `prd_03` are applied and
+committed. Conflicts are a normal response, not an error.
 
-### 3.3 Por qué la idempotencia entra en la transacción (SB-18)
+### 3.3 Why idempotency goes inside the transaction (SB-18)
 
-Si la respuesta se guardara **después** de confirmar el lote y el proceso se
-cayera entre el `COMMIT` y ese guardado, el reintento del cliente volvería a
-aplicar el lote y **duplicaría las altas**. Por eso la llave y la respuesta se
-escriben dentro de la misma transacción: o se confirma todo, o nada. Dos
-reintentos simultáneos con la misma llave no pueden aplicarse los dos: el
-segundo choca con la clave primaria de la tabla, se deshace, y su siguiente
-reintento recibe la respuesta guardada.
+If the response were stored **after** committing the batch and the process
+crashed between the `COMMIT` and that store, the client's retry would apply
+the batch again and **duplicate the inserts**. That is why the key and the response
+are written inside the same transaction: either everything is committed, or nothing. Two
+simultaneous retries with the same key cannot both be applied: the
+second one hits the table's primary key, is rolled back, and its next
+retry receives the stored response.
 
-### 3.4 Por qué `lock` va aparte de `get`
+### 3.4 Why `lock` is separate from `get`
 
-`FOR UPDATE` no funciona sobre una vista con joins. Se bloquea la tabla base
-(`products`) y después se lee la vista (`v_products`). Bloquear en orden de id
-evita que dos lotes que tocan las mismas filas se esperen mutuamente
+`FOR UPDATE` does not work on a view with joins. The base table
+(`products`) is locked and then the view (`v_products`) is read. Locking in id order
+prevents two batches touching the same rows from waiting on each other
 (deadlock).
 
 ---
 
-## 4. Variantes
+## 4. Variants
 
-### 4.1 Tabla simple, sin reglas: sin handlers
+### 4.1 Simple table, no rules: no handlers
 
-Un catálogo de marcas que se edita tal cual. La fuente escribe con su `UPDATE`
-genérico, dentro de su transacción:
+A brands catalog edited as is. The source writes with its generic `UPDATE`,
+inside its transaction:
 
 ```js
 this.sheet = new SpreadBase({
@@ -551,24 +551,24 @@ this.sheet = new SpreadBase({
 });
 ```
 
-### 4.2 En memoria: demos y pruebas
+### 4.2 In memory: demos and tests
 
-`memorySource` implementa lectura y escritura con un contador de versión, pero
-**no** transacción: el motor aplica los lotes de uno en uno dentro del proceso
-y guarda la idempotencia en memoria. Un error a mitad de lote no se deshace.
-Vale para demos, pruebas y los ejemplos; no para producción.
+`memorySource` implements reading and writing with a version counter, but
+**no** transaction: the engine applies batches one at a time within the process
+and stores idempotency in memory. An error halfway through a batch is not rolled back.
+Good for demos, tests and the examples; not for production.
 
 ```js
 source: memorySource({ rows: seed, createId: (n) => `prd_${n}` })
 ```
 
-### 4.3 Mongo (la base de Aggy)
+### 4.3 Mongo (Aggy's database)
 
-La misma forma con otra fuente: `mongoSource` (2026-10-08). Recibe el cliente
-de `mongodb` de la app (la librería no lo instala: es dependencia opcional y se
-importa solo para construir un `ObjectId`). La hoja puede ser **parte de una
-colección**: en Aggy Legacy todas las tablas de datos comparten
-`datadocuments`, y una hoja es `{ accountId, dataTableId }`.
+The same shape with another source: `mongoSource` (2026-10-08). It receives the app's
+`mongodb` client (the library does not install it: it is an optional dependency and is
+imported only to build an `ObjectId`). The sheet can be **part of a
+collection**: in Aggy Legacy all data tables share
+`datadocuments`, and a sheet is `{ accountId, dataTableId }`.
 
 ```js
 import { MongoClient, ObjectId } from 'mongodb';
@@ -584,73 +584,73 @@ this.sheet = new SpreadBase({
 		client,
 		db: 'aggy',
 		collection: 'datadocuments',
-		// Toda lectura y escritura lo lleva; los documentos nuevos nacen con estos campos.
+		// Every read and write carries it; new documents are born with these fields.
 		filter: { accountId: new ObjectId(accountId), dataTableId: new ObjectId(dataTableId) },
-		collation: { locale: 'es', strength: 1 } // ordenar sin acentos ni mayúsculas
+		collation: { locale: 'es', strength: 1 } // sort ignoring accents and case
 	}),
 	handlers: {
 		updateMany: async (items, { tx }) => {
 			for (const { id, values } of items) {
 				await DataDocument.updateOne({ _id: id }, { $set: values }, { session: tx.db });
 			}
-			return items.map((i) => ({ id: i.id })); // el motor relee la fila y la fuente pone la huella
+			return items.map((i) => ({ id: i.id })); // the engine re-reads the row and the source sets the fingerprint
 		}
 	}
 });
 ```
 
-- **El id viaja como texto**: `_id` (u `idField`) sale como su cadena; un id
-  de 24 hexadecimales se busca como `ObjectId` y como texto.
-- **`rowVersion`**: la huella md5 de los campos escribibles tal como están
-  guardados, calculada al leer (SB-4): cualquier parte de la app que escriba la
-  colección cuenta, sin campo de versión. Con `versionField`, un contador que la
-  fuente pone en 1 al crear y sube (`$inc`) en cada escritura; entonces todo
-  proceso que escriba debe subirlo también.
-- **Valores**: los documentos de una app sin esquema guardan como pueden. Al
-  leer, un número guardado como texto sale como número, una fecha `Date` o
-  texto sale `AAAA-MM-DD` (fecha-hora en UTC), `'true'` sale `true`. Al
-  escribir, se guarda lo que manda el motor (números como número, fechas como
-  texto canónico).
-- **Filtros (SB-33)**: la misma regla que `matchesFilter`, como expresiones de
-  agregación (`$expr`): vacío = `null`, ausente o `''`; texto sin acentos ni
-  mayúsculas; número como número aunque se guarde como texto; fecha-hora por su
-  día. Lo que va en `$expr` no usa índices: el filtro fijo sí (conviene un
-  índice `{ accountId: 1, dataTableId: 1 }`).
-- **Total (SB-35)**: `countDocuments` exacto; `estimatedDocumentCount` solo si
-  la consulta es la colección entera (con filtro fijo, la estimación sería de
-  todas las tablas).
-- **Transacción (SB-19)**: `session.withTransaction`, con lectura `snapshot`.
-  **Exige un replica set** (uno de un solo nodo basta); sin él,
-  `transactions: false` y el motor aplica los lotes de uno en uno en el
-  proceso, como en memoria. El handler recibe la sesión en `ctx.tx.db`.
-- **Bloqueo (`lock`)**: Mongo no tiene `SELECT … FOR UPDATE`. Dentro de la
-  transacción se escribe un candado por fila en `spreadbase_locks`
-  (`{ _id: '<hoja>:<id>' }`, índice TTL de una hora). Dos lotes sobre la misma
-  fila chocan al escribirlo (`WriteConflict`) y el driver **reintenta el
-  segundo desde el principio**, ya con lo que confirmó el primero: el segundo
-  ve el conflicto. Como las lecturas de la transacción son de una foto fija, lo
-  que otro proceso escriba en el documento después de la foto también hace
-  chocar la escritura y reintentar. Es concurrencia optimista con reintento,
-  no una espera.
-- **Idempotencia (SB-18)**: en `spreadbase_idempotency`, en la misma
-  transacción que el lote, con índice TTL sobre `expiresAt`. Dos reintentos
-  simultáneos con la misma llave: uno se aplica y el otro, al reintentarse,
-  encuentra la respuesta guardada.
-- Requisitos: MongoDB 4.4 o más (`$replaceAll`). Probado contra Mongo 7 en
-  Docker: `tests/mongo/`, con el kit de contrato (SB-26) por HTTP.
+- **The id travels as text**: `_id` (or `idField`) comes out as its string; an id
+  of 24 hex characters is looked up both as an `ObjectId` and as text.
+- **`rowVersion`**: the md5 fingerprint of the writable fields as they are
+  stored, computed on read (SB-4): any part of the app that writes to the
+  collection counts, with no version field. With `versionField`, a counter that the
+  source sets to 1 on create and increments (`$inc`) on every write; then every
+  process that writes must increment it too.
+- **Values**: documents from a schemaless app store things however they can. On
+  read, a number stored as text comes out as a number, a `Date` or
+  text date comes out as `YYYY-MM-DD` (date-time in UTC), `'true'` comes out as `true`. On
+  write, what the engine sends is stored (numbers as numbers, dates as
+  canonical text).
+- **Filters (SB-33)**: the same rule as `matchesFilter`, as aggregation
+  expressions (`$expr`): empty = `null`, missing or `''`; text ignoring accents and
+  case; a number as a number even if stored as text; date-time by its
+  day. What goes in `$expr` does not use indexes: the fixed filter does (an
+  index `{ accountId: 1, dataTableId: 1 }` is advisable).
+- **Total (SB-35)**: exact `countDocuments`; `estimatedDocumentCount` only if
+  the query is the whole collection (with a fixed filter, the estimate would cover
+  all tables).
+- **Transaction (SB-19)**: `session.withTransaction`, with `snapshot` read concern.
+  **Requires a replica set** (a single-node one is enough); without it,
+  `transactions: false` and the engine applies batches one at a time in the
+  process, as in memory. The handler receives the session in `ctx.tx.db`.
+- **Locking (`lock`)**: Mongo has no `SELECT … FOR UPDATE`. Inside the
+  transaction a per-row lock is written to `spreadbase_locks`
+  (`{ _id: '<sheet>:<id>' }`, one-hour TTL index). Two batches on the same
+  row collide when writing it (`WriteConflict`) and the driver **retries the
+  second one from the start**, now with what the first one committed: the second one
+  sees the conflict. Since the transaction's reads come from a fixed snapshot,
+  whatever another process writes to the document after the snapshot also makes
+  the write collide and retry. It is optimistic concurrency with retry,
+  not a wait.
+- **Idempotency (SB-18)**: in `spreadbase_idempotency`, in the same
+  transaction as the batch, with a TTL index on `expiresAt`. Two simultaneous
+  retries with the same key: one is applied and the other, when retried,
+  finds the stored response.
+- Requirements: MongoDB 4.4 or later (`$replaceAll`). Tested against Mongo 7 in
+  Docker: `tests/mongo/`, with the contract kit (SB-26) over HTTP.
 
 ---
 
-## 5. Qué hay dentro de una fuente
+## 5. What is inside a source
 
-Lo escribe la librería una vez; quien la usa no lo toca. Para `postgresSource`:
+The library writes it once; whoever uses it does not touch it. For `postgresSource`:
 
 ```js
 transaction: async (fn) => {
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
-		const result = await fn(bindTo(client)); // la misma fuente, usando este client; expone `db: client`
+		const result = await fn(bindTo(client)); // the same source, using this client; exposes `db: client`
 		await client.query('COMMIT');
 		return result;
 	} catch (error) {
@@ -660,26 +660,26 @@ transaction: async (fn) => {
 		client.release();
 	}
 }
-// huella:        md5(row(<columnas escribibles>)::text) calculada en el mismo SELECT
+// fingerprint:   md5(row(<writable columns>)::text) computed in the same SELECT
 // lock(ids):     SELECT 1 FROM products WHERE id = ANY($1) ORDER BY id FOR UPDATE
-// get(id):       SELECT …, <huella> AS "rowVersion" FROM v_products WHERE id = $1
-// list(query):   SELECT …, <huella> FROM v_products WHERE … ORDER BY <campo>, id LIMIT $n OFFSET $m  (+ count)
-// update:        UPDATE products SET … WHERE id = $1 RETURNING …   (solo si no hay handler)
-// idempotencia:  spreadbase_idempotency, creada con CREATE TABLE IF NOT EXISTS
+// get(id):       SELECT …, <fingerprint> AS "rowVersion" FROM v_products WHERE id = $1
+// list(query):   SELECT …, <fingerprint> FROM v_products WHERE … ORDER BY <field>, id LIMIT $n OFFSET $m  (+ count)
+// update:        UPDATE products SET … WHERE id = $1 RETURNING …   (only if there is no handler)
+// idempotency:   spreadbase_idempotency, created with CREATE TABLE IF NOT EXISTS
 ```
 
-Con `READ COMMITTED` (el nivel por defecto de Postgres) basta: una vez
-bloqueada la fila, lo que se lee es lo último confirmado y nadie más puede
-escribirla hasta el `COMMIT`.
+`READ COMMITTED` (Postgres's default level) is enough: once the row is
+locked, what is read is the latest committed version and nobody else can
+write it until the `COMMIT`.
 
 ---
 
-## 6. Decisiones
+## 6. Decisions
 
-| # | Decisión |
+| # | Decision |
 |---|---|
-| **SB-4** | La tabla del usuario no necesita nada: `rowVersion` es una huella de las columnas escribibles, o una columna de versión si ya existe |
-| **SB-16** | Los avisos los calcula el servidor con `base`, lo que el cliente leyó en las escribibles que no tocó |
-| **SB-18** | La idempotencia la lleva el motor y la guarda la fuente en la misma transacción; con Postgres, en `spreadbase_idempotency`, creada por la librería; con Mongo, en la colección del mismo nombre, con TTL |
-| **SB-19** | La transacción la trae la fuente; los handlers la reciben en `ctx.tx` |
-| **SB-20** | Un error de dominio deshace el lote entero |
+| **SB-4** | The user's table needs nothing: `rowVersion` is a fingerprint of the writable columns, or a version column if one already exists |
+| **SB-16** | Notices are computed by the server with `base`, what the client read in the writable columns it did not touch |
+| **SB-18** | Idempotency is handled by the engine and stored by the source in the same transaction; with Postgres, in `spreadbase_idempotency`, created by the library; with Mongo, in the collection of the same name, with TTL |
+| **SB-19** | The transaction comes with the source; handlers receive it in `ctx.tx` |
+| **SB-20** | A domain error rolls back the whole batch |
