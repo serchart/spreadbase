@@ -1,6 +1,6 @@
 {
 	"name": "@spreadbase/server",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "SpreadBase para el backend: motor de la hoja, fuentes de datos y helpers HTTP para Express",
 	"type": "module",
 	"private": true,
@@ -12,7 +12,7 @@
 		"check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@spreadbase/core": "0.1.4"
+		"@spreadbase/core": "^0.1.5"
 	},
 	"peerDependencies": {
 		"@napi-rs/canvas": "^1.0.10",
