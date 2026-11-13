@@ -40,6 +40,14 @@ Estado: ✅ existe · ⬜ falta · 🟡 cubierto en parte.
 | **B-6** | Deshacer y rehacer | Editar, agregar y eliminar; ⌘Z ×3 y ⇧⌘Z ×3; lo mismo con los botones | Cada paso revierte y repone exacto; contadores coherentes | ✅ |
 | **B-7** | Cancelar | Editar, agregar, eliminar; «Cancelar» en la barra; recargar | Todo vuelve al original; tras recargar no hay aviso de recuperación | ✅ |
 | **B-8** | Sin servidor | Abrir `/local`, editar, ⌘Z, guardar | Carga su definición; edición y deshacer; guardado local sin errores | ✅ |
+| **B-9** | Salir con clic en otra celda (`salir.test.ts`) | Teclear sin Enter en Cliente (avatar) y RFC de una fila nueva, y en Cliente y Promesa de una existente; clic en otra celda | Lo escrito queda, sin rojo en la nueva; marcadas en la existente | ✅ |
+| **B-10** | Salir con clic fuera de la hoja | Teclear sin Enter; clic en el título de la página | Lo escrito queda; `Cambios 1` | ✅ |
+| **B-11** | Guardar con la celda en edición | Con un cambio previo, teclear sin Enter y pulsar Guardar | «Actualizadas 2»; API con los dos valores | ✅ |
+| **B-12** | Escape descarta | Teclear, Esc, clic en otra celda | Valor original; Guardar inactivo | ✅ |
+| **B-13** | Editores con panel | Fecha tecleada + clic en otra celda; un día del calendario; una opción de Etapa; ⌘Z ×3 | La fecha tecleada queda; elegir en la lista confirma una sola vez (tres pasos de deshacer) | ✅ |
+| **B-14** | «Guardar» en vivo, fila existente | Teclear distinto → encendido; regresar al previo → apagado (editor abierto); distinto otra vez; un clic en Guardar | «Actualizadas 1»; apagado tras guardar; lo guardado es la referencia (volver a él no enciende) | ✅ |
+| **B-15** | «Guardar» en vivo, otros editores | RFC (nativo), Promesa (número) y Fecha promesa (tecleada): cambiar y regresar | Encendido y apagado en vivo; el número se compara por valor | ✅ |
+| **B-16** | «Guardar» en vivo, fila nueva | Agregar fila; llenar; con RFC abierta y cambiada, un clic en Guardar; luego editar la fila creada | Crear ya enciende; se guarda con lo escrito; después, regresar al valor guardado apaga | ✅ |
 
 ## 2. Ventana sobre 50 000 filas (`ventana.test.ts`)
 
