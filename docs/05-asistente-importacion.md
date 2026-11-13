@@ -1,54 +1,53 @@
-# 05 — Asistente de importación con agente (SB-36)
+# 05 — Agent-based import assistant (SB-36)
 
-> Cómo se arma, del lado del servidor, el asistente que convierte cualquier
-> archivo (PDF, fotos, Excel, texto, zip) en filas de un formato SB-34, lo
-> adjunta donde diga la app o lo descarta; y el contrato HTTP que consume el
-> asistente del cliente.
+> How the assistant is built on the server side: it turns any file (PDF,
+> photos, Excel, text, zip) into rows of an SB-34 format, attaches it wherever
+> the app says, or discards it; plus the HTTP contract that the client-side
+> assistant consumes.
 
-**Creado:** 2026-10-08 · **Estado:** 🟢 servidor (agente, corrida, rutas, ejemplo) y cliente (`<ImportAssistant>`, `ImportAssistantState`) con la página de ejemplo `/import-assistant`. Rediseño v2 (§7): **fase A hecha** (2026-10-09: lo que se ve); **fase B hecha** (2026-10-09: el cerebro enchufable, §9). Segunda revisión (§8): **A2, S y T hechas** (2026-10-09, §8.7). Tercera (§10): **pestañas por destino, importar por destino, progreso en vivo y cerebro consciente de los stagings** (2026-10-09).
+**Created:** 2026-10-08 · **Status:** 🟢 server (agent, run, routes, example) and client (`<ImportAssistant>`, `ImportAssistantState`) with the example page `/import-assistant`. v2 redesign (§7): **phase A done** (2026-10-09: what you see); **phase B done** (2026-10-09: the pluggable brain, §9). Second review (§8): **A2, S and T done** (2026-10-09, §8.7). Third (§10): **tabs per destination, import per destination, live progress and a brain aware of the stagings** (2026-10-09).
 
-Primer consumidor: Aggy Legacy (spec `CHEV7H`). Piezas previas: `mongoSource`
-(02 §4.3) y la extracción P/X (`packages/server/src/extraction/`).
+First consumer: Aggy Legacy (spec `CHEV7H`). Earlier pieces: `mongoSource`
+(02 §4.3) and the P/X extraction (`packages/server/src/extraction/`).
 
 ---
 
-## 1. Qué es de SpreadBase y qué es de la app
+## 1. What belongs to SpreadBase and what belongs to the app
 
-Mismo principio que la fuente (SB-2): **el LLM, el almacenamiento, la
-persistencia de la corrida y la cola son de la app**. SpreadBase define las
-interfaces, el flujo, las tools y las rutas, y trae una versión de cada pieza
-para empezar.
+Same principle as the source (SB-2): **the LLM, storage, run persistence and
+the queue belong to the app**. SpreadBase defines the interfaces, the flow,
+the tools and the routes, and ships a version of each piece to get started.
 
-| Pieza | Interfaz | Por omisión (SpreadBase) | En Aggy |
+| Piece | Interface | Default (SpreadBase) | In Aggy |
 |---|---|---|---|
-| Modelo | `ImportLLM` (`generateStructured`, `chat`) | — (sin `chat`, el agente trabaja con reglas) | Adaptador Gemini |
-| Archivos | `ImportFileStorage` = `FileStorage` (SB-30) + `read` (+ `remove`) | `diskStorage` (ya trae `read`/`remove`), `memoryFileStorage` | GCS |
-| Corridas | `ImportRunStore` | `memoryRunStore` | Mongo |
-| Cola | `ImportRunner` | `inProcessRunner({ concurrencia })` | Worker de `core/queues/` |
-| Destinos | formatos SB-34, `attach` de la app, descartar | — | Formato por DataTable, campo `folder` |
-| Avisos | `onEvent` | — | Socket.IO, WhatsApp |
+| Model | `ImportLLM` (`generateStructured`, `chat`) | — (without `chat`, the agent works with rules) | Gemini adapter |
+| Files | `ImportFileStorage` = `FileStorage` (SB-30) + `read` (+ `remove`) | `diskStorage` (already has `read`/`remove`), `memoryFileStorage` | GCS |
+| Runs | `ImportRunStore` | `memoryRunStore` | Mongo |
+| Queue | `ImportRunner` | `inProcessRunner({ concurrencia })` | Worker from `core/queues/` |
+| Destinations | SB-34 formats, the app's `attach`, discard | — | One format per DataTable, `folder` field |
+| Notifications | `onEvent` | — | Socket.IO, WhatsApp |
 
-## 2. El agente
+## 2. The agent
 
 ```ts
 import { importAgent, importAssistantRoutes, inProcessRunner, memoryRunStore, diskStorage } from '@spreadbase/server';
 
 const agent = importAgent({
-	llm,                                   // ImportLLM de la app
-	model: 'gemini-3.8-flash',             // se le pasa al adaptador
-	prompt: 'Los planes vienen del boletín mensual de GM…',   // se suma al prompt base
+	llm,                                   // the app's ImportLLM
+	model: 'gemini-3.8-flash',             // passed to the adapter
+	prompt: 'Los planes vienen del boletín mensual de GM…',   // appended to the base prompt
 	destinations: [
 		{ tipo: 'filas', formato: planesGmf, modos: ['upsert', 'replace'], modo: 'replace', actuales: planesSheet },
 		{ tipo: 'adjuntar', id: 'fichas', label: 'Ficha técnica', attach: async ({ destino, archivo, derivados, contexto }) => { … } },
 		{ tipo: 'descartar' }
 	],
-	context: async (run) => 'La tabla tiene 57 planes de septiembre…',   // más contexto por corrida
-	tools: [consultarRightLink],           // tools de la app
+	context: async (run) => 'La tabla tiene 57 planes de septiembre…',   // extra context per run
+	tools: [consultarRightLink],           // the app's tools
 	runs: memoryRunStore(),
 	runner: inProcessRunner({ concurrencia: 2 }),
 	storage: diskStorage({ dir: 'uploads/imports', publicUrl: '/uploads/imports' }),
 	limits: { maxArchivoMB: 50, maxLoteMB: 200, retencionDias: 30 },  // defaults
-	owner: (ctx) => ctx.userId,            // de quién es cada corrida
+	owner: (ctx) => ctx.userId,            // who owns each run
 	onEvent: (e) => io.to(e.corrida).emit('import', e)
 });
 
@@ -59,176 +58,176 @@ router.use('/imports/assistant', importAssistantRoutes(agent, { context: (req) =
 
 ```ts
 interface ImportLLM {
-	// Método X: una respuesta que cumple un JSON Schema (por página).
+	// Method X: a response that matches a JSON Schema (per page).
 	generateStructured(input: { instrucciones; imagenes: (Buffer | string)[]; texto?; schema; modelo? }): Promise<unknown>;
-	// Bucle del agente: una vuelta con tools. Opcional.
+	// Agent loop: one turn with tools. Optional.
 	chat?(input: { sistema: string; mensajes: LLMMensaje[]; tools: LLMTool[]; modelo?: string }): Promise<LLMRespuesta>;
 }
 
 type LLMParte = { tipo: 'texto'; texto } | { tipo: 'imagen'; datos: Buffer | string; mime? };
 type LLMMensaje =
-	| { rol: 'usuario'; partes: LLMParte[] }                       // texto e imágenes (visión)
-	| { rol: 'agente'; texto?; llamadas?: LLMLlamada[]; meta? }     // lo que respondió el modelo
+	| { rol: 'usuario'; partes: LLMParte[] }                       // text and images (vision)
+	| { rol: 'agente'; texto?; llamadas?: LLMLlamada[]; meta? }     // what the model answered
 	| { rol: 'tool'; id; nombre; resultado: unknown; imagenes?: Buffer[] };
 interface LLMTool { nombre; descripcion; parametros: JsonSchema }
 interface LLMLlamada { id?; nombre; args: Record<string, unknown> }
 interface LLMRespuesta { texto?; llamadas?: LLMLlamada[]; meta?: unknown }
 ```
 
-Decisiones:
+Decisions:
 
-- **Neutral al proveedor.** Mensajes con roles propios (`usuario`, `agente`,
-  `tool`) y partes de texto o imagen: cada adaptador los traduce (Gemini:
-  `user`/`model`, `functionCall`/`functionResponse`; OpenAI/Anthropic, igual de
-  directo). El ejemplo trae un adaptador mínimo de Gemini con `fetch`.
-- **El historial lo lleva SpreadBase** y se manda completo en cada vuelta: el
-  adaptador no guarda estado.
-- **`id` de cada llamada** lo pone el adaptador si el proveedor lo da; si no,
-  el agente lo genera (`t1`, `t2`…) y la respuesta de la tool lo repite.
-- **`meta` opaco** (2026-10-08, al probar con Gemini real): lo que el
-  proveedor exige de vuelta tal cual en la siguiente vuelta. Gemini 3 rechaza
-  (`400 … missing a thought_signature`) un historial cuyas `functionCall` no
-  traen su `thoughtSignature`. El adaptador pone las partes crudas en
-  `respuesta.meta`, el agente las guarda en el mensaje `agente` y el adaptador
-  las reenvía.
-- **`chat` es opcional.** Sin él (o sin LLM), el agente analiza con reglas: P,
-  la tabla que más columnas del formato reconoce (`locateTable`), mapeo por
-  encabezados y `review`. Con solo `generateStructured`, las imágenes se leen
-  con X y siguen el mismo camino.
+- **Provider-neutral.** Messages with their own roles (`usuario`, `agente`,
+  `tool`) and text or image parts: each adapter translates them (Gemini:
+  `user`/`model`, `functionCall`/`functionResponse`; OpenAI/Anthropic, just as
+  direct). The example ships a minimal Gemini adapter using `fetch`.
+- **SpreadBase keeps the history** and sends it in full on every turn: the
+  adapter keeps no state.
+- **The `id` of each call** is set by the adapter if the provider gives one;
+  otherwise the agent generates it (`t1`, `t2`…) and the tool response echoes it.
+- **Opaque `meta`** (2026-10-08, when testing with real Gemini): whatever the
+  provider requires to be sent back as-is on the next turn. Gemini 3 rejects
+  (`400 … missing a thought_signature`) a history whose `functionCall`s lack
+  their `thoughtSignature`. The adapter puts the raw parts in
+  `respuesta.meta`, the agent stores them in the `agente` message and the
+  adapter sends them again.
+- **`chat` is optional.** Without it (or without an LLM), the agent analyzes
+  with rules: P, the table in which the most format columns are recognized
+  (`locateTable`), mapping by headers, and `review`. With only
+  `generateStructured`, images are read with X and follow the same path.
 
-### 2.2 Fases
+### 2.2 Phases
 
-**Analizar** (`POST /analyze`, en la cola, por archivo):
+**Analyze** (`POST /analyze`, in the queue, per file):
 
-1. El agente presenta el archivo al modelo: nombre, tipo, carpeta, destino, la
-   **instrucción de la persona para ese archivo** (si la hay); un
-   índice barato del método P (bloques por página con sus encabezados) o la
-   imagen misma.
-2. El bucle corre hasta `maxIteraciones` (12): el modelo llama tools y recibe
-   sus resultados. Termina con `terminar` o cuando responde sin llamadas.
-3. Si quedaron filas para un formato, el agente corre `review` y guarda los
-   problemas en el archivo. Antes, une las filas **idénticas en todo** (el
-   boletín repite tablas entre páginas) y deja el aviso «N filas duplicadas
-   idénticas se unieron»; si dos filas comparten la llave pero difieren, el
-   error («Repetido: igual que la fila N») se reescribe con las dos filas y en
-   qué difieren («Misma llave que la fila 3 pero difieren en Precio de lista
-   (346500 ≠ 350000)»).
-4. **El chat siempre reporta**: el agente agrega un mensaje con el veredicto
-   del archivo, armado sin LLM con su análisis, filas, errores y destino
-   («planes.csv: 211 filas, 0 errores, listo para reemplazar» / «… 12 con
-   error en Precio Final; ábrelo para verlos»). Al terminar de importar, un
-   resumen con una línea por archivo.
+1. The agent presents the file to the model: name, type, folder, destination,
+   the **person's instruction for that file** (if any); a cheap index from
+   method P (blocks per page with their headers) or the image itself.
+2. The loop runs up to `maxIteraciones` (12): the model calls tools and gets
+   their results. It ends with `terminar` or when it answers without calls.
+3. If rows were left for a format, the agent runs `review` and stores the
+   problems in the file. Before that, it merges rows that are **identical in
+   everything** (the bulletin repeats tables across pages) and leaves the
+   notice «N filas duplicadas idénticas se unieron»; if two rows share the key
+   but differ, the error («Repetido: igual que la fila N») is rewritten with
+   both rows and how they differ («Misma llave que la fila 3 pero difieren en
+   Precio de lista (346500 ≠ 350000)»).
+4. **The chat always reports**: the agent adds a message with the file's
+   verdict, built without an LLM from its analysis, rows, errors and
+   destination («planes.csv: 211 filas, 0 errores, listo para reemplazar» /
+   «… 12 con error en Precio Final; ábrelo para verlos»). When the import
+   finishes, a summary with one line per file.
 
-**Chat** (`POST /chat`, síncrono): el modelo ve el estado de cada archivo y las
-mismas tools (con `archivo` explícito) más `analizar` (rehacer un archivo).
-**Antes de analizar** (corrida `nueva`, archivos `pendiente`), el mensaje se
-suma siempre a las instrucciones de la corrida, que el análisis lee; con
-modelo, además contesta (sabe que aún no debe trabajar archivos); sin él,
-«Anotado: lo tomo en cuenta al analizar». Después, sin `chat`, el mensaje se
-suma a las instrucciones de la corrida.
+**Chat** (`POST /chat`, synchronous): the model sees the status of each file
+and the same tools (with an explicit `archivo`) plus `analizar` (redo a file).
+**Before analyzing** (run `nueva`, files `pendiente`), the message is always
+appended to the run's instructions, which the analysis reads; with a model, it
+also answers (it knows it should not work on files yet); without one,
+«Anotado: lo tomo en cuenta al analizar». Afterwards, without `chat`, the
+message is appended to the run's instructions.
 
-**Importar** (`POST /import`, en la cola, por archivo):
+**Import** (`POST /import`, in the queue, per file):
 
-| Destino | Qué pasa | Resultado |
+| Destination | What happens | Result |
 |---|---|---|
-| `filas` · `replace` | `review`; **cualquier error lo bloquea** (reemplazar con datos incompletos borraría filas válidas); si no, `apply` con todas | `ok` o `error` |
-| `filas` · `upsert` | `review`; `apply` solo con las filas sin error; las malas se quedan en la corrida con su error | `ok`, `parcial` o `error` |
-| `adjuntar` | `attach({ destino, archivo, filas, derivados, corrida, contexto })` de la app | `ok` (1) |
-| `descartar` | nada | `ok` (0) |
-| sin destino | nada | `error` |
+| `filas` · `replace` | `review`; **any error blocks it** (replacing with incomplete data would delete valid rows); otherwise, `apply` with all rows | `ok` or `error` |
+| `filas` · `upsert` | `review`; `apply` only with the rows without errors; the bad ones stay in the run with their error | `ok`, `parcial` or `error` |
+| `adjuntar` | the app's `attach({ destino, archivo, filas, derivados, corrida, contexto })` | `ok` (1) |
+| `descartar` | nothing | `ok` (0) |
+| no destination | nothing | `error` |
 
-`apply` recibe el modo en `ctx.context.modo` (`'upsert' | 'replace'`), junto
-con `corrida` y `archivo`: el formato decide cómo hacer el upsert por
-identidad o el replace atómico.
+`apply` receives the mode in `ctx.context.modo` (`'upsert' | 'replace'`),
+along with `corrida` and `archivo`: the format decides how to do the upsert
+by identity or the atomic replace.
 
-### 2.3 Tools base
+### 2.3 Base tools
 
-| Tool | Qué hace |
+| Tool | What it does |
 |---|---|
-| `leerDestino({ formato? })` | Los destinos, o las columnas de un formato (tipo, obligatoria, alias, opciones, llave) |
-| `extraerDeterminista({ archivo?, paginas? })` | Método P: bloques con sus primeras filas (menos filas si el documento es grande) |
-| `extraerConLLM({ archivo?, paginas?, formato? })` | Método X sobre páginas dibujadas o la imagen (máx. `maxPaginasX`, 30) |
-| `compararExtracciones({ archivo? })` | P contra X, celda por celda, en las páginas leídas con X |
-| `verBloque({ metodo, bloque, desde, hasta })` | Las filas de un bloque, por tramos de 100 |
-| `mapearTabla({ formato, metodo, bloques, columnas?, fijos? })` | Bloques → filas del formato: encabezados por nombre o alias; valores con el tipo de su columna (`$319,100` → 319100, `($60,000)` → −60000, `16.09%` → 16.09, `DD/MM/AAAA` → ISO) |
-| `proponerFilas({ formato, modo?, desdeMapeo? \| filas?, agregar?, campos? })` | Escribe las filas en la corrida y deja el destino |
-| `editarFilas({ quitar?, quitarSi?, cambiar?, agregar? })` | Corrige lo propuesto |
-| `revisar()` | `review` del formato: problemas por fila y campo |
-| `leerFilasActuales({ formato, buscar?, limite? })` | Lo que ya hay en la tabla destino (por la hoja `actuales` o una función) |
-| `crearDerivado({ nombre, contenido, tipo? })` | Un archivo derivado (ej. `ficha.md`) para adjuntar junto al original |
-| `fijarDestino({ destino })` · `terminar({ analisis, destino? })` | Elegir destino; cerrar el análisis con el texto de la columna Análisis |
+| `leerDestino({ formato? })` | The destinations, or the columns of a format (type, required, aliases, options, key) |
+| `extraerDeterminista({ archivo?, paginas? })` | Method P: blocks with their first rows (fewer rows if the document is large) |
+| `extraerConLLM({ archivo?, paginas?, formato? })` | Method X on rendered pages or the image (max. `maxPaginasX`, 30) |
+| `compararExtracciones({ archivo? })` | P against X, cell by cell, on the pages read with X |
+| `verBloque({ metodo, bloque, desde, hasta })` | The rows of a block, in chunks of 100 |
+| `mapearTabla({ formato, metodo, bloques, columnas?, fijos? })` | Blocks → format rows: headers by name or alias; values with their column's type (`$319,100` → 319100, `($60,000)` → −60000, `16.09%` → 16.09, `DD/MM/AAAA` → ISO) |
+| `proponerFilas({ formato, modo?, desdeMapeo? \| filas?, agregar?, campos? })` | Writes the rows into the run and sets the destination |
+| `editarFilas({ quitar?, quitarSi?, cambiar?, agregar? })` | Fixes what was proposed |
+| `revisar()` | The format's `review`: problems per row and field |
+| `leerFilasActuales({ formato, buscar?, limite? })` | What the destination table already has (via the `actuales` sheet or a function) |
+| `crearDerivado({ nombre, contenido, tipo? })` | A derived file (e.g. `ficha.md`) to attach alongside the original |
+| `fijarDestino({ destino })` · `terminar({ analisis, destino? })` | Choose the destination; close the analysis with the text for the Análisis column |
 
-Toda tool acepta `archivo` (id o nombre). Un error de una tool vuelve al modelo
-como `{ error }`; el bucle sigue. **El destino que fijó la persona no se
-cambia**: las tools que lo intentan responden con el motivo.
+Every tool accepts `archivo` (id or name). A tool error goes back to the model
+as `{ error }`; the loop continues. **The destination set by the person is not
+changed**: tools that try to change it respond with the reason.
 
-### 2.4 Límites y archivos
+### 2.4 Limits and files
 
-- Por omisión: 50 MB por archivo, 200 MB por corrida, 30 días de retención,
-  tipos `pdf png jpg jpeg webp heic xlsx csv txt json md docx zip`.
-- El tipo real se revisa por el contenido (`sniffType` de SB-30); HTML y SVG
-  nunca.
-- **Zip**: el cliente lo expande (con su carpeta); el servidor lo abre como
-  respaldo, a mano con `node:zlib` (almacenado o deflate; sin cifrado ni
-  zip64), con tope de lo descomprimido. Cada archivo de adentro es uno de la
-  corrida, con su ruta en `carpeta`.
-- **.docx**: su texto (`word/document.xml`) como bloque de texto.
-- En el almacenamiento, el nombre va limpio (`planes-octubre.csv`); a la
-  persona se le muestra el original.
+- Defaults: 50 MB per file, 200 MB per run, 30 days of retention, types
+  `pdf png jpg jpeg webp heic xlsx csv txt json md docx zip`.
+- The real type is checked from the content (`sniffType` from SB-30); HTML and
+  SVG never.
+- **Zip**: the client expands it (with its folder); the server opens it as a
+  fallback, by hand with `node:zlib` (stored or deflate; no encryption or
+  zip64), with a cap on the uncompressed size. Each file inside becomes a file
+  of the run, with its path in `carpeta`.
+- **.docx**: its text (`word/document.xml`) as a text block.
+- In storage, the name is sanitized (`planes-octubre.csv`); the person is
+  shown the original.
 
-### 2.5 La corrida y la concurrencia
+### 2.5 The run and concurrency
 
-La corrida es un documento (tipos en `@spreadbase/core`, `ImportRun`) con una
-`version` que sube en cada cambio. `ImportRunStore.guardar(run, versionLeida)`
-solo guarda si nadie se adelantó; si no, el agente vuelve a leer y reaplica su
-cambio. Así, varios archivos que se analizan a la vez, el chat y la persona
-fijando destinos no se pisan. Con Mongo: `replaceOne({ _id, version: versionLeida }, run)`.
+The run is a document (types in `@spreadbase/core`, `ImportRun`) with a
+`version` that increases on every change. `ImportRunStore.guardar(run, versionLeida)`
+only saves if nobody got there first; otherwise, the agent re-reads and
+reapplies its change. That way, several files being analyzed at once, the chat
+and the person setting destinations don't overwrite each other. With Mongo:
+`replaceOne({ _id, version: versionLeida }, run)`.
 
-Las filas de cada archivo viven dentro de la corrida (para Mongo, ojo con los
-16 MB por documento en archivos de decenas de miles de filas: el almacén puede
-separarlas).
+Each file's rows live inside the run (for Mongo, watch out for the 16 MB per
+document limit with files of tens of thousands of rows: the store can keep
+them separately).
 
-**Cola de la app:** `encolar(trabajo)` mete `{ tipo: 'analizar' | 'importar',
-corrida, archivo }` en su cola y su worker llama `agente.procesar(trabajo)`.
-La cola en proceso recibe ese `procesar` con `iniciar`.
+**App queue:** `encolar(trabajo)` puts `{ tipo: 'analizar' | 'importar',
+corrida, archivo }` in its queue and its worker calls `agente.procesar(trabajo)`.
+The in-process queue receives that `procesar` via `iniciar`.
 
 ---
 
-## 3. Contrato HTTP (`importAssistantRoutes`)
+## 3. HTTP contract (`importAssistantRoutes`)
 
-Todo JSON salvo la subida (bytes tal cual, como SB-30). Errores con la forma de
-siempre: `{ error: { code, message } }`.
+All JSON except the upload (raw bytes, as in SB-30). Errors with the usual
+shape: `{ error: { code, message } }`.
 
-| Método y ruta | Cuerpo | Respuesta |
+| Method and route | Body | Response |
 |---|---|---|
-| `GET /config` | — | `ImportAssistantConfig`: `{ destinos, limites, bienvenida }` (`bienvenida`: el primer mensaje del chat, sin LLM; la app pone el suyo con la opción `bienvenida`) |
-| `GET /runs` | `?origen=` | `ImportRunView[]` de quien pide (por `owner`); con `origen`, las abiertas desde esa tabla (para retomar) |
-| `POST /runs` | `{ instrucciones?, origen? }` | `201 ImportRunView` (`origen` queda en `contexto.origen`) |
+| `GET /config` | — | `ImportAssistantConfig`: `{ destinos, limites, bienvenida }` (`bienvenida`: the first chat message, without an LLM; the app sets its own with the `bienvenida` option) |
+| `GET /runs` | `?origen=` | `ImportRunView[]` of the requester (by `owner`); with `origen`, the open ones started from that table (to resume) |
+| `POST /runs` | `{ instrucciones?, origen? }` | `201 ImportRunView` (`origen` is stored in `contexto.origen`) |
 | `GET /runs/:run` | — | `ImportRunView` |
-| `PATCH /runs/:run` | `{ instrucciones }` | `ImportRunView` (solo por compatibilidad: desde v2 las instrucciones generales llegan por el chat) |
-| `POST /runs/:run/files` | bytes; cabeceras `X-File-Name` y `X-Folder` (URI-encoded) | `201 ImportRunFileView[]` (varios si era zip) |
+| `PATCH /runs/:run` | `{ instrucciones }` | `ImportRunView` (compatibility only: since v2 the general instructions arrive through the chat) |
+| `POST /runs/:run/files` | bytes; headers `X-File-Name` and `X-Folder` (URI-encoded) | `201 ImportRunFileView[]` (several if it was a zip) |
 | `DELETE /runs/:run/files/:file` | — | `ImportRunView` |
-| `PUT /runs/:run/files/:file/destination` | `{ destino: ImportDestination \| null }` | `ImportRunView` (`null` suelta el destino) |
-| `PUT /runs/:run/files/:file/instruction` | `{ instruccion: string \| null }` | `ImportRunView` (instrucción para ese archivo; `null` la quita) |
+| `PUT /runs/:run/files/:file/destination` | `{ destino: ImportDestination \| null }` | `ImportRunView` (`null` releases the destination) |
+| `PUT /runs/:run/files/:file/instruction` | `{ instruccion: string \| null }` | `ImportRunView` (instruction for that file; `null` removes it) |
 | `GET /runs/:run/files/:file/rows` | — | `ImportFileRows`: `{ archivo, schema, filas, issues, resumen }` |
-| `PUT /runs/:run/files/:file/rows` | `{ filas }` | `ImportFileRows` (corregidas por la persona y revisadas otra vez; un archivo ya importado o con error vuelve a `analizado` para reintentarlo) |
-| `POST /runs/:run/analyze` | `{ archivos? }` | `202 ImportRunView` (archivos `en_cola`) |
-| `POST /runs/:run/chat` | `{ texto }` | `{ mensaje, corrida }` (antes de analizar, el texto se suma a `instrucciones`) |
-| `POST /runs/:run/import` | `{ staging?: [{ destino, resumen }], destinos?: string[] }` | `202 ImportRunView`. Con `staging`, esos destinos ya se guardaron en su hoja: sus archivos quedan importados sin `apply` y los que iban a una columna sin emparejar, en error. Con `destinos` (§10), solo los archivos que alimentan esos stagings; la corrida vuelve a `lista` mientras falten otros (`importacion: { destinos, archivos }` en la corrida) |
-| `GET /runs/:run/staging?destino=&modo=` | — | `ImportChangeSet` (§8.3): la tabla destino con los cambios de toda la corrida |
-| `PUT /runs/:run/staging` | `ImportStagingEdit`: `{ destino, cambios?, error? }` | `ImportChangeSet` (las ediciones de la persona se guardan en `corrida.staging`; `error` lo dice el agente en el chat). Le avisa al cerebro `staging_editado` con qué cambió (agrupado: `esperaEdicionMs`, 2 s) |
+| `PUT /runs/:run/files/:file/rows` | `{ filas }` | `ImportFileRows` (corrected by the person and reviewed again; a file already imported or in error goes back to `analizado` to retry it) |
+| `POST /runs/:run/analyze` | `{ archivos? }` | `202 ImportRunView` (files `en_cola`) |
+| `POST /runs/:run/chat` | `{ texto }` | `{ mensaje, corrida }` (before analyzing, the text is appended to `instrucciones`) |
+| `POST /runs/:run/import` | `{ staging?: [{ destino, resumen }], destinos?: string[] }` | `202 ImportRunView`. With `staging`, those destinations were already saved to their sheet: their files are marked imported without `apply`, and those that went to an unmatched column, in error. With `destinos` (§10), only the files that feed those stagings; the run goes back to `lista` while others remain (`importacion: { destinos, archivos }` on the run) |
+| `GET /runs/:run/staging?destino=&modo=` | — | `ImportChangeSet` (§8.3): the destination table with the changes from the whole run |
+| `PUT /runs/:run/staging` | `ImportStagingEdit`: `{ destino, cambios?, error? }` | `ImportChangeSet` (the person's edits are stored in `corrida.staging`; the agent reports `error` in the chat). Notifies the brain with `staging_editado` and what changed (grouped: `esperaEdicionMs`, 2 s) |
 
-Errores propios: `413 file_too_large` / `batch_too_large`, `415
-unsupported_type`, `409 run_closed` (subir a una corrida importada), `409
-still_analyzing` (importar antes de terminar de analizar), `404` (corrida de
-otra persona o inexistente).
+Specific errors: `413 file_too_large` / `batch_too_large`, `415
+unsupported_type`, `409 run_closed` (uploading to an imported run), `409
+still_analyzing` (importing before analysis finishes), `404` (another person's
+run or a nonexistent one).
 
-### 3.1 Tipos (en `@spreadbase/core`)
+### 3.1 Types (in `@spreadbase/core`)
 
 ```ts
 type ImportDestination =
 	| { tipo: 'filas'; formato: string; modo: 'upsert' | 'replace' }
-	| { tipo: 'adjuntar'; adjunto: string; tabla?; fila?; campo?; … }   // lo demás lo define la app
+	| { tipo: 'adjuntar'; adjunto: string; tabla?; fila?; campo?; … }   // the rest is defined by the app
 	| { tipo: 'descartar'; motivo? };
 
 interface ImportRunView {
@@ -240,406 +239,403 @@ interface ImportRunView {
 }
 
 interface ImportRunFileView {
-	id; nombre; tipo /* MIME real */; carpeta /* ruta o null */; url; tamano;
+	id; nombre; tipo /* real MIME */; carpeta /* path or null */; url; tamano;
 	estado: 'pendiente' | 'en_cola' | 'analizando' | 'analizado' | 'importando' | 'importado' | 'error';
-	analisis /* columna Análisis */; destino; destinoFijadoPorUsuario;
-	instruccion /* de la persona, para este archivo, o null */;
-	campos /* datos del formulario del formato */; resumen /* summary del review */;
-	totalFilas; totalErrores /* filas con error */; totalAvisos;
+	analisis /* Análisis column */; destino; destinoFijadoPorUsuario;
+	instruccion /* from the person, for this file, or null */;
+	campos /* data from the format's form */; resumen /* summary from the review */;
+	totalFilas; totalErrores /* rows with errors */; totalAvisos;
 	derivados: { nombre; tipo }[];
 	resultado: { status: 'ok' | 'parcial' | 'error'; ok; error; mensaje?; resumen? } | null;
-	error /* fallo del análisis o de la importación */;
+	error /* failure of the analysis or the import */;
 }
 
 interface ImportRunEvent {   // onEvent
 	corrida; tipo: 'corrida' | 'archivo' | 'chat'; estado?; archivo?; mensaje?; resultado?;
-	totales?: { ok; error; archivos };   // al terminar de importar
+	totales?: { ok; error; archivos };   // when the import finishes
 }
 ```
 
-### 3.2 Cómo lo usa el asistente del cliente
+### 3.2 How the client assistant uses it
 
-| Paso del wizard | Llamadas |
+| Wizard step | Calls |
 |---|---|
-| Abrir el asistente (momento 0) | `GET /config` (destinos, límites y bienvenida) → `POST /runs` (el chat ya tiene corrida) |
-| ① Archivos (drop sobre el `target` o en el asistente; carpetas y zip expandidos en el navegador) | `POST /files` por archivo (con `X-Folder`) |
-| Destino en la hoja de archivos (fijarlo o corregirlo) | `PUT /files/:file/destination` (opciones de `GET /config`) |
-| Instrucción en la hoja de archivos | `PUT /files/:file/instruction` (al confirmar la celda) |
-| Instrucciones generales | `POST /chat` antes de analizar (el servidor las guarda en la corrida) |
-| ② Análisis | `POST /analyze`; refrescar `GET /runs/:run` (o el socket de la app) hasta `lista` |
+| Open the assistant (moment 0) | `GET /config` (destinations, limits and welcome) → `POST /runs` (the chat already has a run) |
+| ① Files (drop on the `target` or in the assistant; folders and zips expanded in the browser) | `POST /files` per file (with `X-Folder`) |
+| Destination in the files sheet (set or correct it) | `PUT /files/:file/destination` (options from `GET /config`) |
+| Instruction in the files sheet | `PUT /files/:file/instruction` (when the cell is confirmed) |
+| General instructions | `POST /chat` before analyzing (the server stores them in the run) |
+| ② Analysis | `POST /analyze`; refresh `GET /runs/:run` (or the app's socket) until `lista` |
 | Chat | `POST /chat` |
-| Detalle de un archivo (hoja de staging con los errores por celda) | `GET /files/:file/rows`; «Guardar correcciones»: `PUT /files/:file/rows` y, si ya se había importado y quedó sin errores, `POST /import` |
-| ③ Importar (la ventana se puede cerrar) | `POST /import`; refrescar hasta `terminada` |
-| ④ Resultado | `resultado` de cada archivo; Detalle de los que quedaron con error |
+| File detail (staging sheet with errors per cell) | `GET /files/:file/rows`; «Guardar correcciones»: `PUT /files/:file/rows` and, if it had already been imported and is now error-free, `POST /import` |
+| ③ Import (the window can be closed) | `POST /import`; refresh until `terminada` |
+| ④ Result | each file's `resultado`; Detail for those left in error |
 
 ---
 
 ---
 
-## 4. El cliente: `<ImportAssistant>` y `ImportAssistantState`
+## 4. The client: `<ImportAssistant>` and `ImportAssistantState`
 
 ```svelte
-<!-- Atajo: la hoja recibe archivos; al cerrar el asistente, se recarga. -->
+<!-- Shortcut: the sheet receives files; when the assistant closes, it reloads. -->
 <SpreadBase {sheet} fill importAssistant={{ url: '/api/imports/assistant', origen: 'Planes GMF', aviso: 'te avisamos en el panel' }} bind:importOpen />
 <button class="link" onclick={() => (importOpen = true)}>o elige archivos</button>
 
-<!-- O suelto, apuntando a cualquier contenedor. -->
+<!-- Or standalone, pointing at any container. -->
 <div id="tabla-planes">…</div>
 <ImportAssistant url="/api/imports/assistant" target="tabla-planes" origen="Planes GMF" bind:open onclose={recargarTabla} />
 ```
 
-| Prop | Qué es |
+| Prop | What it is |
 |---|---|
-| `url` | La base de `importAssistantRoutes` |
-| `headers` | Cabeceras de cada petición (`Authorization`) |
-| `target` | id o `HTMLElement` que recibe archivos: al arrastrar, una capa cubre el 100 % del contenedor; al soltar, se abre el asistente con esos archivos subiendo. Sin `target`, solo se abre con `open` |
-| `dropHint` | Texto de esa capa. Default: «Suelta para importar a {origen}» |
-| `open` (bindable) | Abierta o cerrada (un `<dialog>` modal: foco atrapado; Escape cierra salvo que se esté en una hoja, donde cancela la celda). Default: abierta sin `target`, cerrada con él |
-| `origen` | La tabla de origen, en el subtítulo y en la capa |
-| `aviso` | Cómo avisa la app al terminar («te avisamos en el panel y por WhatsApp») |
-| `run` | Volver a abrir una corrida existente |
-| `onclose` | Se cerró; la importación, si empezó, sigue en el servidor |
-| `assistant` (bindable) | El `ImportAssistantState`, para leerlo desde fuera |
+| `url` | The base of `importAssistantRoutes` |
+| `headers` | Headers for every request (`Authorization`) |
+| `target` | id or `HTMLElement` that receives files: while dragging, an overlay covers 100 % of the container; on drop, the assistant opens with those files uploading. Without `target`, it only opens with `open` |
+| `dropHint` | Text of that overlay. Default: «Suelta para importar a {origen}» |
+| `open` (bindable) | Open or closed (a modal `<dialog>`: focus trapped; Escape closes unless you are in a sheet, where it cancels the cell). Default: open without `target`, closed with it |
+| `origen` | The source table, in the subtitle and in the overlay |
+| `aviso` | How the app notifies when done («te avisamos en el panel y por WhatsApp») |
+| `run` | Reopen an existing run |
+| `onclose` | It was closed; the import, if started, continues on the server |
+| `assistant` (bindable) | The `ImportAssistantState`, to read it from outside |
 
-En `<SpreadBase>` y `<SpreadsheetGrid>`, **`legend`** (default `true`): `legend={false}` quita la leyenda
-inferior («Celda editada sin guardar», «Fila nueva», «Valor inválido», «Fila eliminada» y la ventana de
-filas); los avisos de trabajo («Resolviendo nombres…», «Cargando siguientes…») se siguen viendo. El
-asistente la quita en la hoja de archivos y en cada staging; las demás hojas no cambian.
+In `<SpreadBase>` and `<SpreadsheetGrid>`, **`legend`** (default `true`): `legend={false}` removes the bottom
+legend («Celda editada sin guardar», «Fila nueva», «Valor inválido», «Fila eliminada» and the row
+window); work notices («Resolviendo nombres…», «Cargando siguientes…») are still shown. The
+assistant removes it in the files sheet and in each staging; other sheets don't change.
 
-`ImportAssistantState` (§10) suma: `tab` (`'archivos'` o el formato de un destino), `stagings` (las hojas
-abiertas por destino), `destinationTabs` (pestañas con archivos, conteos, `trabajando`, `importado`),
+`ImportAssistantState` (§10) adds: `tab` (`'archivos'` or a destination's format), `stagings` (the sheets
+open per destination), `destinationTabs` (tabs with files, counts, `trabajando`, `importado`),
 `stagingOf(archivo)`, `openStaging(destino, { highlight, fresh })`, `highlightFile(destino, archivo)`,
-`refreshSummaries()` e `importStaging(confirmado, destinos | null)`. En `GridController`:
-`highlightRows(claves)` (resalta filas sin tocar datos ni cambios) y `commands.revealRow(clave)`.
+`refreshSummaries()` and `importStaging(confirmado, destinos | null)`. In `GridController`:
+`highlightRows(claves)` (highlights rows without touching data or changes) and `commands.revealRow(clave)`.
 
-En `<SpreadBase>`: `importAssistant={{ url, origen, aviso, dropHint, headers, run, onclose, onassistant }}`
-usa la propia hoja como `target` y la recarga al cerrar; `bind:importOpen` lo
-abre desde un enlace propio.
+In `<SpreadBase>`: `importAssistant={{ url, origen, aviso, dropHint, headers, run, onclose, onassistant }}`
+uses the sheet itself as `target` and reloads it on close; `bind:importOpen`
+opens it from a link of your own.
 
-**Layout** (fase A de §7, pantalla completa desde §10). El diálogo ocupa **toda
-la pantalla** (`w-screen h-dvh`, sin márgenes ni esquinas) en dos columnas desde
-que abre: el contenido a la izquierda, en **pestañas** (Archivos y una por tabla
-destino, §10), y el **chat a la derecha, siempre visible** (≈ 1/3, `min-w-80`),
-en todas las pestañas. Debajo de `lg`, el chat es una pestaña más. El chat: burbujas de daisyUI (`chat-start`/`chat-end`) con autor y
-hora, la **bienvenida** de `GET /config` como primer mensaje (sin LLM),
-«pensando…» mientras responde e input fijo abajo (Enter envía, Mayús+Enter
-salta de línea). Lo que se escribe antes de analizar son las instrucciones de
-la corrida; ya no hay textarea de comentarios.
+**Layout** (phase A of §7, full screen since §10). The dialog takes up **the
+whole screen** (`w-screen h-dvh`, no margins or corners) in two columns from
+the moment it opens: the content on the left, in **tabs** (Archivos and one per
+destination table, §10), and the **chat on the right, always visible** (≈ 1/3,
+`min-w-80`), in every tab. Below `lg`, the chat is one more tab. The chat:
+daisyUI bubbles (`chat-start`/`chat-end`) with author and time, the **welcome**
+from `GET /config` as the first message (without an LLM), «pensando…» while it
+answers and a fixed input at the bottom (Enter sends, Shift+Enter inserts a
+line break). What is typed before analyzing becomes the run's instructions;
+there is no longer a comments textarea.
 
-**Los cuatro pasos** (el paso sale del estado de la corrida; las flechas dejan
-volver a uno anterior):
+**The four steps** (the step comes from the run's status; the arrows let you
+go back to an earlier one):
 
-1. **Archivos.** Sin archivos, la zona para soltar ocupa todo el panel
-   izquierdo («Elegir carpeta», «Elegir archivos», los límites de `GET
-   /config`); con archivos se reduce a una franja y la **hoja de archivos**
-   ocupa el panel. Soltar archivos sobre el panel también los agrega. Las
-   carpetas se leen con la API nativa (`webkitGetAsEntry` al soltar,
-   `webkitdirectory` al elegir) y los zips se abren en el navegador con
-   `jszip` (si no puede, el zip sube tal cual y lo abre el servidor). Cada
-   archivo sube al llegar.
-2. **Análisis.** La misma hoja con Estado, Análisis, Destino, Filas y Errores
-   del agente; el agente deja en el chat un veredicto por archivo. Pie:
-   «← Archivos» e «Importar →».
-3. **Importando.** «Importando en segundo plano. Puedes cerrar esta ventana:
-   {aviso}.»; el resultado de cada archivo en Estado. Pie: «Cerrar (sigue en
+1. **Files.** With no files, the drop zone fills the whole left panel
+   («Elegir carpeta», «Elegir archivos», the limits from `GET
+   /config`); with files it shrinks to a strip and the **files sheet** fills
+   the panel. Dropping files on the panel also adds them. Folders are read
+   with the native API (`webkitGetAsEntry` on drop, `webkitdirectory` when
+   choosing) and zips are opened in the browser with `jszip` (if it can't,
+   the zip is uploaded as-is and the server opens it). Each file uploads as
+   soon as it arrives.
+2. **Analysis.** The same sheet with the agent's Estado, Análisis, Destino,
+   Filas and Errores; the agent leaves a verdict per file in the chat.
+   Footer: «← Archivos» and «Importar →».
+3. **Importing.** «Importando en segundo plano. Puedes cerrar esta ventana:
+   {aviso}.»; each file's result in Estado. Footer: «Cerrar (sigue en
    segundo plano)».
-4. **Resultado.** Tarjetas de importados (filas y adjuntos) y con error; el
-   resumen de la importación en el chat. Pie: «← Volver al análisis» y «Listo».
+4. **Result.** Cards for imported items (rows and attachments) and those in
+   error; the import summary in the chat. Footer: «← Volver al análisis» and «Listo».
 
-**La hoja de archivos** es una `Sheet` local (en memoria), en la pestaña
-**Archivos**: Documento y Staging (acciones) · Icono (miniatura de
-la imagen o etiqueta con la extensión) · Nombre · Tipo · Carpeta · Estado (con
-un ícono: spinner animado en cola, analizando o importando, y el progreso en vivo) ·
-Análisis · Destino · Instrucción · Filas · Errores · Abrir (· Quitar en el
-paso 1). Solo **Destino** (select con «Automático» y las opciones de `/config`,
-uno por modo de cada formato) e **Instrucción** se editan, en los pasos 1 y 2;
-al confirmar la celda se llama a `PUT …/destination` o `PUT …/instruction`.
-Altura de fila normal; los Errores van en rojo; Icono y Nombre quedan fijos al
-desplazarse.
+**The files sheet** is a local `Sheet` (in memory), in the **Archivos** tab:
+Documento and Staging (actions) · Icono (thumbnail of the image or a label
+with the extension) · Nombre · Tipo · Carpeta · Estado (with an icon: animated
+spinner while queued, analyzing or importing, plus live progress) · Análisis ·
+Destino · Instrucción · Filas · Errores · Abrir (· Quitar in step 1). Only
+**Destino** (select with «Automático» and the options from `/config`, one per
+mode of each format) and **Instrucción** are editable, in steps 1 and 2; when
+the cell is confirmed, `PUT …/destination` or `PUT …/instruction` is called.
+Normal row height; Errores are shown in red; Icono and Nombre stay pinned
+while scrolling.
 
-**El detalle de un archivo** («Abrir») reemplaza el panel izquierdo completo,
-con migas «Archivos › nombre»: el análisis completo y, si el archivo va a
-filas, su **hoja de staging** (`Sheet` local, editable, con alta y baja de
-filas) con los errores en la celda (rojo), los avisos (ámbar), el motivo en el
-tooltip y una columna «Problemas» fija a la izquierda; las columnas con error
-van primero y los avisos generales («2 filas duplicadas idénticas se unieron»)
-arriba. «Guardar correcciones» → `PUT …/rows`; si el archivo ya se había
-intentado importar y quedó sin errores, se vuelve a importar. Tras un `upsert`
-parcial la hoja trae solo las filas rechazadas. Un archivo sin filas (adjuntar,
-descartar) muestra su vista previa. Si el agente cambia el archivo (termina su
-análisis, «excluye contado»), el detalle se vuelve a leer.
+**A file's detail** («Abrir») replaces the whole left panel, with breadcrumbs
+«Archivos › nombre»: the full analysis and, if the file goes to rows, its
+**staging sheet** (local `Sheet`, editable, with row insertion and deletion)
+with errors in the cell (red), warnings (amber), the reason in the tooltip and
+a «Problemas» column pinned on the left; columns with errors come first and
+general notices («2 filas duplicadas idénticas se unieron») go on top.
+«Guardar correcciones» → `PUT …/rows`; if the file had already been through
+an import attempt and is now error-free, it is imported again. After a partial
+`upsert` the sheet only brings the rejected rows. A file without rows (attach,
+discard) shows its preview. If the agent changes the file (finishes its
+analysis, «excluye contado»), the detail is re-read.
 
-Mientras analiza o importa, el estado vuelve a leer la corrida cada segundo
-(`pollMs`); una app con socket puede llamar `assistant.refrescar()` cuando le
-llegue un `ImportRunEvent`. `ImportAssistantState` es el mismo estado sin
-interfaz (como `ImportState` de SB-34), para quien quiera dibujarlo a su
-manera; `init()` crea la corrida al abrir y `reset()` empieza otra (el
-asistente lo hace solo si se sueltan archivos sobre una corrida ya
-importada). Solo clases de Tailwind/daisyUI: toma el tema de la app.
+While analyzing or importing, the state re-reads the run every second
+(`pollMs`); an app with a socket can call `assistant.refrescar()` when an
+`ImportRunEvent` arrives. `ImportAssistantState` is the same state without a
+UI (like `ImportState` from SB-34), for anyone who wants to render it their
+own way; `init()` creates the run on open and `reset()` starts another one
+(the assistant does it on its own if files are dropped on an already imported
+run). Only Tailwind/daisyUI classes: it takes the app's theme.
 
-## 5. Ejemplo y pruebas
+## 5. Example and tests
 
-- Ejemplo: la página `/import-assistant` (la tabla «Planes GMF» con el atajo
-  `importAssistant`: se suelta sobre ella; «o elige archivos» lo abre) contra `examples/backend/src/examples/import-assistant/` en
-  `/api/import-assistant`: formato «Planes GMF» sobre una hoja en memoria
-  (`/api/import-assistant/planes`), un destino `adjuntar` que solo registra
-  (`/fichas`) y descartar. Modelo de guion por omisión (sin red); Gemini con
-  `IMPORT_ASSISTANT_LLM=gemini` y `GEMINI_API_KEY`.
-- Pruebas: `tests/assistant/` (agente con reglas y con modelo de guion, rutas
-  HTTP, boletín real con `EXTRACTION_PDF`), `tests/mongo/asistente.test.ts`
-  (de punta a punta sobre `mongoSource`), `tests/protocol/asistente.test.ts`
-  (el ejemplo encendido: bienvenida, instrucciones por el chat, duplicados
-  idénticos, veredictos) y `tests/grid/asistente.test.ts` (el asistente en el
-  navegador: drop sobre la tabla con su capa, chat con bienvenida y sin
-  textarea, carpeta y zip, destino e instrucción en la hoja, análisis y
-  veredicto, chat, flechas, staging con el error en la celda y sin panel
-  encimado, importar, corregir y reintentar, chat en pestaña en pantalla
-  chica).
+- Example: the `/import-assistant` page (the «Planes GMF» table with the
+  `importAssistant` shortcut: you drop onto it; «o elige archivos» opens it) against `examples/backend/src/examples/import-assistant/` at
+  `/api/import-assistant`: a «Planes GMF» format over an in-memory sheet
+  (`/api/import-assistant/planes`), an `adjuntar` destination that only logs
+  (`/fichas`), and discard. Scripted model by default (no network); Gemini with
+  `IMPORT_ASSISTANT_LLM=gemini` and `GEMINI_API_KEY`.
+- Tests: `tests/assistant/` (agent with rules and with a scripted model, HTTP
+  routes, the real bulletin with `EXTRACTION_PDF`), `tests/mongo/asistente.test.ts`
+  (end to end over `mongoSource`), `tests/protocol/asistente.test.ts`
+  (the example running: welcome, instructions via the chat, identical
+  duplicates, verdicts) and `tests/grid/asistente.test.ts` (the assistant in
+  the browser: drop on the table with its overlay, chat with welcome and no
+  textarea, folder and zip, destination and instruction in the sheet, analysis
+  and verdict, chat, arrows, staging with the error in the cell and no
+  overlapping panel, import, fix and retry, chat in a tab on a small screen).
 
-## 6. Pendiente
+## 6. Pending
 
-- Retención automática: `agente.purgar()` existe; falta quién la llame (un
-  cron de la app).
-- Para Mongo, separar las filas de la corrida si un archivo trae decenas de
-  miles.
-- PDF grande: hoy el modelo recibe el índice completo de P; un índice por
-  lotes de páginas para documentos de cientos.
+- Automatic retention: `agente.purgar()` exists; something still has to call
+  it (an app cron).
+- For Mongo, keep a run's rows separately if a file brings tens of thousands.
+- Large PDF: today the model receives P's full index; an index by batches of
+  pages for documents with hundreds.
 
 ---
 
-## 7. Rediseño v2 (propuesta, 2026-10-09)
+## 7. v2 redesign (proposal, 2026-10-09)
 
-> Sale de la prueba de Sergio con el boletín real (8 observaciones). Se
-> implementa en dos fases. **Fase A (hecha, 2026-10-09): todo lo que se ve**,
-> sobre el agente actual. **Fase B (pendiente): un cerebro más
-> capaz, enchufable** (§8.6, §9). Lo que aquí
-> contradice a §2–§4 gana; §3 y §4 ya describen la fase A.
+> Comes from Sergio's test with the real bulletin (8 observations). It is
+> implemented in two phases. **Phase A (done, 2026-10-09): everything you
+> see**, on top of the current agent. **Phase B (pending): a more capable,
+> pluggable brain** (§8.6, §9). Whatever here contradicts §2–§4 wins; §3 and
+> §4 already describe phase A.
 
-### 7.0 Fase A: qué quedó (2026-10-09)
+### 7.0 Phase A: what was done (2026-10-09)
 
-| # | Punto | Estado |
+| # | Item | Status |
 |---|---|---|
-| 1 | Drop directo sobre la tabla: `target` + `dropHint` en `<ImportAssistant>`, capa sobre el 100 % del contenedor, atajo `importAssistant` (y `bind:importOpen`) en `<SpreadBase>`; el ejemplo sin botón, con «o elige archivos» | ✅ |
-| 2 | Dos columnas desde el momento 0 (chat siempre visible, `min-w-80`), diálogo `w-[min(96vw,1400px)] h-[90vh]`, chat en pestaña bajo `lg`, burbujas con autor y hora, «pensando…», input fijo | ✅ |
-| 3 | Bienvenida sin LLM en `GET /config` (`bienvenida`, configurable con la opción del mismo nombre) | ✅ |
-| 4 | Sin textarea: lo que se escribe en el chat antes de analizar se suma a `instrucciones` (el análisis ya las leía); la corrida se crea al abrir | ✅ |
-| 5 | Zona de drop al 100 % del panel izquierdo sin archivos; franja con archivos | ✅ |
-| 6 | Hoja de archivos (`Sheet` local) con Destino e Instrucción editables → `PUT …/destination` y `PUT …/instruction` | ✅ |
-| 7 | Detalle = hoja de staging en todo el panel izquierdo, migas, errores (rojo) y avisos (ámbar) en la celda con tooltip, columna «Problemas», «Guardar correcciones»; sin el panel rojo de 100 px. Los errores del resultado final se ven en la misma hoja | ✅ (el ámbar por celda es nuevo en `GridController.setExternalErrors({ level: 'warning' })`) |
-| 8 | Duplicados idénticos colapsados en el `review` del agente con aviso; misma llave pero distintas: error que nombra las dos filas y en qué difieren | ✅ |
-| 9 | El chat siempre reporta: un veredicto por archivo al terminar su análisis y un resumen por archivo al terminar la importación, sin LLM | ✅ |
+| 1 | Direct drop on the table: `target` + `dropHint` in `<ImportAssistant>`, overlay over 100 % of the container, `importAssistant` shortcut (and `bind:importOpen`) in `<SpreadBase>`; the example without a button, with «o elige archivos» | ✅ |
+| 2 | Two columns from moment 0 (chat always visible, `min-w-80`), dialog `w-[min(96vw,1400px)] h-[90vh]`, chat in a tab below `lg`, bubbles with author and time, «pensando…», fixed input | ✅ |
+| 3 | Welcome without an LLM in `GET /config` (`bienvenida`, configurable with the option of the same name) | ✅ |
+| 4 | No textarea: what is typed in the chat before analyzing is appended to `instrucciones` (the analysis already read them); the run is created on open | ✅ |
+| 5 | Drop zone at 100 % of the left panel with no files; a strip with files | ✅ |
+| 6 | Files sheet (local `Sheet`) with editable Destino and Instrucción → `PUT …/destination` and `PUT …/instruction` | ✅ |
+| 7 | Detail = staging sheet over the whole left panel, breadcrumbs, errors (red) and warnings (amber) in the cell with tooltip, «Problemas» column, «Guardar correcciones»; without the 100 px red panel. Errors from the final result are shown in the same sheet | ✅ (per-cell amber is new in `GridController.setExternalErrors({ level: 'warning' })`) |
+| 8 | Identical duplicates collapsed in the agent's `review` with a notice; same key but different: an error naming both rows and how they differ | ✅ |
+| 9 | The chat always reports: a verdict per file when its analysis finishes and a summary per file when the import finishes, without an LLM | ✅ |
 
-Queda para la **fase B**: un cerebro enchufable (un hilo
-por corrida con el análisis, la importación y el chat como turnos del mismo
-agente; turnos de sistema por evento y agente proactivo), `GET
-/runs/:run/events` (SSE) con streaming del chat y progreso en Estado, `POST
-/runs/:run/stop` y el botón «Detener», el diff contra la tabla actual antes de
-publicar, `ImportRunView.etapa` e `ImportStagingView`, y la explicación del
-agente con las dos filas lado a lado y cuál conservar (hoy el mensaje del
-error ya nombra las dos filas y sus diferencias).
+Left for **phase B**: a pluggable brain (one thread per run with the
+analysis, the import and the chat as turns of the same agent; system turns
+per event and a proactive agent), `GET
+/runs/:run/events` (SSE) with chat streaming and progress in Estado, `POST
+/runs/:run/stop` and the «Detener» button, the diff against the current table
+before publishing, `ImportRunView.etapa` and `ImportStagingView`, and the
+agent's explanation with both rows side by side and which one to keep (today
+the error message already names both rows and their differences).
 
-### 7.1 Qué cambia, punto por punto
+### 7.1 What changes, item by item
 
-| # | Observación | Cambio |
+| # | Observation | Change |
 |---|---|---|
-| 1 | Drag & drop directo sobre la tabla, sin botón «Importar» | Prop `target` (id o elemento): el componente se vuelve receptor de drop de ese contenedor y abre el asistente al soltar. Atajo: `<SpreadBase importAssistant={{ url }} />` |
-| 2 | La zona de drop debe ocupar todo | Al arrastrar, una capa sobre el 100 % del `target` (`absolute inset-0`); dentro del asistente, la zona ocupa todo el panel izquierdo mientras no haya archivos |
-| 3 | Quitar el textarea de comentarios | Fuera. Las instrucciones generales van en el chat; el primer mensaje del agente explica para qué sirve. `PATCH /runs/:run { instrucciones }` queda solo por compatibilidad |
-| 4 | Tabla de archivos como hoja SpreadBase | La lista de archivos es una `Sheet` local (fuente en memoria): Icono · Nombre · Tipo · Carpeta · Estado · Análisis · Destino ✎ · Instrucción ✎ · Filas · Errores. Solo Destino (select) e Instrucción (texto) son editables; altura de fila normal, el Análisis completo en el panel de detalle |
-| 5 | El asistente debe ser el elemento más inteligente | Un solo agente por corrida, con todo el contexto y proactivo (§7.2) |
-| 6 | Errores en la misma tabla; replace no debería dar esos errores | Staging por archivo (§7.3): los errores son celdas marcadas de la hoja de staging, no un panel aparte; el chat siempre reporta. Duplicados idénticos se colapsan (§7.4) |
-| 7 | Chat visible desde el momento 0, buen look & feel | Layout fijo de dos columnas: contenido a la izquierda (≈ 2/3) y chat a la derecha (≈ 1/3, `min-w-80`), desde que abre. En pantallas chicas, el chat es una pestaña |
-| 8 | Panel rojo encimado con una hoja de 100 px: inaceptable | Desaparece. El detalle de un archivo reemplaza el panel izquierdo completo (hoja de staging a toda altura, con migas «Archivos › planes.pdf») |
+| 1 | Drag & drop directly on the table, without an «Importar» button | `target` prop (id or element): the component becomes the drop receiver for that container and opens the assistant on drop. Shortcut: `<SpreadBase importAssistant={{ url }} />` |
+| 2 | The drop zone must fill everything | While dragging, an overlay over 100 % of the `target` (`absolute inset-0`); inside the assistant, the zone fills the whole left panel while there are no files |
+| 3 | Remove the comments textarea | Gone. General instructions go in the chat; the agent's first message explains what it is for. `PATCH /runs/:run { instrucciones }` remains only for compatibility |
+| 4 | Files table as a SpreadBase sheet | The file list is a local `Sheet` (in-memory source): Icono · Nombre · Tipo · Carpeta · Estado · Análisis · Destino ✎ · Instrucción ✎ · Filas · Errores. Only Destino (select) and Instrucción (text) are editable; normal row height, the full Análisis in the detail panel |
+| 5 | The assistant must be the smartest element | A single agent per run, with all the context and proactive (§7.2) |
+| 6 | Errors in the same table; replace shouldn't produce those errors | Staging per file (§7.3): errors are marked cells of the staging sheet, not a separate panel; the chat always reports. Identical duplicates are collapsed (§7.4) |
+| 7 | Chat visible from moment 0, good look & feel | Fixed two-column layout: content on the left (≈ 2/3) and chat on the right (≈ 1/3, `min-w-80`), from the moment it opens. On small screens, the chat is a tab |
+| 8 | Red panel overlapping with a 100 px sheet: unacceptable | It disappears. A file's detail replaces the whole left panel (full-height staging sheet, with breadcrumbs «Archivos › planes.pdf») |
 
-### 7.2 El agente: un cerebro por corrida
+### 7.2 The agent: one brain per run
 
-Hoy hay dos bucles que no se ven entre sí (análisis por archivo y chat). En v2:
+Today there are two loops that don't see each other (per-file analysis and chat). In v2:
 
-- **Una conversación por corrida.** El análisis de cada archivo, la
-  importación y el chat son turnos del mismo agente, con memoria de
-  conversación (los últimos turnos completos, los anteriores resumidos).
-- **Contexto completo en cada turno**, armado por `context(run)`:
-  - archivos con su estado, destino (y si lo fijó la persona) e instrucción;
-  - etapa del wizard;
-  - progreso de cada trabajo en cola;
-  - totales y errores del staging por archivo, con muestra;
-  - resultado de importaciones anteriores;
-  - qué hay hoy en la tabla destino: conteo y resumen (`summarizeData`).
-- **Proactivo.** Los eventos de la corrida entran como turnos de sistema y el
-  agente decide si habla:
-  - archivo subido;
-  - análisis terminado;
-  - `review` con problemas;
-  - importación terminada o fallida.
+- **One conversation per run.** The analysis of each file, the import and the
+  chat are turns of the same agent, with conversation memory (the last turns
+  in full, earlier ones summarized).
+- **Full context on every turn**, built by `context(run)`:
+  - files with their status, destination (and whether the person set it) and instruction;
+  - wizard stage;
+  - progress of each queued job;
+  - totals and errors of the staging per file, with a sample;
+  - results of earlier imports;
+  - what the destination table has today: count and summary (`summarizeData`).
+- **Proactive.** Run events come in as system turns and the agent decides
+  whether to speak:
+  - file uploaded;
+  - analysis finished;
+  - `review` with problems;
+  - import finished or failed.
 
-  Al terminar un análisis siempre emite un veredicto de una línea por archivo
+  When an analysis finishes it always emits a one-line verdict per file
   («211 filas, 0 errores, listo para reemplazar» / «tomé la guía de
-  administración, ¿la descarto?») y una pregunta concreta si algo es ambiguo.
-- **Responde cualquier pregunta** sobre la corrida, los datos o el formato
-  (tiene las tools de lectura además de las de edición).
-- **Corrección iterativa:** la persona dice «quita las filas de Montana LCCN» o
-  «el precio final es lista menos descuento, no bonificación»; el agente
-  edita el staging (`editarFilas`), corre `revisar` y reporta el antes y el
-  después.
-- **Investiga antes de reportar.** Si `review` falla en masa en una columna, el
-  agente busca la causa antes de decir «no cuadra»: otra sección del
-  documento, otra tabla de la misma página o un encabezado mal mapeado. Regla
-  de prompt: distinguir secciones del boletín (guía de vendedor contra guía de
-  administración).
-- **Presupuesto y control** (del engine): tope de vueltas, tiempo, tokens y
-  páginas por visión por archivo; `AbortSignal` desde el botón «Detener».
-  Además, eventos en vivo (canal de usuario: texto del chat por streaming;
-  canal de capas: «leyendo página 4/12…» en la columna Estado).
-- **Primer mensaje** (momento 0, sin LLM, texto fijo configurable): qué puede
-  hacer, que acepta instrucciones en el chat («los planes de octubre
-  reemplazan a los de septiembre», «ignora las páginas de seminuevos») y qué
-  destinos hay.
+  administración, ¿la descarto?») and a concrete question if something is ambiguous.
+- **Answers any question** about the run, the data or the format (it has the
+  read tools in addition to the editing ones).
+- **Iterative correction:** the person says «quita las filas de Montana LCCN» or
+  «el precio final es lista menos descuento, no bonificación»; the agent edits
+  the staging (`editarFilas`), runs `revisar` and reports the before and after.
+- **Investigates before reporting.** If `review` fails en masse on a column,
+  the agent looks for the cause before saying «no cuadra»: another section of
+  the document, another table on the same page or a wrongly mapped header.
+  Prompt rule: distinguish sections of the bulletin (salesperson guide versus
+  administration guide).
+- **Budget and control** (from the engine): caps on turns, time, tokens and
+  vision pages per file; `AbortSignal` from the «Detener» button.
+  Plus live events (user channel: chat text streamed; layer channel:
+  «leyendo página 4/12…» in the Estado column).
+- **First message** (moment 0, no LLM, fixed configurable text): what it can
+  do, that it accepts instructions in the chat («los planes de octubre
+  reemplazan a los de septiembre», «ignora las páginas de seminuevos») and
+  which destinations exist.
 
-### 7.3 Staging: cómo funciona
+### 7.3 Staging: how it works
 
-Respuesta a «¿cómo funciona el staging?»:
+Answer to «¿cómo funciona el staging?»:
 
-1. **Cada archivo con destino `filas` tiene su hoja de staging**: las filas
-   propuestas por el agente, con el schema del formato, guardadas en la
-   corrida por `ImportRunStore`. Con Mongo pueden ir en una colección aparte
-   `import_staging { corrida, archivo, filas }` para no topar los 16 MB. La
-   tabla real **no se toca**.
-2. **La revisión corre sobre el staging.** `review` del formato SB-34 en cada
-   cambio, ya sea del agente o de la persona editando la hoja. Los problemas
-   quedan por fila y campo y se pintan en la celda (rojo = error, ámbar =
-   aviso, motivo en el tooltip y en una columna «Problemas»).
-3. **La persona y el agente editan la misma hoja.** Lo que la persona cambia
-   en la celda le llega al agente como evento; lo que el agente cambia se ve
-   al instante.
-4. **Publicar = `apply`.** Solo cuando el archivo está sin errores (`replace`)
-   o con las filas sin error (`upsert`). Antes de publicar, el agente muestra
-   el diff contra la tabla actual (`leerFilasActuales`): N nuevas, N
-   cambiadas, N que desaparecen con `replace`. La persona confirma.
-5. **Tras publicar**, el staging queda en la corrida como registro (30 días)
-   y la columna Resultado lo enlaza.
+1. **Each file with a `filas` destination has its own staging sheet**: the
+   rows proposed by the agent, with the format's schema, stored in the run by
+   `ImportRunStore`. With Mongo they can go in a separate collection
+   `import_staging { corrida, archivo, filas }` so as not to hit the 16 MB
+   limit. The real table **is not touched**.
+2. **Review runs on the staging.** The SB-34 format's `review` on every
+   change, whether by the agent or by the person editing the sheet. Problems
+   are recorded per row and field and painted in the cell (red = error,
+   amber = warning, reason in the tooltip and in a «Problemas» column).
+3. **The person and the agent edit the same sheet.** What the person changes
+   in a cell reaches the agent as an event; what the agent changes is visible
+   instantly.
+4. **Publish = `apply`.** Only when the file has no errors (`replace`) or with
+   the error-free rows (`upsert`). Before publishing, the agent shows the diff
+   against the current table (`leerFilasActuales`): N new, N changed, N that
+   disappear with `replace`. The person confirms.
+5. **After publishing**, the staging stays in the run as a record (30 days)
+   and the Resultado column links to it.
 
-Por eso, con `replace` no debe haber errores al final: el bloqueo pasa
-**antes**, en el staging, visible y corregible ahí mismo, no como sorpresa al
-importar.
+That is why, with `replace`, there must be no errors at the end: the block
+happens **before**, in the staging, visible and fixable right there, not as a
+surprise at import time.
 
 ### 7.4 «Versión: repetido igual a fila N»
 
-Es la regla de llave única del formato dentro del mismo archivo (dos filas con
-la misma llave). Importa con `replace` porque la tabla se reconstruye con lo
-que trae el archivo: dos filas con la misma llave dejan ambigua cuál queda.
-En v2:
+It is the format's unique-key rule within the same file (two rows with the
+same key). It matters with `replace` because the table is rebuilt from what
+the file brings: two rows with the same key leave it ambiguous which one stays.
+In v2:
 
-- **Idénticas en todo:** se colapsan en el staging sin error, con un aviso
-  «3 filas duplicadas idénticas se unieron» (el boletín repite tablas entre
-  páginas).
-- **Misma llave pero distintas:** siguen como error, y el agente lo explica
-  con las dos filas lado a lado y propone cuál conservar.
+- **Identical in everything:** they are collapsed in the staging without an
+  error, with a notice «3 filas duplicadas idénticas se unieron» (the bulletin
+  repeats tables across pages).
+- **Same key but different:** still an error, and the agent explains it with
+  both rows side by side and proposes which one to keep.
 
-### 7.5 API del cliente
+### 7.5 Client API
 
 ```svelte
-<!-- Opción A: atajo en la hoja -->
+<!-- Option A: shortcut on the sheet -->
 <SpreadBase sheet={planes} importAssistant={{ url: '/api/imports/assistant', origen: 'Planes GMF', onclose: recargar }} />
 
-<!-- Opción B: componente suelto apuntando a cualquier contenedor -->
+<!-- Option B: standalone component pointing at any container -->
 <div id="tabla-planes"> … </div>
 <ImportAssistant url="/api/imports/assistant" target="tabla-planes" origen="Planes GMF" onclose={recargar} />
 ```
 
-| Prop nueva | Qué es |
+| New prop | What it is |
 |---|---|
-| `target` | id o `HTMLElement` que recibe el drop; sin `target`, el asistente solo se abre con `open` |
-| `dropHint` | Texto de la capa al arrastrar («Suelta para importar a Planes GMF») |
+| `target` | id or `HTMLElement` that receives the drop; without `target`, the assistant only opens with `open` |
+| `dropHint` | Text of the overlay while dragging («Suelta para importar a Planes GMF») |
 
-`open` sigue existiendo para abrirlo desde un botón propio. El `<dialog>`
-pasa a casi pantalla completa (`w-[min(96vw,1400px)] h-[90vh]`).
+`open` still exists to open it from a button of your own. The `<dialog>`
+becomes almost full screen (`w-[min(96vw,1400px)] h-[90vh]`).
 
-### 7.6 Cambios por capa
+### 7.6 Changes per layer
 
-| Capa | Archivos | Cambio |
+| Layer | Files | Change |
 |---|---|---|
-| core | `importAssistant.ts` | `ImportRunView.etapa`, `ImportStagingView` (filas + issues + diff), eventos de agente (`texto parcial`, `progreso`) |
-| server | `importAgent/agent.ts`, `tools.ts`, `routes.ts` | Agente enchufable (`ImportBrain`); un solo hilo por corrida; turnos de sistema por evento; `GET /runs/:run/events` (SSE); `POST /runs/:run/stop`; staging y diff; colapsar duplicados idénticos |
-| client | `ImportAssistant.svelte`, `ImportAssistantState.svelte.ts`, `SpreadBase.svelte` | `target`/capa de drop; layout de dos columnas; hoja de archivos y hoja de staging como `Sheet` locales; chat con streaming; sin textarea ni panel rojo; prop `importAssistant` en `SpreadBase` |
-| ejemplo | `examples/frontend/src/routes/import-assistant/+page.svelte` | Sin botón: drop sobre la tabla |
-| pruebas | `tests/grid/asistente.test.ts`, `tests/assistant/*` | Drop sobre el `target`, chat visible al abrir, editar destino/instrucción en la hoja, staging con errores en celda, corrección por chat, duplicados idénticos colapsados, diff antes de publicar, stop |
+| core | `importAssistant.ts` | `ImportRunView.etapa`, `ImportStagingView` (rows + issues + diff), agent events (`texto parcial`, `progreso`) |
+| server | `importAgent/agent.ts`, `tools.ts`, `routes.ts` | Pluggable agent (`ImportBrain`); a single thread per run; system turns per event; `GET /runs/:run/events` (SSE); `POST /runs/:run/stop`; staging and diff; collapse identical duplicates |
+| client | `ImportAssistant.svelte`, `ImportAssistantState.svelte.ts`, `SpreadBase.svelte` | `target`/drop overlay; two-column layout; files sheet and staging sheet as local `Sheet`s; chat with streaming; no textarea or red panel; `importAssistant` prop on `SpreadBase` |
+| example | `examples/frontend/src/routes/import-assistant/+page.svelte` | No button: drop on the table |
+| tests | `tests/grid/asistente.test.ts`, `tests/assistant/*` | Drop on the `target`, chat visible on open, edit destination/instruction in the sheet, staging with errors in cells, correction via chat, identical duplicates collapsed, diff before publishing, stop |
 
-### 7.7 Orden
+### 7.7 Order
 
-1. Servidor: agente enchufable + staging + SSE.
-3. Cliente: layout, `target`, hojas.
-4. Pruebas E2E.
-5. Prueba con el boletín real de octubre (golden de 57 filas).
+1. Server: pluggable agent + staging + SSE.
+3. Client: layout, `target`, sheets.
+4. E2E tests.
+5. Test with the real October bulletin (golden of 57 rows).
 
 ---
 
-## 8. Segunda revisión de Sergio (2026-10-09): staging = la tabla destino con los cambios
+## 8. Sergio's second review (2026-10-09): staging = the destination table with the changes
 
-> Sale de probar la fase A con el boletín MY26/MY27 real. **Reemplaza §7.3** (staging por archivo)
-> y fija el orden: **A2 → S → T**, con **B** (el agente) en paralelo.
+> Comes from testing phase A with the real MY26/MY27 bulletin. **Replaces §7.3** (staging per file)
+> and sets the order: **A2 → S → T**, with **B** (the agent) in parallel.
 
-### 8.1 Qué es el staging
+### 8.1 What the staging is
 
-**Una copia de la tabla destino con la data completa hasta ese momento y todos los cambios de la
-importación aplicados**, juntando todos los archivos de la corrida. No es una lista de filas por
-archivo.
+**A copy of the destination table with the complete data up to that moment and all of the import's
+changes applied**, combining all the files of the run. It is not a list of rows per file.
 
-- **Se ve como la hoja real**, con su schema, tipos y formato, y los cambios marcados como
-  **pendientes** con los mismos estados de siempre: celda editada, fila nueva, fila eliminada. Esos
-  cambios aparecen en el **panel de control de cambios** (`ChangesPanel`).
-- **La persona puede editar el staging** como cualquier hoja.
-- **«Importar» aplica los cambios tal cual** a la tabla. Es el guardado de siempre: un batch con su
-  validación y sus conflictos.
-- **Los errores van en la celda** (errores externos de la hoja, rojo o ámbar) y el chat los resume.
+- **It looks like the real sheet**, with its schema, types and formatting, and the changes marked as
+  **pending** with the usual states: edited cell, new row, deleted row. Those changes appear in the
+  **change-tracking panel** (`ChangesPanel`).
+- **The person can edit the staging** like any sheet.
+- **«Importar» applies the changes as they are** to the table. It is the usual save: a batch with its
+  validation and its conflicts.
+- **Errors go in the cell** (the sheet's external errors, red or amber) and the chat summarizes them.
 
-Ejemplo:
-- **Tabla Planes GMF:** `paquete | precio de lista | imagen | archivos (carpeta) | fichaTecnica`.
-- **Se sueltan:**
-  - una carpeta de fotos con nombres de unidades;
-  - una carpeta de fichas técnicas en PDF.
-- **El staging queda así:**
+Example:
+- **Planes GMF table:** `paquete | precio de lista | imagen | archivos (carpeta) | fichaTecnica`.
+- **Dropped:**
+  - a folder of photos named after units;
+  - a folder of technical sheets in PDF.
+- **The staging ends up like this:**
   ```
-  paquete | precio de lista | imagen          | archivos (carpeta)          | fichaTecnica
-  A       | 885000          | <miniatura>     | files/FichaTecnica.pdf      | «contenido completo en md o JSON»
+  paquete | precio de lista | imagen          | archivos (folder)           | fichaTecnica
+  A       | 885000          | <thumbnail>     | files/FichaTecnica.pdf      | «full content in md or JSON»
   ```
-  Cada celda cambiada está marcada como pendiente y lista para aplicar.
+  Each changed cell is marked as pending and ready to apply.
 
-### 8.2 Reglas para el agente (valen para la fase B y para el agente actual)
+### 8.2 Rules for the agent (they apply to phase B and to the current agent)
 
-- **Su trabajo es extraer bien y armar el staging. Nunca descarta un archivo por su contenido.**
-  «Descartar» es una decisión de la persona (o un destino que la persona fijó).
-- **Ante ambigüedad pregunta, y siempre con evidencia concreta.**
-  - Nombra qué páginas, qué bloque y qué filas, y muestra 2 o 3 filas de ejemplo lado a lado.
-  - Ejemplo correcto: «las páginas 9–14 son la *Guía para administración* (Bonificación) y las 2–7, la
+- **Its job is to extract correctly and build the staging. It never discards a file because of its content.**
+  «Descartar» is the person's decision (or a destination the person set).
+- **When in doubt it asks, and always with concrete evidence.**
+  - It names which pages, which block and which rows, and shows 2 or 3 sample rows side by side.
+  - Correct example: «las páginas 9–14 son la *Guía para administración* (Bonificación) y las 2–7, la
     *Guía para vendedor* (Descuento cliente). Para AVEO HB LS el descuento es −$60,000 en una y
     −$45,000 en la otra. ¿Uso la de vendedor?».
-  - Prohibido: «datos contradictorios» sin decir cuáles.
-- **Varios archivos sobre las mismas filas:**
-  - una foto o un PDF se **emparejan con la fila** por nombre de unidad, modelo o versión, y llenan su
-    columna (`IMAGE`, `FILE`, `FOLDER`, texto);
-  - no crean filas nuevas salvo que la persona lo pida;
-  - lo que no empareja queda listado en el chat con la razón.
-- **El análisis de la columna «Análisis» y lo que dice el chat deben coincidir y ser concretos.**
+  - Forbidden: «datos contradictorios» without saying which.
+- **Several files on the same rows:**
+  - a photo or a PDF is **matched with the row** by unit name, model or version, and fills its
+    column (`IMAGE`, `FILE`, `FOLDER`, text);
+  - they don't create new rows unless the person asks;
+  - whatever doesn't match is listed in the chat with the reason.
+- **The analysis in the «Análisis» column and what the chat says must match and be concrete.**
 
-### 8.3 Contrato del staging (lo comparten S y B)
+### 8.3 Staging contract (shared by S and B)
 
-En `@spreadbase/core` (`importAssistant.ts`):
+In `@spreadbase/core` (`importAssistant.ts`):
 
 ```ts
-/** De dónde salió un valor: para «¿por qué pusiste esto?» y para saltar al documento. */
+/** Where a value came from: for «why did you put this?» and to jump to the document. */
 interface ImportOrigin { archivo: string; pagina?: number; bloque?: string; fila?: number; nota?: string }
 
 type ImportChange =
 	| { op: 'insert'; key: string; valores: Record<string, unknown>; origen: ImportOrigin[] }
 	| { op: 'update'; key: string; id?: string; campos: Record<string, { antes: unknown; despues: unknown; origen: ImportOrigin[] }> }
-	| { op: 'delete'; key: string; id?: string; motivo: string };   // solo con replace o si la persona lo pide
-// `id` (agregado en S, 2026-10-09): el id de la fila en la hoja destino (`idField`), para aplicar el
-// cambio en la `Sheet` real. `key` sigue siendo la llave del formato (o la `llave` del destino).
+	| { op: 'delete'; key: string; id?: string; motivo: string };   // only with replace or if the person asks
+// `id` (added in S, 2026-10-09): the row's id in the destination sheet (`idField`), to apply the
+// change in the real `Sheet`. `key` is still the format's key (or the destination's `llave`).
 
 interface ImportChangeSet {
-	destino: string;                    // id del formato / tabla
+	destino: string;                    // format / table id
 	modo: 'upsert' | 'replace';
-	base: { version?: unknown; filas: number };  // la tabla destino al calcularlo
+	base: { version?: unknown; filas: number };  // the destination table when it was computed
 	cambios: ImportChange[];
 	problemas: { key: string; campo?: string; nivel: 'error' | 'aviso'; mensaje: string }[];
 	sinEmparejar: { archivo: string; motivo: string }[];
@@ -647,226 +643,226 @@ interface ImportChangeSet {
 }
 ```
 
-- **Rutas:**
-  - `GET /runs/:run/staging?destino=` → `ImportChangeSet`, calculado contra las filas actuales de
-    la tabla destino por llave;
-  - `PUT /runs/:run/staging` con las ediciones de la persona;
-  - el agente escribe con `proponerCambios` / `editarCambios` (fase B) o, mientras tanto, el
-    servidor convierte las filas propuestas de cada archivo en un `ImportChangeSet` unido.
-- **El cliente**: abre la `Sheet` **real** del destino (la URL de la hoja la da `GET /config` por
-  destino), le aplica `cambios` como pendientes, pinta `problemas` como errores externos y muestra
-  el panel de cambios. «Importar» = `sheet.save()` y luego `POST /runs/:run/import` marca la corrida.
-  Los destinos `adjuntar` siguen por su `attach`.
+- **Routes:**
+  - `GET /runs/:run/staging?destino=` → `ImportChangeSet`, computed against the current rows of
+    the destination table by key;
+  - `PUT /runs/:run/staging` with the person's edits;
+  - the agent writes with `proponerCambios` / `editarCambios` (phase B) or, in the meantime, the
+    server turns each file's proposed rows into a single merged `ImportChangeSet`.
+- **The client**: opens the destination's **real** `Sheet` (the sheet URL comes from `GET /config` per
+  destination), applies `cambios` to it as pending, paints `problemas` as external errors and shows
+  the changes panel. «Importar» = `sheet.save()` and then `POST /runs/:run/import` marks the run.
+  `adjuntar` destinations still go through their `attach`.
 
-### 8.3.1 Replace contra upsert en el staging (confirmado por Sergio, 2026-10-09)
+### 8.3.1 Replace versus upsert in the staging (confirmed by Sergio, 2026-10-09)
 
-Solo cambia el staging; importar siempre es guardar la hoja tal cual. Se compara **por llave** contra la
-tabla actual:
+Only the staging changes; importing is always saving the sheet as it is. The comparison is **by key**
+against the current table:
 
-| Fila | Replace | Upsert |
+| Row | Replace | Upsert |
 |---|---|---|
-| Existe y viene con cambios | `update`: amarilla, solo las celdas que cambian | igual |
-| Existe y viene idéntica | sin marca | sin marca |
-| Llave nueva | `insert`: verde | igual |
-| Existe y no viene en los archivos | `delete`: eliminada (tachada) | intacta, sin marca |
+| Exists and comes with changes | `update`: yellow, only the cells that change | same |
+| Exists and comes identical | no mark | no mark |
+| New key | `insert`: green | same |
+| Exists and isn't in the files | `delete`: deleted (struck through) | untouched, no mark |
 
-No se borra todo para reinsertarlo: así se ve qué cambió de verdad y se conservan los ids, y con ellos
-lookups, referencias e historial. El resultado final es el mismo.
+Everything is not deleted and reinserted: that way you see what really changed and the ids are kept,
+and with them lookups, references and history. The final result is the same.
 
-- **Cambio de llave** = `delete` + `insert`. Si el agente detecta que es la misma unidad (renombre de
-  versión), lo dice en el chat y propone tratarlo como `update`.
-- **Replace con eliminaciones pide confirmación** antes de importar, con el conteo y la lista: «se
+- **Key change** = `delete` + `insert`. If the agent detects that it is the same unit (version
+  rename), it says so in the chat and proposes treating it as an `update`.
+- **Replace with deletions asks for confirmation** before importing, with the count and the list: «se
   eliminarán N filas: …».
 
-### 8.4 Correcciones de interfaz (A2)
+### 8.4 UI fixes (A2)
 
-1. **Vuelve el botón «Importar archivos»** junto con el drop sobre la tabla. Si hay una corrida
-   abierta de esa persona en ese origen (`GET /runs`), el asistente **la retoma donde se quedó**:
-   paso, archivos y chat.
-2. **Acciones al inicio, a la izquierda**, en la hoja de archivos. Son dos:
-   - **Ver documento**: el preview del archivo, como hoy;
-   - **Ver staging**: la tabla destino con los cambios (§8.1).
+1. **The «Importar archivos» button comes back** alongside the drop on the table. If that person has
+   an open run from that source (`GET /runs`), the assistant **resumes it where it left off**:
+   step, files and chat.
+2. **Actions at the start, on the left**, in the files sheet. There are two:
+   - **Ver documento**: the file's preview, as today;
+   - **Ver staging**: the destination table with the changes (§8.1).
 
-### 8.5 Tipos nuevos (T)
+### 8.5 New types (T)
 
-- **`FILE`**: un archivo subido (SB-30); celda con ícono, nombre y tamaño; clic abre o descarga.
-- **`FOLDER`**: varios archivos; celda con conteo y lista.
+- **`FILE`**: an uploaded file (SB-30); cell with icon, name and size; click opens or downloads.
+- **`FOLDER`**: several files; cell with count and list.
 
-El valor canónico, las reglas, la subida desde la celda y su lugar en `postgresSource` y
-`mongoSource` se definen en `docs/04-tipos-de-columna.md` (SB nuevo). El ejemplo de planes suma
-`imagen`, `archivos` y `fichaTecnica` para probarlos.
+The canonical value, the rules, uploading from the cell and their place in `postgresSource` and
+`mongoSource` are defined in `docs/04-tipos-de-columna.md` (new SB). The plans example adds
+`imagen`, `archivos` and `fichaTecnica` to test them.
 
-### 8.6 Dónde vive el agente (B)
+### 8.6 Where the agent lives (B)
 
-`packages/server` es la librería open source y **no depende** de un motor de agentes ni de un SDK de
-un solo proveedor. El agente se vuelve **enchufable**:
+`packages/server` is the open source library and **does not depend** on an agent engine or on a
+single-provider SDK. The agent becomes **pluggable**:
 
-- la librería define la interfaz del cerebro del asistente y trae el agente actual como versión
-  por omisión;
-- una implementación más capaz la da la app que usa SpreadBase, fuera de la librería (§9).
+- the library defines the interface of the assistant's brain and ships the current agent as the
+  default version;
+- a more capable implementation is provided by the app that uses SpreadBase, outside the library (§9).
 
 ---
 
-### 8.7 Qué quedó de A2, S y T (2026-10-09)
+### 8.7 What was done in A2, S and T (2026-10-09)
 
-**A2 (interfaz).**
-- `<SpreadBase importAssistant>` vuelve a poner **«Importar archivos»** en la barra (`button: false` lo
-  quita); el drop sobre la tabla y su capa siguen.
-- Al abrir, `ImportAssistantState` (opción `origen`) pide `GET /runs?origen=` y **retoma** la corrida no
-  terminada más reciente de esa persona en esa tabla (paso, archivos y chat; insignia «Retomada»); si no
-  hay, crea una con `origen`. **«Empezar de cero»** en el encabezado crea otra vacía (`startOver()`).
-- En la hoja de archivos, **al inicio y a la izquierda**, dos acciones: **Ver documento** (el archivo en
-  todo el panel: imagen, PDF o «ábrelo en otra pestaña») y **Ver staging**. La columna «Abrir» y la vista
-  vieja de filas por archivo (staging por archivo, «Guardar correcciones») se quitaron del componente; las
-  rutas `…/files/:file/rows` siguen en el servidor y `openDetail`/`retry` en el estado, por compatibilidad.
-- **En vivo** (pedido tras la fase B): el estado escucha `GET /runs/:run/events` con `fetch` (lleva las
-  cabeceras) y se reconecta; el texto del chat llega por partes (burbuja en vivo), el progreso va a la
-  columna Estado («Analizando… usando verPaginas…») y al estado del chat, y un evento `corrida` vuelve a
-  leer la corrida. **«Detener»** en el encabezado del chat (mientras piensa o analiza) → `POST /stop`.
+**A2 (UI).**
+- `<SpreadBase importAssistant>` puts **«Importar archivos»** back in the toolbar (`button: false`
+  removes it); the drop on the table and its overlay remain.
+- On open, `ImportAssistantState` (option `origen`) requests `GET /runs?origen=` and **resumes** the
+  person's most recent unfinished run on that table (step, files and chat; «Retomada» badge); if
+  there is none, it creates one with `origen`. **«Empezar de cero»** in the header creates a new empty one (`startOver()`).
+- In the files sheet, **at the start and on the left**, two actions: **Ver documento** (the file over
+  the whole panel: image, PDF or «ábrelo en otra pestaña») and **Ver staging**. The «Abrir» column and the
+  old per-file rows view (staging per file, «Guardar correcciones») were removed from the component; the
+  `…/files/:file/rows` routes remain on the server and `openDetail`/`retry` in the state, for compatibility.
+- **Live** (requested after phase B): the state listens to `GET /runs/:run/events` with `fetch` (it carries
+  the headers) and reconnects; chat text arrives in parts (live bubble), progress goes to the
+  Estado column («Analizando… usando verPaginas…») and to the chat status, and a `corrida` event re-reads
+  the run. **«Detener»** in the chat header (while thinking or analyzing) → `POST /stop`.
 
-**S (staging real).**
-- Core: `ImportOrigin`, `ImportChange`, `ImportChangeSet` (§8.3) y además `ImportStagingState`
-  (`corrida.staging[destino]`: `cambios` de la persona con su `firma`, y `publicado` con el resumen y lo
-  que no emparejó) e `ImportStagingEdit`. **Cambio al contrato:** `update` y `delete` llevan `id?` (el id
-  de la fila en la hoja). `ImportDestinationOption` suma `sheetUrl?` (filas) y `columna?` (adjuntar).
-- Servidor (`importAgent/stagingCorrida.ts`): une las filas propuestas de todos los archivos con destino
-  `filas` a ese formato (`calcularStaging` de `brain/staging.ts`), compara por la llave del destino
-  (`llave` en la declaración, o la del formato) contra las filas actuales (`actuales`), y produce `insert`,
-  `update` (solo los campos que cambian, `antes`/`despues`/`origen`) y, solo con `replace` y si los
-  archivos traen filas, `delete`; las idénticas no generan cambio; `problemas` sale de cada `review` (por
-  llave y campo). Suma los cambios del cerebro (`cambiosDelCerebro`: emparejamientos por contenido y
-  `proponerCambios`) y los archivos que van a una columna (T). Si el cerebro arma todo su staging
-  (`stagingDelCerebro`), manda el suyo. Las ediciones guardadas con `PUT` valen mientras la `firma` de lo
-  que proponen los archivos no cambie.
-- `GET /config` da `sheetUrl` por destino (absoluta o relativa a la base de las rutas).
-- Cliente: «Ver staging» crea la `Sheet` **real** del destino (sin borrador local) y, al cargar, le aplica
-  los cambios con `GridController.stageChanges` (nuevo: pide por id las filas fuera de la ventana; una sola
-  acción del historial): update amarillo solo en las celdas que cambian, insert verde, delete tachado; los
-  `problemas` como avisos en la celda (rojo/ámbar) y los que no tienen fila arriba; `sinEmparejar` como
-  avisos; y abre el **panel de cambios**. Lo que la persona edita se manda con `PUT` (600 ms).
-- **«Importar»** abre el staging si hace falta; con celdas en error no sigue; un `replace` con
-  eliminaciones pide **confirmación con el conteo y la lista** («Se eliminará 1 fila de Planes GMF: …»,
-  Cancelar / «Eliminar N e importar»); luego **guarda la hoja** (`grid.save()`: el lote de siempre, con su
-  validación y conflictos) y `POST /import { staging }` marca la corrida y procesa los `adjuntar`. Un
-  rechazo del servidor vuelve **a la celda** (nuevo en `GridController`: los `details` de
-  `validation_error` se marcan en su celda) y **al chat** (`PUT /staging { error }`).
-- Pasos: «Importando» igual; «Resultado» cuenta nuevas, actualizadas y eliminadas (+ adjuntos); el chat
-  agrega «Planes GMF: 1 nueva, 1 actualizada, 1 eliminada.»; cada archivo dice «Guardado con el staging».
-- Ejemplo: la hoja Planes GMF es el destino real (`sheetUrl: 'planes'`, `llave` = identidad del plan,
-  altas y bajas permitidas, la regla lista + descuento = final también al guardar), arranca con 3 planes
-  «de septiembre» y tiene `POST /planes/dev/reset` (solo test).
+**S (real staging).**
+- Core: `ImportOrigin`, `ImportChange`, `ImportChangeSet` (§8.3) plus `ImportStagingState`
+  (`corrida.staging[destino]`: the person's `cambios` with their `firma`, and `publicado` with the summary and
+  what didn't match) and `ImportStagingEdit`. **Contract change:** `update` and `delete` carry `id?` (the
+  row's id in the sheet). `ImportDestinationOption` adds `sheetUrl?` (rows) and `columna?` (attach).
+- Server (`importAgent/stagingCorrida.ts`): merges the proposed rows of all files with a `filas`
+  destination for that format (`calcularStaging` from `brain/staging.ts`), compares by the destination's
+  key (`llave` in the declaration, or the format's) against the current rows (`actuales`), and produces
+  `insert`, `update` (only the fields that change, `antes`/`despues`/`origen`) and, only with `replace`
+  and if the files bring rows, `delete`; identical rows produce no change; `problemas` comes from each
+  `review` (by key and field). It adds the brain's changes (`cambiosDelCerebro`: content-based matches and
+  `proponerCambios`) and the files that go to a column (T). If the brain builds its whole staging
+  (`stagingDelCerebro`), its own is used. Edits saved with `PUT` hold as long as the `firma` of what the
+  files propose doesn't change.
+- `GET /config` gives `sheetUrl` per destination (absolute or relative to the routes' base).
+- Client: «Ver staging» creates the destination's **real** `Sheet` (no local draft) and, on load, applies
+  the changes to it with `GridController.stageChanges` (new: fetches by id the rows outside the window; a
+  single history action): yellow update only on the cells that change, green insert, struck-through
+  delete; `problemas` as warnings in the cell (red/amber) and those without a row on top; `sinEmparejar` as
+  warnings; and it opens the **changes panel**. What the person edits is sent with `PUT` (600 ms).
+- **«Importar»** opens the staging if needed; with cells in error it doesn't continue; a `replace` with
+  deletions asks for **confirmation with the count and the list** («Se eliminará 1 fila de Planes GMF: …»,
+  Cancelar / «Eliminar N e importar»); then it **saves the sheet** (`grid.save()`: the usual batch, with its
+  validation and conflicts) and `POST /import { staging }` marks the run and processes the `adjuntar` ones. A
+  server rejection goes back **to the cell** (new in `GridController`: the `details` of a
+  `validation_error` are marked in their cell) and **to the chat** (`PUT /staging { error }`).
+- Steps: «Importando» unchanged; «Resultado» counts new, updated and deleted (+ attachments); the chat
+  adds «Planes GMF: 1 nueva, 1 actualizada, 1 eliminada.»; each file says «Guardado con el staging».
+- Example: the Planes GMF sheet is the real destination (`sheetUrl: 'planes'`, `llave` = the plan's identity,
+  insertions and deletions allowed, the list + discount = final rule also on save), it starts with 3 plans
+  «de septiembre» and has `POST /planes/dev/reset` (test only).
 
-**T (tipos `FILE` y `FOLDER`, SB-38).** Ver `04-tipos-de-columna.md` §3. La hoja de planes suma `imagen`
-(`IMAGE`), `archivos` (`FOLDER`) y `fichaTecnica` (texto largo, visor con «Formatear JSON»). Destinos
-`adjuntar` con `columna` (`imagen`, `archivos`, `ficha`): **emparejamiento determinista** por nombre del
-archivo (o carpeta) contra `modelo`/`version`/`paquete`, toda la unidad recibe el archivo; `destino.fila`
-manda si viene; lo que no empareja o es ambiguo va a `sinEmparejar` (aviso en el staging) y, al importar,
-ese archivo queda en error con la razón.
+**T (`FILE` and `FOLDER` types, SB-38).** See `04-tipos-de-columna.md` §3. The plans sheet adds `imagen`
+(`IMAGE`), `archivos` (`FOLDER`) and `fichaTecnica` (long text, viewer with «Formatear JSON»). `adjuntar`
+destinations with `columna` (`imagen`, `archivos`, `ficha`): **deterministic matching** by the file (or
+folder) name against `modelo`/`version`/`paquete`, the whole unit receives the file; `destino.fila`
+wins if present; whatever doesn't match or is ambiguous goes to `sinEmparejar` (a warning in the staging) and,
+on import, that file ends up in error with the reason.
 
-**Pruebas.** `tests/protocol/asistente.test.ts` (S-1…S-4, T-1…T-3: 2 archivos unidos, update solo con
-campos cambiados, idénticas sin marca, delete solo en replace, upsert sin delete, problemas por llave,
-PUT/GET de ediciones y su invalidación, importar marcando sin aplicar, error al chat, emparejamientos);
-`tests/grid/asistente.test.ts` (AI-4 botón y retomar, acciones a la izquierda y documento; AI-5 staging
-real en replace con amarillo/verde/tachado, panel de cambios, editar, confirmación, error de guardado en la
-celda y el chat, guardar tal cual; AI-6 emparejamiento en el staging; AI-7 en vivo y «Detener»; AI-1
-actualizado); `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7); `tests/postgres/archivos.test.ts` y
+**Tests.** `tests/protocol/asistente.test.ts` (S-1…S-4, T-1…T-3: 2 files merged, update only with
+changed fields, identical rows unmarked, delete only in replace, upsert without delete, problems by key,
+PUT/GET of edits and their invalidation, import marking without applying, error to the chat, matches);
+`tests/grid/asistente.test.ts` (AI-4 button and resume, actions on the left and document; AI-5 real staging
+in replace with yellow/green/struck-through, changes panel, editing, confirmation, save error in the
+cell and the chat, save as-is; AI-6 matching in the staging; AI-7 live and «Detener»; AI-1
+updated); `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7); `tests/postgres/archivos.test.ts` and
 `tests/mongo/archivos.test.ts`.
 
-**Pendiente.** El staging de varios destinos se guarda uno tras otro (cada uno abre su hoja); la regla
-del formato (`review`) en upsert ya no publica «solo las buenas»: con errores no se importa hasta
-corregir o quitar esas filas; el panel de cambios ocupa casi la mitad del panel izquierdo en pantallas de
-1366 px; ~~ningún evento `staging_editado` se le avisa al cerebro desde `PUT /staging`~~ (cerrado en §10).
+**Pending.** The staging of several destinations is saved one after another (each one opens its sheet); the
+format's rule (`review`) in upsert no longer publishes «only the good ones»: with errors nothing is imported until
+those rows are fixed or removed; the changes panel takes up almost half of the left panel on
+1366 px screens; ~~no `staging_editado` event is sent to the brain from `PUT /staging`~~ (closed in §10).
 
-## 9. Cerebro enchufable del asistente (fase B, 2026-10-09)
+## 9. Pluggable assistant brain (phase B, 2026-10-09)
 
-La librería no trae un cerebro de un proveedor: define la interfaz y el agente de siempre como versión por
-omisión. Una app puede enchufar el suyo (por ejemplo, desde un servicio propio) con `importAgent({ brain })`.
+The library doesn't ship a provider's brain: it defines the interface and the usual agent as the default
+version. An app can plug in its own (for example, from its own service) with `importAgent({ brain })`.
 
-### 9.1 Qué quedó implementado
+### 9.1 What was implemented
 
-**En la librería** (`packages/server`, sin depender de ningún proveedor de modelos):
+**In the library** (`packages/server`, without depending on any model provider):
 - `importAgent/brain/types.ts`: `ImportBrain` (`manejar(evento, host)`, `cambiosExtra?`, `staging?`,
   `detener?`, `olvidar?`), `ImportBrainEvent` (`archivos_subidos`, `analizar`, `chat`, `staging_editado`,
-  `importacion_terminada`), `ImportBrainHost` (corrida al día, `signal` de «Detener», tools base,
-  esquema y llave, filas actuales, `stagingActual`, P, páginas a PNG, `decir`, `emitir`, y el agente de
-  siempre en `basico`) e `ImportLiveEvent` (texto por partes, progreso, tools, costo, detenido, eventos de
-  la corrida).
-- `importAgent/brain/basic.ts`: `cerebroBasico()`, el agente de siempre detrás de la interfaz (sin
-  `brain`, el agente hace lo mismo).
-- `importAgent/brain/staging.ts`: `calcularStaging` (puro: filas de los archivos + cambios extra contra la
-  tabla actual por llave, §8.3.1) y `llavePorOmision`; lo usa también `stagingCorrida.ts` (S).
-- `agent.ts` (enganche localizado): `importAgent({ brain })`; el análisis y el chat pasan por
-  `brain.manejar`; subidas, ediciones e importación terminada se le avisan sin esperar; `suscribir`,
-  `detener`, `host(id)`, `stagingDelCerebro`, `cambiosDelCerebro`. Con cerebro, el veredicto del chat
-  lleva el texto del Análisis (regla 5).
+  `importacion_terminada`), `ImportBrainHost` (up-to-date run, `signal` from «Detener», base tools,
+  schema and key, current rows, `stagingActual`, P, pages to PNG, `decir`, `emitir`, and the usual
+  agent in `basico`) and `ImportLiveEvent` (text in parts, progress, tools, cost, stopped, run
+  events).
+- `importAgent/brain/basic.ts`: `cerebroBasico()`, the usual agent behind the interface (without
+  `brain`, the agent does the same).
+- `importAgent/brain/staging.ts`: `calcularStaging` (pure: the files' rows + extra changes against the
+  current table by key, §8.3.1) and `llavePorOmision`; `stagingCorrida.ts` (S) uses it too.
+- `agent.ts` (localized hook): `importAgent({ brain })`; analysis and chat go through
+  `brain.manejar`; uploads, edits and finished imports are notified to it without waiting; `suscribir`,
+  `detener`, `host(id)`, `stagingDelCerebro`, `cambiosDelCerebro`. With a brain, the chat verdict
+  carries the Análisis text (rule 5).
 - `routes.ts`: `GET /runs/:run/events` (SSE: `texto`, `texto_fin`, `progreso`, `herramienta`, `costo`,
-  `detenido`, `corrida`) y `POST /runs/:run/stop` (`{ detenido }`).
+  `detenido`, `corrida`) and `POST /runs/:run/stop` (`{ detenido }`).
 
-### 9.2 Cómo probarlo
+### 9.2 How to test it
 
 ```sh
-npm run back        # el ejemplo, con el agente de siempre
+npm run back        # the example, with the usual agent
 npm test -- assistant
 ```
 
-## 10. Tercera revisión de Sergio (2026-10-09): pestañas por destino
+## 10. Sergio's third review (2026-10-09): tabs per destination
 
-> Sale de usar el asistente con el boletín real y el cerebro de Claude. Lo que aquí contradice a §4 y §8.7
-> gana; §3 y §4 ya lo describen.
+> Comes from using the assistant with the real bulletin and the Claude brain. Whatever here contradicts §4 and §8.7
+> wins; §3 and §4 already describe it.
 
-### 10.1 Qué quedó
+### 10.1 What was done
 
-| # | Pedido | Qué quedó |
+| # | Request | What was done |
 |---|---|---|
-| 0 | Ventana a pantalla completa | `modal-box` con `w-screen h-dvh max-w-none max-h-none rounded-none`: 100vw × 100vh sin márgenes; a 390 px las pestañas se desplazan por dentro y la hoja de archivos no fija columnas (fijas no dejarían ver Estado) |
-| 1 | Pestaña «Archivos», la inicial | Con ícono de casa: la zona para soltar, la hoja de archivos, «Ver documento» y los pasos (resultado incluido) |
-| 2 | Una pestaña por destino con staging | Una por tabla destino `filas` (con `sheetUrl`) en cuanto un archivo analizado la alimenta: filas de su formato o adjuntos a una de sus columnas. Nombre de la tabla + insignias `+nuevas ~actualizadas −eliminadas` y errores (de la hoja abierta, con lo que editó la persona, o de `GET /staging`); «importada» cuando se guardó. Dentro, la `Sheet` real con los cambios pendientes y el panel de cambios. La hoja **sigue viva** al cambiar de pestaña (lo editado no se pierde) y se vuelve a pedir sola si cambian sus archivos (o con «Recalcular») |
-| 2 | «Ver en staging» | La acción de la hoja de archivos (antes «Ver staging») abre la pestaña de su destino y **resalta las filas que salieron de ese archivo** (por `ImportChange.origen`; las idénticas a la tabla no son cambio y no se resaltan), lleva la hoja a la primera y dice «N filas resaltadas de «archivo»» (con ✕ para quitarlo). «Ver documento» sigue |
-| 3 | Importar por staging y global | Cada pestaña trae «Importar {tabla}»: guarda solo esa hoja y `POST /import { staging, destinos: [tabla] }`. «Importar todo» (pie) lleva una insignia con el número de tablas por importar y, al pasar el cursor (o con el foco del teclado), un tooltip con cada tabla y sus conteos. Mismas reglas: con errores no sigue; replace con eliminaciones pide confirmar con conteo y lista; importar = guardar la hoja con el lote normal + `POST /import` |
-| 4 | Señal de vida | Celda Estado con ícono: spinner animado (SVG) en `en_cola`, `analizando` e `importando`, y el texto de progreso del SSE («Analizando… leyendo el documento…»); check o error al terminar. Spinner en la pestaña Archivos mientras algo trabaja y en la de cada destino mientras se recalcula. El agente básico ahora también emite `progreso` por archivo (antes solo el cerebro): «empezando…», «Leyendo «x.csv»», «Mapeando 1 tabla a Planes GMF», «Revisando 3 filas», «guardando 3 filas…»; con modelo, uno por tool |
-| 5 | Sin leyenda dentro del asistente | `legend={false}` en `SpreadsheetGrid`/`SpreadBase` (default `true`) |
-| 6 | El agente conoce los stagings | Cada turno del cerebro trae «Stagings»: por tabla, modo, filas de hoy, conteos, errores y avisos con ejemplos, `sinEmparejar`, qué archivos lo alimentan y si ya se importó (`describirStaging`, en la librería); y «Ya importado». `verStaging` acepta el formato o el nombre de la tabla y devuelve también `tabla`, `archivos` e `importado`. El prompt tiene una sección STAGINGS. El agente básico los recibe en el sistema del chat. `PUT /staging` avisa `staging_editado` con qué cambió («aveo… · Seguro Gratis: vacío → «1 año»») y cómo quedó; las ediciones seguidas se agrupan (servidor 2 s; el cerebro une las que llegan juntas en un turno). `importacion_terminada` lleva `destinos` y el chat lo reporta por destino («Importé Planes GMF: … Falta 1 archivo por importar: notas.txt.») |
+| 0 | Full-screen window | `modal-box` with `w-screen h-dvh max-w-none max-h-none rounded-none`: 100vw × 100vh without margins; at 390 px the tabs scroll internally and the files sheet doesn't pin columns (pinned ones would hide Estado) |
+| 1 | «Archivos» tab, the initial one | With a house icon: the drop zone, the files sheet, «Ver documento» and the steps (result included) |
+| 2 | One tab per destination with staging | One per `filas` destination table (with `sheetUrl`) as soon as an analyzed file feeds it: rows of its format or attachments to one of its columns. Table name + badges `+new ~updated −deleted` and errors (from the open sheet, with the person's edits, or from `GET /staging`); «importada» once it was saved. Inside, the real `Sheet` with the pending changes and the changes panel. The sheet **stays alive** when switching tabs (edits are not lost) and is re-requested on its own if its files change (or with «Recalcular») |
+| 2 | «Ver en staging» | The files sheet action (formerly «Ver staging») opens its destination's tab and **highlights the rows that came from that file** (via `ImportChange.origen`; rows identical to the table are not a change and are not highlighted), scrolls the sheet to the first one and says «N filas resaltadas de «archivo»» (with ✕ to clear it). «Ver documento» remains |
+| 3 | Import per staging and globally | Each tab has «Importar {tabla}»: saves only that sheet and `POST /import { staging, destinos: [tabla] }`. «Importar todo» (footer) carries a badge with the number of tables to import and, on hover (or keyboard focus), a tooltip with each table and its counts. Same rules: with errors it doesn't continue; replace with deletions asks to confirm with count and list; import = save the sheet with the normal batch + `POST /import` |
+| 4 | Sign of life | Estado cell with an icon: animated spinner (SVG) on `en_cola`, `analizando` and `importando`, and the SSE progress text («Analizando… leyendo el documento…»); check or error when done. Spinner on the Archivos tab while something is working and on each destination's tab while it recalculates. The basic agent now also emits `progreso` per file (before, only the brain did): «empezando…», «Leyendo «x.csv»», «Mapeando 1 tabla a Planes GMF», «Revisando 3 filas», «guardando 3 filas…»; with a model, one per tool |
+| 5 | No legend inside the assistant | `legend={false}` in `SpreadsheetGrid`/`SpreadBase` (default `true`) |
+| 6 | The agent knows the stagings | Each brain turn includes «Stagings»: per table, mode, current rows, counts, errors and warnings with examples, `sinEmparejar`, which files feed it and whether it was already imported (`describirStaging`, in the library); and «Ya importado». `verStaging` accepts the format or the table name and also returns `tabla`, `archivos` and `importado`. The prompt has a STAGINGS section. The basic agent receives them in the chat's system prompt. `PUT /staging` sends `staging_editado` with what changed («aveo… · Seguro Gratis: vacío → «1 año»») and how it ended up; consecutive edits are grouped (server 2 s; the brain merges those that arrive together in one turn). `importacion_terminada` carries `destinos` and the chat reports it per destination («Importé Planes GMF: … Falta 1 archivo por importar: notas.txt.») |
 
-### 10.2 Contrato
+### 10.2 Contract
 
-- `POST /runs/:run/import` acepta `destinos?: string[]` (formatos). Un destino que no existe o `destinos`
-  que no es lista de textos: 400. Sin archivos por importar en esos destinos: 400 («No hay archivos por
-  importar en Planes GMF»).
-- `ImportRun.importacion?: { destinos: string[] | null; archivos: string[] }` (tipo en core; sin cambios
-  de exports): la última importación. Al cerrar la fase, la corrida queda `terminada` si todos los
-  archivos tienen resultado; si no, `lista`.
-- `ImportBrainEvent` `importacion_terminada` suma `destinos?`. `ImportAgentOptions.esperaEdicionMs`.
-- `ImportAgent`: `avisarCerebro(id, evento)` pasa a público (lo usa `PUT /staging`), `stagingDeArchivo`,
-  `etiquetaFormato`, `describirStagings(run)`, `conCerebro`, `esperaEdicionMs`; `obtener(id, null)` lee sin
-  revisar el dueño (lectura interna del cerebro).
-- Librería: `describirStaging(set, { label, archivos, columnas, publicado, importado })`.
+- `POST /runs/:run/import` accepts `destinos?: string[]` (formats). A destination that doesn't exist or
+  `destinos` that isn't a list of strings: 400. No files to import in those destinations: 400 («No hay
+  archivos por importar en Planes GMF»).
+- `ImportRun.importacion?: { destinos: string[] | null; archivos: string[] }` (type in core; no changes
+  to exports): the last import. When the phase closes, the run becomes `terminada` if all files have a
+  result; otherwise, `lista`.
+- `ImportBrainEvent` `importacion_terminada` adds `destinos?`. `ImportAgentOptions.esperaEdicionMs`.
+- `ImportAgent`: `avisarCerebro(id, evento)` becomes public (used by `PUT /staging`), `stagingDeArchivo`,
+  `etiquetaFormato`, `describirStagings(run)`, `conCerebro`, `esperaEdicionMs`; `obtener(id, null)` reads
+  without checking the owner (the brain's internal read).
+- Library: `describirStaging(set, { label, archivos, columnas, publicado, importado })`.
 
-### 10.3 Arreglos que salieron al hacerlo
+### 10.3 Fixes that came up along the way
 
-- **El cerebro no veía el staging con dueño** (`owner`, como en el ejemplo): `host.stagingActual` pedía la
-  corrida sin el contexto de la persona y daba 404, así que el contexto decía «no se pudo calcular» y
-  `verStaging` fallaba. Ahora la lectura interna no revisa el dueño.
-- **Claude sin saldo pasaba por respuesta**: el SDK devuelve `success` con `is_error` («Credit balance is
-  too low»); el driver lo tomaba como texto del modelo y el archivo quedaba «Sin destino». Ahora es un
-  error con ese motivo.
-- La miniatura de una celda de texto (`avatar.image`) se perdía si su campo no era columna
-  (`toGridRow` solo copiaba columnas) y si jspreadsheet pasaba la fila como texto.
+- **The brain didn't see the staging when there was an owner** (`owner`, as in the example):
+  `host.stagingActual` requested the run without the person's context and got a 404, so the context said
+  «no se pudo calcular» and `verStaging` failed. Now the internal read doesn't check the owner.
+- **Claude with no credit was taken as an answer**: the SDK returns `success` with `is_error` («Credit balance is
+  too low»); the driver took it as model text and the file ended up «Sin destino». Now it is an
+  error with that reason.
+- A text cell's thumbnail (`avatar.image`) was lost if its field wasn't a column
+  (`toGridRow` only copied columns) and if jspreadsheet passed the row as text.
 
-### 10.4 Pruebas
+### 10.4 Tests
 
-- `tests/grid/asistente.test.ts`: AI-8 (pantalla completa a 1366 × 900, sin leyenda dentro y con leyenda en
-  la hoja de la página, pestañas, spinner y progreso en vivo en Estado y en las pestañas, insignia y tooltip
-  de «Importar todo», «Ver en staging» resalta la fila de cada archivo, importar solo Planes GMF con
-  confirmación, la corrida queda `lista` y el chat lo dice, «Importar todo» cierra); AI-9 (390 × 844:
-  pantalla completa, pestañas, staging con su botón, chat). AI-1, AI-4, AI-5 y AI-6 al día.
-- `tests/protocol/asistente.test.ts` S-5: importar un solo destino.
-- `tests/assistant/agente.test.ts`: progreso por archivo del agente básico y `describirStagings`.
-- El ejemplo analiza despacio (0.7 s por paso) un archivo con «lento» en el nombre, para ver el progreso.
+- `tests/grid/asistente.test.ts`: AI-8 (full screen at 1366 × 900, no legend inside and with a legend on
+  the page's sheet, tabs, spinner and live progress in Estado and in the tabs, badge and tooltip
+  of «Importar todo», «Ver en staging» highlights each file's row, import only Planes GMF with
+  confirmation, the run stays `lista` and the chat says so, «Importar todo» closes); AI-9 (390 × 844:
+  full screen, tabs, staging with its button, chat). AI-1, AI-4, AI-5 and AI-6 up to date.
+- `tests/protocol/asistente.test.ts` S-5: import a single destination.
+- `tests/assistant/agente.test.ts`: per-file progress of the basic agent and `describirStagings`.
+- The example analyzes slowly (0.7 s per step) a file with «lento» in its name, to see the progress.
 
-### 10.5 Pendiente
+### 10.5 Pending
 
-- Varios destinos con staging: la interfaz y el servidor ya los manejan (una pestaña y un botón por tabla;
-  «Importar todo» los guarda uno tras otro), pero el ejemplo tiene uno solo: falta un segundo destino de
-  ejemplo y su prueba.
-- El panel de cambios sigue ocupando casi la mitad del staging a 1366 px.
+- Several destinations with staging: the UI and the server already handle them (one tab and one button per table;
+  «Importar todo» saves them one after another), but the example has only one: a second example
+  destination and its test are still missing.
+- The changes panel still takes up almost half of the staging at 1366 px.
 

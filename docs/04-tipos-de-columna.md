@@ -1,189 +1,189 @@
-# 04 — Tipos de columna
+# 04 — Column types
 
-> Qué tipos existen, cómo se declaran en el servidor y qué hace cada lado con
-> ellos. La contraseña tiene su propio apartado (§2): es el único tipo cuyo
-> valor guardado nunca sale del servidor.
+> Which types exist, how they are declared on the server and what each side does
+> with them. The password has its own section (§2): it is the only type whose
+> stored value never leaves the server.
 
-**Creado:** 2026-09-28 · **Estado:** 🟢 vigente (SB-21, SB-22, SB-38)
+**Created:** 2026-09-28 · **Status:** 🟢 current (SB-21, SB-22, SB-38)
 
 ---
 
-## 1. Los tipos
+## 1. The types
 
-Se declaran con `types.<TIPO>` de `@spreadbase/server`. Todos corren en el
-ejemplo de Postgres (hojas de productos y de usuarios).
+They are declared with `types.<TYPE>` from `@spreadbase/server`. All of them run in the
+Postgres example (products and users sheets).
 
-| Tipo | Valor | Reglas que valida el servidor (y el cliente al editar) | En la celda | Ejemplo |
+| Type | Value | Rules the server validates (and the client when editing) | In the cell | Example |
 |---|---|---|---|---|
-| `TEXT` | texto | `required`, `minLength`, `maxLength`, `pattern` (+ `patternMessage`) | Texto | Nombre, SKU, correo |
-| `NUMBER` | número | `required`, `min`, `max` | `prefix`, `suffix`, `precision`, `thousands` | Precio |
-| `SELECT` | texto de `options` | `required`, que esté en `options` | La etiqueta, con el ícono de la opción si trae `icon` (SB-39); buscador en lista (el valor a la derecha solo si es distinto de la etiqueta) | Estado, rol |
-| `LOOKUP` | id de otro recurso | `required`, que el id exista (`lookup.byIds`) | El nombre; mini tabla paginada | Responsable ([03-lookup.md](03-lookup.md)) |
-| `DATE` | `AAAA-MM-DD` | `required`, fecha válida | `DD/MM/AAAA`; calendario | Lanzamiento |
-| `DATETIME` | `AAAA-MM-DD HH:mm` | `required`, fecha y hora válidas | `DD/MM/AAAA HH:mm`; calendario con hora | Último surtido |
-| `IMAGE` | URL (`https://`, `/`, `data:image/`) | `required`, que sea URL de imagen | Miniatura (`shape: 'round'` = avatar) | Foto, avatar |
-| `FILE` | `{ url, nombre, tipo, tamano }` (`FileRef`) o solo la URL (SB-30) | `required`, URL `http(s)` o ruta, nombre no vacío | Ícono, nombre, tamaño y ↗ (§3) | Contrato, ficha en PDF |
-| `FOLDER` | lista de `FileRef` | `required` (lista no vacía), cada archivo válido | Carpeta, «3 archivos» y los nombres; panel con la lista (§3) | Archivos del plan |
-| `BOOLEAN` | `true` / `false` | `required`, que sea booleano | Casilla: un clic la alterna. Al copiar, «Sí»/«No» | Activo |
-| `PASSWORD` | ver §2 | `required`, `minLength` (default 8), `maxLength` | `••••••••` | Contraseña |
+| `TEXT` | text | `required`, `minLength`, `maxLength`, `pattern` (+ `patternMessage`) | Text | Name, SKU, email |
+| `NUMBER` | number | `required`, `min`, `max` | `prefix`, `suffix`, `precision`, `thousands` | Price |
+| `SELECT` | text from `options` | `required`, that it is in `options` | The label, with the option's icon if it has `icon` (SB-39); searchable list (the value on the right only if it differs from the label) | Status, role |
+| `LOOKUP` | id of another resource | `required`, that the id exists (`lookup.byIds`) | The name; paginated mini table | Owner ([03-lookup.md](03-lookup.md)) |
+| `DATE` | `YYYY-MM-DD` | `required`, valid date | `DD/MM/YYYY`; calendar | Launch |
+| `DATETIME` | `YYYY-MM-DD HH:mm` | `required`, valid date and time | `DD/MM/YYYY HH:mm`; calendar with time | Last restock |
+| `IMAGE` | URL (`https://`, `/`, `data:image/`) | `required`, that it is an image URL | Thumbnail (`shape: 'round'` = avatar) | Photo, avatar |
+| `FILE` | `{ url, name, type, size }` (`FileRef`) or just the URL (SB-30) | `required`, `http(s)` URL or path, non-empty name | Icon, name, size and ↗ (§3) | Contract, PDF spec sheet |
+| `FOLDER` | list of `FileRef` | `required` (non-empty list), each file valid | Primary file (thumbnail or type icon), «3 archivos» and the names; panel with the list (§3) | Plan files |
+| `BOOLEAN` | `true` / `false` | `required`, that it is a boolean | Checkbox: one click toggles it. When copying, «Sí»/«No» | Active |
+| `PASSWORD` | see §2 | `required`, `minLength` (default 8), `maxLength` | `••••••••` | Password |
 
-`TEXT` con `multiline: true` es **texto largo** (una ficha en markdown, un JSON): la celda muestra su
-tipo (MD/JSON) y la primera línea; se lee y edita en un visor amplio (§3.4).
+`TEXT` with `multiline: true` is **long text** (a markdown spec sheet, a JSON): the cell shows its
+type (MD/JSON) and the first line; it is read and edited in a wide viewer (§3.4).
 
-Comunes a todos: `label`, `readOnly`, `required`, `defaultValue`, `validate`
-(función, solo en el servidor), `width`, `align`, `searchable` (texto).
+Common to all: `label`, `readOnly`, `required`, `defaultValue`, `validate`
+(function, server only), `width`, `align`, `searchable` (text).
 
-**Formatos canónicos.** Lo que viaja es siempre el valor canónico de la
-tabla de arriba. `postgresSource` lee en ese formato (números como número,
-fechas como texto, fecha-hora sin segundos y en la zona de la conexión):
-leer otro formato haría que `from` y `base` no coincidieran con lo guardado y
-daría conflictos y avisos falsos.
+**Canonical formats.** What travels is always the canonical value from the
+table above. `postgresSource` reads in that format (numbers as numbers,
+dates as text, date-time without seconds and in the connection's time zone):
+reading another format would make `from` and `base` not match what is stored and
+would cause false conflicts and warnings.
 
-**Solo en el cliente** existen además `action` (un botón por fila, sin
-datos), `remote-select` (buscador escrito en el front; lo sustituye `LOOKUP`)
-y renderizadores propios. El servidor no los declara: se agregan desde
+**Client only**, there are also `action` (a button per row, with no
+data), `remote-select` (search written in the front end; replaced by `LOOKUP`)
+and custom renderers. The server does not declare them: they are added from
 `new Sheet(url, { columns, actions })` (SB-23).
 
 ```ts
 new Sheet(url, {
-	actions: [{ label: 'Abrir', icon: SquareArrowOutUpRight, onclick: (row) => abrir(row.id) }],
-	// o con el texto de la fila (SB-39): «#1042»
-	// actions: [{ label: (row) => `#${row.folio}`, icon: FileText, onclick: (row) => abrir(row.id) }],
+	actions: [{ label: 'Open', icon: SquareArrowOutUpRight, onclick: (row) => open(row.id) }],
+	// or with the row's text (SB-39): «#1042»
+	// actions: [{ label: (row) => `#${row.number}`, icon: FileText, onclick: (row) => open(row.id) }],
 	columns: {
-		name: { width: 260 },                                    // parche sobre la del servidor
-		status: (col) => ({ ...col, label: 'Estado del contacto' }), // función: la recibe y devuelve la final
-		nota: { type: 'text', label: 'Nota', at: 'end' }         // solo del cliente (de solo lectura)
+		name: { width: 260 },                                    // patch over the server's one
+		status: (col) => ({ ...col, label: 'Contact status' }),  // function: receives it and returns the final one
+		note: { type: 'text', label: 'Note', at: 'end' }         // client only (read-only)
 	},
-	frozenColumns: 1                                             // la acción queda fija al desplazar
+	frozenColumns: 1                                             // the action stays fixed when scrolling
 });
 ```
 
 ---
 
-## 2. Contraseña (`PASSWORD`, SB-22)
+## 2. Password (`PASSWORD`, SB-22)
 
-### 2.1 Declararla
+### 2.1 Declaring it
 
 ```js
 password_hash: {
   type: types.PASSWORD,
-  label: 'Contraseña',
-  required: true,                        // obligatoria al crear; no se puede vaciar
+  label: 'Password',
+  required: true,                        // mandatory on create; cannot be emptied
   minLength: 10,
-  hash: (plain, ctx) => bcrypt.hash(plain, 12)   // obligatoria: la app elige el algoritmo
+  hash: (plain, ctx) => bcrypt.hash(plain, 12)   // mandatory: the app picks the algorithm
 }
 ```
 
-La tabla no necesita nada: una columna de texto donde se guarda el hash.
-SpreadBase no depende de ninguna librería de cifrado. **Sin `hash`, la hoja
-no arranca**: nunca se guarda una contraseña en claro. El ejemplo usa
-`scrypt` de Node (`common/passwords.js`).
+The table needs nothing special: a text column where the hash is stored.
+SpreadBase does not depend on any crypto library. **Without `hash`, the sheet
+does not start**: a password is never stored in plain text. The example uses
+Node's `scrypt` (`common/passwords.js`).
 
-### 2.2 Qué pasa en cada momento
+### 2.2 What happens at each moment
 
-| Momento | Qué hace SpreadBase |
+| Moment | What SpreadBase does |
 |---|---|
-| **Leer** (lista, fila, respuesta del lote, fila de un conflicto) | Lo guardado nunca sale. Viaja una **marca opaca** `pwd:…`: un hash de un solo sentido del id de la fila y de lo guardado. Cambia cuando cambia la contraseña; dos filas con lo mismo guardado no dan la misma marca. Sin contraseña, `null` |
-| **Mostrar** | `••••••••` si hay marca. Una contraseña recién escrita, un punto por carácter |
-| **Editar** | El campo empieza vacío; **vacío es «no cambiarla»**, nunca borra la guardada por accidente. «Mostrar» la deja ver mientras se escribe |
-| **Guardar** | Valida (`required`, longitud; la marca devuelta tal cual se rechaza), llama a `hash(plain, ctx)` y reemplaza el valor. Handlers y fuente reciben **solo el hash**; la fila `row` que recibe un handler va enmascarada |
-| **Concurrencia** | Por campo, como cualquier otro, sobre la marca: si otro cambió la contraseña y tú también, `field_conflict`; si tú cambiaste otro campo, aviso (`merge`) |
-| **Consultar** | Filtrar por la columna se ignora y ordenar por ella es un error: serían un oráculo para adivinar el hash |
-| **Copiar / pegar** | Copiar da vacío. Pegar escribe una contraseña nueva |
-| **Borrador local** | La contraseña escrita y no guardada **no se guarda** en IndexedDB ni en `localStorage`: en su lugar va lo que había. Al recargar, hay que escribirla de nuevo |
+| **Read** (list, row, batch response, conflict row) | What is stored never leaves. An **opaque mark** `pwd:…` travels instead: a one-way hash of the row id and of what is stored. It changes when the password changes; two rows with the same stored value do not get the same mark. Without a password, `null` |
+| **Display** | `••••••••` if there is a mark. A freshly typed password, one dot per character |
+| **Edit** | The field starts empty; **empty means «don't change it»**, it never erases the stored one by accident. «Mostrar» lets you see it while typing |
+| **Save** | Validates (`required`, length; the returned mark as is is rejected), calls `hash(plain, ctx)` and replaces the value. Handlers and source receive **only the hash**; the `row` a handler receives is masked |
+| **Concurrency** | Per field, like any other, over the mark: if someone else changed the password and so did you, `field_conflict`; if you changed another field, a warning (`merge`) |
+| **Query** | Filtering by the column is ignored and sorting by it is an error: they would be an oracle for guessing the hash |
+| **Copy / paste** | Copying gives empty. Pasting writes a new password |
+| **Local draft** | The typed but unsaved password **is not stored** in IndexedDB or `localStorage`: what was there before goes instead. After reloading, it has to be typed again |
 
-Ocultar es trabajo del **motor**, no de cada fuente: aunque una fuente o un
-handler devuelvan el hash, lo que sale por HTTP ya va enmascarado. Tampoco
-queda la contraseña en claro en los eventos ni en la respuesta; en la tabla de
-idempotencia solo hay una huella del cuerpo del lote.
+Hiding is the **engine's** job, not each source's: even if a source or a
+handler returns the hash, what goes out over HTTP is already masked. Nor does
+the plain-text password remain in events or in the response; the
+idempotency table only holds a fingerprint of the batch body.
 
-### 2.3 Qué no hace
+### 2.3 What it does not do
 
-- **No verifica contraseñas.** El login es de la app (`verifyPassword` en el
-  ejemplo). La marca no sirve para eso.
-- **No aplica políticas de complejidad** más allá de la longitud. Una regla
-  propia va en `validate` de la columna (solo en el servidor; su error aparece
-  al guardar).
+- **It does not verify passwords.** Login belongs to the app (`verifyPassword` in the
+  example). The mark is not useful for that.
+- **It does not enforce complexity policies** beyond length. A custom
+  rule goes in the column's `validate` (server only; its error shows up
+  on save).
 
 ---
 
-## 3. Archivos: `FILE` y `FOLDER` (SB-38)
+## 3. Files: `FILE` and `FOLDER` (SB-38)
 
-### 3.1 Declararlos
+### 3.1 Declaring them
 
 ```ts
 import { diskStorage, types } from '@spreadbase/server';
-const archivos = diskStorage({ dir: './uploads/planes', publicUrl: 'https://api.midominio.mx/uploads/planes' });
+const files = diskStorage({ dir: './uploads/planes', publicUrl: 'https://api.midominio.mx/uploads/planes' });
 
 columns: {
-	imagen:       { type: types.IMAGE,  label: 'Imagen', upload: { storage: archivos, maxSize: '5mb' } },
-	contrato:     { type: types.FILE,   label: 'Contrato', upload: { storage: archivos, accept: ['application/pdf'] } },
-	archivos:     { type: types.FOLDER, label: 'Archivos', upload: { storage: archivos, maxSize: '20mb' } },
-	fichaTecnica: { type: types.TEXT,   label: 'Ficha técnica', multiline: true }
+	image:     { type: types.IMAGE,  label: 'Image', upload: { storage: files, maxSize: '5mb' } },
+	contract:  { type: types.FILE,   label: 'Contract', upload: { storage: files, accept: ['application/pdf'] } },
+	files:     { type: types.FOLDER, label: 'Files', upload: { storage: files, maxSize: '20mb' } },
+	specSheet: { type: types.TEXT,   label: 'Spec sheet', multiline: true }
 }
 ```
 
-En la tabla: `jsonb` (o `text`) para `FILE` y `FOLDER`; `text` para el texto largo.
+In the table: `jsonb` (or `text`) for `FILE` and `FOLDER`; `text` for long text.
 
-### 3.2 El valor
+### 3.2 The value
 
 ```ts
-interface FileRef { url: string; nombre: string; tipo: string; tamano: number }   // @spreadbase/core
-// FILE:   FileRef | 'https://…/contrato.pdf' (la URL suelta de SB-30 sigue valiendo)
+interface FileRef { url: string; name: string; type: string; size: number }   // @spreadbase/core
+// FILE:   FileRef | 'https://…/contract.pdf' (the bare URL from SB-30 is still valid)
 // FOLDER: FileRef[]
 ```
 
-- `url` es la de `FileStorage.save` (SB-30); `nombre` el que se muestra (al subir, el nombre limpio);
-  `tipo` el real (por el contenido); `tamano` en bytes.
-- Igualdad por contenido (`sameValue`: JSON con las claves ordenadas): leer un archivo y devolverlo en
-  `from` no es conflicto, aunque la base devuelva las claves en otro orden.
-- `postgresSource` escribe el objeto o la lista como JSON (en `jsonb` o en `text`) y al leer convierte el
-  JSON en objeto; una URL suelta se queda como texto. La huella (SB-4) los incluye como cualquier columna.
-- `mongoSource` los guarda como subdocumento o lista (los números de BSON, como `Int32`, vuelven como
-  número).
-- Filtrar: `FILE` por su texto (en Postgres, el JSON de la columna); `FOLDER` no se filtra.
+- `url` is the one from `FileStorage.save` (SB-30); `name` the one displayed (on upload, the cleaned name);
+  `type` the real one (from the content); `size` in bytes.
+- The legacy Spanish shape `{ url, nombre, tipo, tamano }` is still read (deprecated; removed in the next major); new values are always written in the new shape.
+- Equality by content (`sameValue`: JSON with sorted keys): reading a file and returning it in
+  `from` is not a conflict, even if the database returns the keys in another order.
+- `postgresSource` writes the object or the list as JSON (in `jsonb` or in `text`) and on read turns the
+  JSON into an object; a bare URL stays as text. The fingerprint (SB-4) includes them like any column.
+- `mongoSource` stores them as a subdocument or a list (BSON numbers, such as `Int32`, come back as
+  numbers).
+- Filtering: `FILE` by its text (in Postgres, the column's JSON); `FOLDER` is not filtered.
 
-### 3.3 En la celda
+### 3.3 In the cell
 
 | | `FILE` | `FOLDER` |
 |---|---|---|
-| Celda | Ícono por tipo, nombre, tamaño (si se conoce) y ↗ (abre; lo que no es imagen, PDF o texto se descarga, `serve()` de SB-30) | El **principal** (el primero de la lista) según su tipo —miniatura si es imagen, ícono de su tipo si no—, «N archivos» y los nombres (todos en el tooltip) |
-| Panel (doble clic) | Pegar una URL, **Subir**, arrastrar o pegar el archivo; al subir queda el `FileRef` | La lista: cada archivo con nombre, tamaño, ↗, ☆ **Hacer principal** (lo pasa al primer lugar; el primero lleva «Principal») y ✕ (quitar); **Subir** agrega varios (o soltarlos en el panel); «Vaciar» y «Aceptar» |
-| Copiar / pegar | La URL | Una URL por línea |
+| Cell | Icon by type, name, size (if known) and ↗ (opens; anything that is not an image, PDF or text is downloaded, `serve()` from SB-30) | The **primary** file (the first in the list) by type —its thumbnail if it is an image, otherwise its type's icon—, always «N archivos», and all the names on hover (tooltip) |
+| Panel (double click) | Paste a URL, **Subir**, drag or paste the file; on upload the `FileRef` is set | The list: each file with name, size, ↗, ☆ «Hacer principal» (moves it to first place; the first one carries a «Principal» badge) and ✕ (remove); **Subir** adds several (or drop them on the panel); «Vaciar» and «Aceptar» |
+| Copy / paste | The URL | One URL per line |
 
-Todo cambio queda pendiente y se guarda con el lote, como cualquier celda (deshacer, borrador y
-conflictos no cambian).
+Every change stays pending and is saved with the batch, like any cell (undo, draft and
+conflicts do not change).
 
-**Miniatura desde una carpeta.** `avatar.image` (SB-29) puede nombrar una columna `FOLDER`: la
-miniatura es su principal si es imagen; si no, la primera imagen de la carpeta; si no hay ninguna, el
-respaldo de siempre (iniciales o ícono). Vale en la misma fila (`text`) y en un `lookup`: el servidor
-manda en `Page.images` la URL de esa imagen, no la carpeta (`thumbnailOf`, core). Una carpeta que la
-base devuelve como texto JSON se lee igual. Ejemplo: `/catalog` («Modelo y año» toma la foto principal
-de «Fotos»; en «Unidades», el modelo elegido).
+**Thumbnail from a folder.** `avatar.image` (SB-29) may name a `FOLDER` column. The thumbnail is its
+primary file if it is an image, otherwise the first image in the folder, otherwise the usual fallback
+(initials or icon). It works in the same row (`text`) and in a `lookup`: the server sends in
+`Page.images` the URL of that image, not the folder (`thumbnailOf`, core). A folder returned by the
+database as JSON text is read the same way. Example: `/catalog`.
 
-### 3.4 Texto largo (`multiline`)
+### 3.4 Long text (`multiline`)
 
-La celda: una etiqueta `MD` o `JSON` (si el texto lo es) y la primera línea (sin `#`). El visor: un
-área de 560 px en monoespaciado con el conteo de caracteres; «Formatear JSON» si el texto es un JSON
-válido; Ctrl/⌘+Enter acepta y Escape descarta. Es presentación: el valor sigue siendo texto y se valida
-como `TEXT`. (El texto nunca se interpreta como HTML.)
+The cell: an `MD` or `JSON` tag (if the text is one) and the first line (without `#`). The viewer: a
+560 px monospaced area with the character count; «Formatear JSON» if the text is valid
+JSON; Ctrl/⌘+Enter accepts and Escape discards. It is presentation only: the value is still text and is
+validated as `TEXT`. (The text is never interpreted as HTML.)
 
-### 3.5 Desde el asistente de importación (SB-36 §8)
+### 3.5 From the import assistant (SB-36 §8)
 
-Un destino `adjuntar` con `columna: { formato, campo, emparejar? }` lleva el archivo a esa columna de la
-fila que **empareja**: por `destino.fila` (la llave exacta, la deja el cerebro o la persona) o por nombre
-(los valores de `emparejar` como palabras completas del nombre o la carpeta del archivo). El valor sale
-del tipo de la columna: `IMAGE` la URL, `FILE` el `FileRef`, `FOLDER` se suma a la lista, texto el
-derivado del agente (ficha.md) o el documento en markdown (método P). Queda como `update` en el staging.
+An `adjuntar` destination with `columna: { formato, campo, emparejar? }` takes the file to that column of the
+row it **matches**: by `destino.fila` (the exact key, set by the brain or by the person) or by name
+(the values of `emparejar` as whole words of the file's name or folder). The value comes
+from the column's type: `IMAGE` the URL, `FILE` the `FileRef`, `FOLDER` is appended to the list, text the
+agent's derived output (ficha.md) or the document in markdown (method P). It stays as an `update` in staging.
 
-## 4. Pruebas
+## 4. Tests
 
-| Archivo | Qué cubre |
+| File | What it covers |
 |---|---|
-| `tests/postgres/password.test.ts` (11) | La marca en lista, fila, respuesta y conflicto; distinta por fila; filtro ignorado y orden rechazado; sin `hash` no arranca; el hash con su contexto, el handler solo ve el hash; alta obligatoria; longitud, vaciar y marca rechazadas; conflicto y aviso sobre la marca; booleano de ida y vuelta y su filtro |
-| `tests/postgres/archivos.test.ts` (4) | `FILE`/`FOLDER` en `jsonb` y `text`: leer el JSON como objeto y la URL suelta como texto, escribir objetos y listas sin conflicto falso, validación, esquema y sin filtro de carpeta |
-| `tests/mongo/archivos.test.ts` (2) | Lo mismo sobre MongoDB (subdocumento, lista, `Int32` → número) |
-| `tests/grid/carpeta.test.ts` (CP-1 a CP-5) | El principal en la celda según su tipo, el conteo y los nombres; «Hacer principal» y el orden guardado; `avatar.image` sobre la carpeta en la misma fila y en un `lookup` (`images` del servidor) |
-| `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7) | Subir un `FILE` deja `{ url, nombre, tipo, tamano }` con su tamaño en la celda; carpeta con conteo y nombres, panel que lista, abre, quita y sube varios; texto largo con su tipo, visor amplio y «Formatear JSON» |
-| `tests/protocol/asistente.test.ts` (T-1 a T-3) | La hoja Planes GMF con imagen, carpeta y ficha; emparejar por nombre (unidad completa, carpeta, ficha en markdown, sin emparejar y ambiguo) y por `destino.fila` |
-| `tests/grid/tipos.test.ts` (T-1 a T-5) | Puntos y casilla al cargar, sin rastro del hash en la página; editor vacío que no cambia nada; contraseña nueva que no llega al borrador y se guarda; contraseña corta marcada; casilla con clic, deshacer, rehacer y guardado; copiar una contraseña da vacío |
+| `tests/postgres/password.test.ts` (11) | The mark in list, row, response and conflict; different per row; filter ignored and sort rejected; without `hash` it does not start; the hash with its context, the handler only sees the hash; mandatory on create; length, emptying and mark rejected; conflict and warning over the mark; boolean round trip and its filter |
+| `tests/postgres/archivos.test.ts` (4) | `FILE`/`FOLDER` in `jsonb` and `text`: reading the JSON as an object and the bare URL as text, writing objects and lists without false conflicts, validation, schema and no folder filter |
+| `tests/mongo/archivos.test.ts` (2) | The same on MongoDB (subdocument, list, `Int32` → number) |
+| `tests/grid/archivos.test.ts` (AR-1, AR-6, AR-7) | Uploading a `FILE` leaves `{ url, name, type, size }` with its size in the cell; folder with count and names, panel that lists, opens, removes and uploads several; long text with its type, wide viewer and «Formatear JSON» |
+| `tests/grid/carpeta.test.ts` (CP-1 to CP-5) | Primary file in the cell by type, count and names; «Hacer principal» and the saved order; `avatar.image` over a folder in the same row and in a `lookup` (`images` from the server) |
+| `tests/protocol/asistente.test.ts` (T-1 to T-3) | The Planes GMF sheet with image, folder and spec sheet; matching by name (full unit, folder, markdown spec sheet, unmatched and ambiguous) and by `destino.fila` |
+| `tests/grid/tipos.test.ts` (T-1 to T-5) | Dots and checkbox on load, no trace of the hash in the page; empty editor that changes nothing; new password that does not reach the draft and is saved; short password flagged; checkbox with click, undo, redo and save; copying a password gives empty |
